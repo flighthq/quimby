@@ -1,4 +1,4 @@
-export type MessageType = 'question' | 'feedback' | 'blocker'
+export type MessageType = 'question' | 'feedback' | 'blocker' | 'reply'
 
 export interface Message {
   id: string

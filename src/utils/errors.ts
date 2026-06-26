@@ -25,3 +25,10 @@ export class SandboxError extends AoError {
     this.name = 'SandboxError'
   }
 }
+
+export class BundleError extends AoError {
+  constructor(message: string, public bundleId?: string) {
+    super(message, 'BUNDLE_ERROR')
+    this.name = 'BundleError'
+  }
+}

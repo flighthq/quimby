@@ -28,3 +28,15 @@ export function getSandboxRepoPath(workspacePath: string, sandboxName: string): 
 export function getSandboxMetaDir(workspacePath: string, sandboxName: string): string {
   return join(getSandboxPath(workspacePath, sandboxName), '.sandbox')
 }
+
+export function getBundlesDir(workspacePath: string, sandboxName: string): string {
+  return join(getSandboxMetaDir(workspacePath, sandboxName), 'bundles')
+}
+
+export function getInboxDir(workspacePath: string, sandboxName: string): string {
+  return join(getSandboxMetaDir(workspacePath, sandboxName), 'inbox')
+}
+
+export function getMessagesDir(workspacePath: string, sandboxName: string): string {
+  return join(getSandboxMetaDir(workspacePath, sandboxName), 'messages')
+}
