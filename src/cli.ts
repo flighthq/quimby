@@ -1,5 +1,27 @@
 import { defineCommand, runMain } from 'citty'
 
+const aliases: Record<string, string[]> = {
+  add: ['sandbox', 'add'],
+  list: ['sandbox', 'list'],
+  start: ['sandbox', 'start'],
+  stop: ['sandbox', 'stop'],
+  assign: ['sandbox', 'assign'],
+  status: ['sandbox', 'status'],
+  refresh: ['sandbox', 'refresh'],
+  review: ['bundle', 'review'],
+  apply: ['bundle', 'apply'],
+  send: ['bundle', 'send'],
+}
+
+function expandAliases(argv: string[]): string[] {
+  const rawArgs = argv.slice(2)
+  const first = rawArgs[0]
+  if (first && first in aliases) {
+    return [...aliases[first], ...rawArgs.slice(1)]
+  }
+  return rawArgs
+}
+
 const main = defineCommand({
   meta: {
     name: 'ao',
@@ -15,4 +37,4 @@ const main = defineCommand({
   },
 })
 
-runMain(main)
+runMain(main, { rawArgs: expandAliases(process.argv) })
