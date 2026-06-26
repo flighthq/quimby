@@ -1,0 +1,43 @@
+{
+  "name": "agent-orchestrator",
+  "version": "0.1.0",
+  "description": "Orchestrate multiple AI agents working on a single project in isolated sandboxes",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ao": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "defu": "^6.1.4",
+    "execa": "^9.6.1",
+    "jiti": "^2.4.2",
+    "pathe": "^2.0.3",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  }
+}
