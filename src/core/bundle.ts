@@ -189,7 +189,11 @@ export async function applyBundle(opts: {
     )
   }
 
+  const previousRef = await git.getCurrentRef(targetRepoPath)
   const branchName = `ao/${meta.sandbox}/${meta.id}`
+  if (await git.branchExists(targetRepoPath, branchName)) {
+    await git.deleteBranch(targetRepoPath, branchName)
+  }
   await git.createBranch(targetRepoPath, branchName)
 
   try {
@@ -219,6 +223,10 @@ export async function applyBundle(opts: {
       }
     }
   } catch (err) {
+    // Clean up: abort any in-progress am, return to the previous branch, delete the failed branch
+    try { await git.amAbort(targetRepoPath) } catch {}
+    await git.checkout(targetRepoPath, previousRef)
+    try { await git.deleteBranch(targetRepoPath, branchName) } catch {}
     throw new AoError(
       `Failed to apply bundle "${meta.id}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
     )

@@ -78,7 +78,11 @@ export async function apply(
 }
 
 export async function am(cwd: string, patchPaths: string[]): Promise<void> {
-  await git(['am', ...patchPaths], cwd)
+  await git(['am', '--3way', ...patchPaths], cwd)
+}
+
+export async function amAbort(cwd: string): Promise<void> {
+  await git(['am', '--abort'], cwd)
 }
 
 export async function log(
@@ -101,6 +105,19 @@ export async function isClean(cwd: string): Promise<boolean> {
 
 export async function createBranch(cwd: string, name: string): Promise<void> {
   await git(['checkout', '-b', name], cwd)
+}
+
+export async function deleteBranch(cwd: string, name: string): Promise<void> {
+  await git(['branch', '-D', name], cwd)
+}
+
+export async function branchExists(cwd: string, name: string): Promise<boolean> {
+  try {
+    await git(['rev-parse', '--verify', name], cwd)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function getRemoteUrl(cwd: string): Promise<string | undefined> {
