@@ -1,7 +1,6 @@
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
-import { join } from 'pathe'
-import { createWriteStream } from 'node:fs'
+import { openSync } from 'node:fs'
 import {
   resolveWorkspace,
   saveWorkspaceState,
@@ -24,6 +23,12 @@ export default defineCommand({
       description: 'Sandbox name',
       required: true,
     },
+    foreground: {
+      type: 'boolean',
+      alias: 'f',
+      description: 'Run in foreground with interactive terminal',
+      default: false,
+    },
   },
   async run({ args }) {
     const { state, workspacePath } = await resolveWorkspace()
@@ -37,7 +42,7 @@ export default defineCommand({
       throw new AoError(`Sandbox "${args.name}" is already running`)
     }
 
-    const config = await loadConfig(state.sourceRepo)
+    const config = await loadConfig(state.sourceRepoPath)
     const sandboxConfig = config.sandboxes[args.name]
 
     if (!sandboxConfig) {
@@ -75,27 +80,48 @@ export default defineCommand({
       `Starting sandbox "${args.name}" (${spec.command} ${spec.args.join(' ')})`,
     )
 
-    const stdoutStream = spec.stdoutLog
-      ? createWriteStream(spec.stdoutLog, { flags: 'a' })
-      : 'ignore'
-    const stderrStream = spec.stderrLog
-      ? createWriteStream(spec.stderrLog, { flags: 'a' })
-      : 'ignore'
-
-    const child = execa(spec.command, spec.args, {
-      cwd: spec.cwd,
-      env: spec.env,
-      detached: spec.detached ?? true,
-      stdio: ['ignore', stdoutStream, stderrStream],
-    })
-
-    child.unref()
-
     sandboxState.status = 'running'
-    sandboxState.pid = child.pid
     sandboxState.lastStartedAt = new Date().toISOString()
-    await saveWorkspaceState(workspacePath, state)
 
-    logger.success(`Sandbox "${args.name}" started (PID: ${child.pid})`)
+    if (args.foreground) {
+      await saveWorkspaceState(workspacePath, state)
+
+      logger.info(`Entering foreground session — exit the process to stop the sandbox`)
+
+      try {
+        const result = await execa(spec.command, spec.args, {
+          cwd: spec.cwd,
+          env: spec.env,
+          stdio: 'inherit',
+        })
+      } finally {
+        sandboxState.status = 'stopped'
+        sandboxState.lastStoppedAt = new Date().toISOString()
+        delete sandboxState.pid
+        await saveWorkspaceState(workspacePath, state)
+        logger.success(`Sandbox "${args.name}" stopped`)
+      }
+    } else {
+      const stdoutFd = spec.stdoutLog
+        ? openSync(spec.stdoutLog, 'a')
+        : 'ignore'
+      const stderrFd = spec.stderrLog
+        ? openSync(spec.stderrLog, 'a')
+        : 'ignore'
+
+      const child = execa(spec.command, spec.args, {
+        cwd: spec.cwd,
+        env: spec.env,
+        detached: spec.detached ?? true,
+        stdio: ['ignore', stdoutFd, stderrFd],
+      })
+
+      child.unref()
+
+      sandboxState.pid = child.pid
+      await saveWorkspaceState(workspacePath, state)
+
+      logger.success(`Sandbox "${args.name}" started (PID: ${child.pid})`)
+    }
   },
 })

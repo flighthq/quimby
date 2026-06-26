@@ -25,6 +25,7 @@ function makeState(overrides?: Partial<WorkspaceState>): WorkspaceState {
   return {
     name: 'test',
     sourceRepo: '/test/repo',
+    sourceRepoPath: '/test/repo',
     sourceRef: 'main',
     snapshot: 'abc123',
     createdAt: '2024-01-01T00:00:00Z',

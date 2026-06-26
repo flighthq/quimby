@@ -52,7 +52,7 @@ export default defineCommand({
 
     const sandboxPath = getSandboxPath(workspacePath, args.sandbox)
     const bundlePath = join(sandboxPath, '.sandbox', 'bundles', args.bundle)
-    const targetRepoPath = resolve(args.target ?? state.sourceRepo)
+    const targetRepoPath = resolve(args.target ?? state.sourceRepoPath)
 
     logger.start(
       `Applying bundle "${args.bundle}" from "${args.sandbox}" (${mode} mode)`,

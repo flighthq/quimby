@@ -1,6 +1,7 @@
 export interface WorkspaceState {
   name: string
   sourceRepo: string
+  sourceRepoPath: string
   sourceRef: string
   snapshot: string
   createdAt: string

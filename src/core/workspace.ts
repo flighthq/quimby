@@ -69,6 +69,7 @@ export async function createWorkspace(repoPath: string): Promise<{
   const state: WorkspaceState = {
     name,
     sourceRepo,
+    sourceRepoPath: absRepoPath,
     sourceRef: config.source.ref,
     snapshot,
     createdAt: new Date().toISOString(),

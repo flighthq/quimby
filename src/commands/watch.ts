@@ -17,7 +17,7 @@ export default defineCommand({
   },
   async run({ args }) {
     const { state, workspacePath } = await resolveWorkspace()
-    const config = await loadConfig(state.sourceRepo)
+    const config = await loadConfig(state.sourceRepoPath)
     const pollInterval = args.poll ? parseInt(args.poll, 10) * 1000 : 10_000
 
     logger.info(`Watching workspace "${state.name}"`)
