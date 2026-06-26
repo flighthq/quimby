@@ -1,6 +1,7 @@
 import { join } from 'pathe'
 import { ensureDir, writeText } from '../utils/fs.js'
 import * as git from '../utils/git.js'
+import { renderSandboxClaudeMd } from './template.js'
 import type { SandboxConfig } from '../types/config.js'
 import type { SandboxState } from '../types/workspace.js'
 import type { SandboxTransport } from './transport/types.js'
@@ -12,7 +13,7 @@ export async function scaffoldSandbox(opts: {
   sourceRef: string
   config: SandboxConfig
 }): Promise<SandboxState> {
-  const { workspacePath, sandboxName, sourceRepo, sourceRef } = opts
+  const { workspacePath, sandboxName, sourceRepo, sourceRef, config } = opts
   const sandboxDir = join(workspacePath, 'sandboxes', sandboxName)
   const repoDir = join(sandboxDir, 'repo')
   const metaDir = join(sandboxDir, '.sandbox')
@@ -29,10 +30,13 @@ export async function scaffoldSandbox(opts: {
   await writeText(join(metaDir, 'assignment.md'), '')
   await writeText(join(metaDir, 'status.md'), 'idle')
 
+  const claudeMd = renderSandboxClaudeMd({ sandboxName, config })
+  await writeText(join(sandboxDir, 'CLAUDE.md'), claudeMd)
+
   return {
     name: sandboxName,
     status: 'idle',
-    runtimeType: opts.config.runtime.type,
+    runtimeType: config.runtime.type,
     seedCommit,
     createdAt: new Date().toISOString(),
   }
@@ -71,6 +75,9 @@ export async function scaffoldRemoteSandbox(opts: {
 
   await transport.pushFile('.sandbox/assignment.md', '')
   await transport.pushFile('.sandbox/status.md', 'idle')
+
+  const claudeMd = renderSandboxClaudeMd({ sandboxName, config })
+  await transport.pushFile('CLAUDE.md', claudeMd)
 
   return {
     name: sandboxName,

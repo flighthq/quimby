@@ -101,4 +101,27 @@ describe('scaffoldSandbox', () => {
     const status = await readText(join(workspacePath, 'sandboxes', 'check', '.sandbox', 'status.md'))
     expect(status).toBe('idle')
   })
+
+  it('generates CLAUDE.md with sandbox role and protocol', async () => {
+    await scaffoldSandbox({
+      workspacePath,
+      sandboxName: 'reviewer',
+      sourceRepo,
+      sourceRef: 'master',
+      config: {
+        role: 'Code reviewer. Reviews PRs and provides feedback.',
+        runtime: { type: 'docker-sandbox', launch: () => [] },
+        receives: ['backend', 'frontend'],
+      },
+    })
+
+    const claudeMd = await readText(join(workspacePath, 'sandboxes', 'reviewer', 'CLAUDE.md'))
+    expect(claudeMd).toContain('reviewer')
+    expect(claudeMd).toContain('Code reviewer')
+    expect(claudeMd).toContain('assignment.md')
+    expect(claudeMd).toContain('status.md')
+    expect(claudeMd).toContain('ao/seed')
+    expect(claudeMd).toContain('**backend**')
+    expect(claudeMd).toContain('**frontend**')
+  })
 })

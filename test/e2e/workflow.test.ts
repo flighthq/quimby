@@ -176,7 +176,7 @@ describe('full workflow: init → assign → bundle → apply', () => {
     })
 
     // Both original commits should be preserved
-    const logOutput = await git.log(sourceRepo, 'ao/worker/001-docs~2..ao/worker/001-docs')
+    const logOutput = await git.log(sourceRepo, 'HEAD~2..HEAD')
     expect(logOutput).toContain('docs: add documentation')
     expect(logOutput).toContain('docs: add changelog')
   })

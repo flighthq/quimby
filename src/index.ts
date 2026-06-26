@@ -6,6 +6,7 @@ export type {
   SandboxConfig,
   RuntimeConfig,
   LaunchContext,
+  TemplateConfig,
 } from './types/config.js'
 
 export type {

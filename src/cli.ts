@@ -13,11 +13,22 @@ const aliases: Record<string, string[]> = {
   send: ['bundle', 'send'],
 }
 
+const bundleSubCommands = new Set(['create', 'list', 'review', 'apply', 'send'])
+
 function expandAliases(argv: string[]): string[] {
   const rawArgs = argv.slice(2)
   const first = rawArgs[0]
   if (first && first in aliases) {
     return [...aliases[first], ...rawArgs.slice(1)]
+  }
+  // `ao bundle <sandbox>` → `ao bundle create <sandbox>`
+  if (
+    first === 'bundle' &&
+    rawArgs[1] &&
+    !rawArgs[1].startsWith('-') &&
+    !bundleSubCommands.has(rawArgs[1])
+  ) {
+    return ['bundle', 'create', ...rawArgs.slice(1)]
   }
   return rawArgs
 }

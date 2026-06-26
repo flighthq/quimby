@@ -29,8 +29,13 @@ export default defineCommand({
     },
     patch: {
       type: 'boolean',
-      description: 'Apply as raw patch (no commit)',
+      description: 'Apply as flat files without committing',
       default: false,
+    },
+    branch: {
+      type: 'string',
+      description:
+        'Create a branch before applying (default name: ao/<sandbox>/<bundle>)',
     },
     target: {
       type: 'string',
@@ -54,11 +59,17 @@ export default defineCommand({
     const bundlePath = join(sandboxPath, '.sandbox', 'bundles', args.bundle)
     const targetRepoPath = resolve(args.target ?? state.sourceRepoPath)
 
+    // --branch with no value comes through as empty string
+    let branch: boolean | string | undefined
+    if (args.branch !== undefined) {
+      branch = args.branch === '' ? true : args.branch
+    }
+
     logger.start(
       `Applying bundle "${args.bundle}" from "${args.sandbox}" (${mode} mode)`,
     )
 
-    await applyBundle({ bundlePath, targetRepoPath, mode })
+    await applyBundle({ bundlePath, targetRepoPath, mode, branch })
 
     logger.success(`Bundle applied to ${targetRepoPath}`)
     if (mode === 'patch') {

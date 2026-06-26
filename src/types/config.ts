@@ -13,6 +13,12 @@ export interface SandboxConfig {
   runtime: RuntimeConfig
   receives?: string[]
   env?: Record<string, string>
+  template?: string | TemplateConfig
+}
+
+export interface TemplateConfig {
+  path: string
+  vars?: Record<string, string>
 }
 
 export interface RuntimeConfig {
