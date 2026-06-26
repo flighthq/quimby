@@ -5,12 +5,12 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "ao": "./dist/cli.mjs"
+    "ao": "./dist/cli.js"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
-      "types": "./dist/index.d.mts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "files": [
