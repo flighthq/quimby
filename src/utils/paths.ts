@@ -1,42 +1,29 @@
 import { join } from 'pathe'
-import { homedir } from 'node:os'
 
-export function getAoHome(): string {
-  return process.env.AO_HOME ?? join(homedir(), '.ao')
+export function getQuimbyDir(repoRoot: string): string {
+  return join(repoRoot, '.quimby')
 }
 
-export function getWorkspacesDir(): string {
-  return join(getAoHome(), 'workspaces')
+export function getStatePath(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'state.yaml')
 }
 
-export function getRegistryPath(): string {
-  return join(getAoHome(), 'workspaces.yaml')
+export function getWorkersDir(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'workers')
 }
 
-export function getWorkspacePath(name: string): string {
-  return join(getWorkspacesDir(), name)
+export function getWorkerDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'workers', name)
 }
 
-export function getSandboxPath(workspacePath: string, sandboxName: string): string {
-  return join(workspacePath, 'sandboxes', sandboxName)
+export function getWorkerRepoDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'workers', name, 'repo')
 }
 
-export function getSandboxRepoPath(workspacePath: string, sandboxName: string): string {
-  return join(getSandboxPath(workspacePath, sandboxName), 'repo')
+export function getPacksDir(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'packs')
 }
 
-export function getSandboxMetaDir(workspacePath: string, sandboxName: string): string {
-  return join(getSandboxPath(workspacePath, sandboxName), '.sandbox')
-}
-
-export function getBundlesDir(workspacePath: string, sandboxName: string): string {
-  return join(getSandboxMetaDir(workspacePath, sandboxName), 'bundles')
-}
-
-export function getInboxDir(workspacePath: string, sandboxName: string): string {
-  return join(getSandboxMetaDir(workspacePath, sandboxName), 'inbox')
-}
-
-export function getMessagesDir(workspacePath: string, sandboxName: string): string {
-  return join(getSandboxMetaDir(workspacePath, sandboxName), 'messages')
+export function getPackDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'packs', name)
 }

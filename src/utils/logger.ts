@@ -1,3 +1,3 @@
 import { consola } from 'consola'
 
-export const logger = consola.withTag('ao')
+export const logger = consola.withTag('quimby')

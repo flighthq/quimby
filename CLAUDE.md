@@ -1,13 +1,10 @@
-# Agent Orchestrator (ao)
+# Quimby
 
-CLI tool for orchestrating multiple AI agents working on a single project in isolated sandboxes — local or remote.
+CLI tool for orchestrating multiple AI agents working on a single project in isolated workers.
 
 ## Design References
 
-@docs/terminology.md
-@docs/architecture.md
-@docs/design.md
-@docs/roadmap.md
+@docs/design-v2.md
 @docs/user-workflow.md
 
 ## Tech Stack
@@ -15,36 +12,30 @@ CLI tool for orchestrating multiple AI agents working on a single project in iso
 - TypeScript, ESM, Node 22+
 - Citty (unjs) for CLI
 - tsup for bundling
-- jiti for loading ao.config.ts at runtime
 - execa for process spawning
-- chokidar for file watching
 - consola for logging
 - vitest for testing
 
 ## Project Structure
 
-- `src/cli.ts` — CLI entry point (citty root command)
-- `src/index.ts` — public API (defineWorkspace, type exports)
-- `src/commands/` — CLI command implementations
-  - `bundle/` — create, list, review, apply, send
-  - `sandbox/` — add, list, start, stop, assign, status, refresh
-  - `workspace/` — path, size
-  - `init.ts`, `watch.ts`
+- `src/cli.ts` — CLI entry point (citty root command, flat subcommands)
+- `src/index.ts` — public API (type exports)
+- `src/commands/` — CLI command implementations (one file per command)
+  - `add.ts`, `run.ts`, `list.ts`, `status.ts`, `assign.ts`
+  - `diff.ts`, `pack.ts`, `apply.ts`, `send.ts`
+  - `reset.ts`, `rename.ts`, `remove.ts`
+  - `serve.ts`, `subscribe.ts`, `unsubscribe.ts`
 - `src/core/` — business logic
-  - `transport/` — SandboxTransport interface, LocalTransport, RemoteTransport
-  - `bundle.ts` — create, list, read, apply (direct + via transport)
-  - `config.ts` — load ao.config.ts via jiti
-  - `inbox.ts` — route bundles between sandboxes (direct + via transport)
-  - `messaging.ts` — cross-lane messaging (send, list, parse/serialize)
-  - `refresh.ts` — sandbox refresh (advance ao/seed baseline)
-  - `registry.ts` — global workspace registry (~/.ao/workspaces.yaml)
-  - `sandbox.ts` — scaffold local + remote sandboxes
-  - `watcher.ts` — file watcher (local chokidar + remote polling)
-  - `workspace.ts` — create, resolve, load/save state
-- `src/runtime/` — runtime adapters (docker-sandbox, openshell, remote)
-- `src/types/` — type definitions (config, workspace, bundle, message)
+  - `workspace.ts` — resolve .quimby/ from git root, load/save state
+  - `worker.ts` — add, remove, rename, reset workers
+  - `pack.ts` — create, list, read, apply, send packs
+  - `server.ts` — HTTP server + status poller for cross-worker routing
+  - `client.ts` — CLI → server communication (check if running, API calls)
+  - `template.ts` — generate CLAUDE.md for workers
+- `src/types/` — type definitions
+  - `workspace.ts` — QuimbyState, WorkerState
+  - `pack.ts` — PackMeta, CommitMeta
 - `src/utils/` — utilities (git, fs, paths, yaml, logger, errors)
-- `test/` — vitest tests mirroring src/ structure
 
 ## Development
 
@@ -60,34 +51,34 @@ npm run test:run      # vitest run (no watch)
 ## CLI Commands
 
 ```
-ao init [repo]                              # create workspace from ao.config.ts
-ao sandbox add <name>                       # add a sandbox dynamically
-ao sandbox list                             # list sandboxes and status
-ao sandbox start <name>                     # start a sandbox runtime
-ao sandbox stop <name>                      # stop a running sandbox
-ao sandbox assign <name> <task|@file>       # push assignment to sandbox
-ao sandbox status [name]                    # show sandbox status
-ao sandbox refresh <name> [--force]         # update sandbox baseline
-ao bundle create <sandbox> --id --description --message  # create bundle from sandbox work
-ao bundle list [sandbox]                    # list bundles
-ao bundle review <sandbox> <bundle>         # review bundle diff
-ao bundle apply <sandbox> <bundle> [--commits|--patch]   # apply bundle to repo
-ao bundle send <from> <to> [bundle]         # send bundle to another sandbox
-ao watch [--poll <seconds>]                 # watch + auto-route bundles
-ao workspace path                           # print workspace directory
-ao workspace size                           # disk usage per sandbox
+quimby add <worker>                         # create a worker
+quimby run <worker> [-c <cmd>]              # launch agent interactively
+quimby list                                 # show workers, packs, subscriptions
+quimby status [worker]                      # show agent-written status
+quimby assign <worker> -m "..." [-p <pack>] # push assignment
+quimby diff <worker|pack> [other]           # show changes
+quimby pack <worker> [-n <name>]            # package worker's work
+quimby apply <pack> [--commits|--patch]     # apply pack to host repo
+quimby send <worker> <pack>                 # route pack to worker
+quimby reset <worker>                       # nuclear reset worker
+quimby rename <worker> <new-name>           # rename worker
+quimby remove <worker>                      # remove worker (keeps packs)
+quimby serve [-p <port>] [--poll <secs>]    # start the server
+quimby subscribe <worker> <target>          # worker receives target's status
+quimby unsubscribe <worker> <target>        # remove subscription
 ```
 
 ## Conventions
 
-- Use the terminology defined in docs/terminology.md consistently
-- Config is executable TypeScript (ao.config.ts), not static YAML
+- Workers are isolated clones in `.quimby/workers/<name>/repo/`
+- Packs are flat in `.quimby/packs/<name>/` — decoupled from workers
+- Seed ref is `quimby/seed` tag in worker repos
+- Subscriptions stored in `state.yaml`, routed by server
+- Server writes `.quimby/server.json` pidfile when running
 - All file paths use pathe for cross-platform consistency
-- Prefer the unjs ecosystem (citty, consola, jiti, pathe, defu)
-- Bundle meta.yaml is always written last (signals completion to watcher)
-- Seed ref is always `ao/seed` tag in sandbox repos
-- All sandbox file operations should go through the transport layer (local or remote)
-- The `.sandbox/` directory protocol is the universal interface — transport handles the rest
-- Design every feature to work identically for local and remote sandboxes
-- Core modules expose both direct functions (for local) and `ViaTransport` variants (for remote)
-- Tests: every exported function gets a `describe()` block in a corresponding `.test.ts` file
+- Prefer the unjs ecosystem (citty, consola, pathe)
+- Pack meta.yaml is always written last (signals completion)
+- No config file required — `quimby add` initializes everything
+- Local-only for now — remote transport deferred
+- CLI grammar: `verb target [qualifiers]`
+- Flags: `-x` short + `--xxx` long (e.g., `-m`/`--message`, `-p`/`--pack`, `-n`/`--name`)

@@ -1,34 +1,27 @@
-export class AoError extends Error {
+export class QuimbyError extends Error {
   constructor(message: string, public code?: string) {
     super(message)
-    this.name = 'AoError'
+    this.name = 'QuimbyError'
   }
 }
 
-export class ConfigError extends AoError {
-  constructor(message: string) {
-    super(message, 'CONFIG_ERROR')
-    this.name = 'ConfigError'
-  }
-}
-
-export class GitError extends AoError {
+export class GitError extends QuimbyError {
   constructor(message: string, public stderr?: string) {
     super(message, 'GIT_ERROR')
     this.name = 'GitError'
   }
 }
 
-export class SandboxError extends AoError {
-  constructor(message: string, public sandboxName?: string) {
-    super(message, 'SANDBOX_ERROR')
-    this.name = 'SandboxError'
+export class WorkerError extends QuimbyError {
+  constructor(message: string, public workerName?: string) {
+    super(message, 'WORKER_ERROR')
+    this.name = 'WorkerError'
   }
 }
 
-export class BundleError extends AoError {
-  constructor(message: string, public bundleId?: string) {
-    super(message, 'BUNDLE_ERROR')
-    this.name = 'BundleError'
+export class PackError extends QuimbyError {
+  constructor(message: string, public packName?: string) {
+    super(message, 'PACK_ERROR')
+    this.name = 'PackError'
   }
 }

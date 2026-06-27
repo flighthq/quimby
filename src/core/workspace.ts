@@ -1,140 +1,100 @@
-import { join, basename, resolve } from 'pathe'
+import { join } from 'pathe'
+import { readFile, writeFile, appendFile } from 'node:fs/promises'
 import { ensureDir, exists } from '../utils/fs.js'
 import { readYaml, writeYaml } from '../utils/yaml.js'
+import { getQuimbyDir, getStatePath } from '../utils/paths.js'
 import * as git from '../utils/git.js'
-import { getWorkspacesDir, getWorkspacePath } from '../utils/paths.js'
-import { loadConfig } from './config.js'
-import { addToRegistry, loadRegistry } from './registry.js'
-import { scaffoldSandbox, scaffoldRemoteSandbox } from './sandbox.js'
-import { RemoteTransport } from './transport/remote.js'
-import { AoError } from '../utils/errors.js'
-import type { WorkspaceConfig } from '../types/config.js'
-import type { WorkspaceState } from '../types/workspace.js'
-
-export async function createWorkspace(repoPath: string): Promise<{
-  state: WorkspaceState
-  config: WorkspaceConfig
-  workspacePath: string
-}> {
-  const absRepoPath = resolve(repoPath)
-  const config = await loadConfig(absRepoPath)
-
-  const sourceRepo =
-    (await git.getRemoteUrl(absRepoPath)) ?? absRepoPath
-  const snapshot = await git.getCurrentRef(absRepoPath)
-  const name = config.name ?? basename(absRepoPath)
-  const workspacePath = getWorkspacePath(name)
-
-  if (await exists(workspacePath)) {
-    throw new AoError(
-      `Workspace "${name}" already exists at ${workspacePath}. ` +
-      `Remove it first or use a different name.`,
-    )
-  }
-
-  await ensureDir(workspacePath)
-  await git.init(workspacePath)
-
-  const sandboxStates: Record<string, Awaited<ReturnType<typeof scaffoldSandbox>>> = {}
-
-  for (const [sandboxName, sandboxConfig] of Object.entries(config.sandboxes)) {
-    if (sandboxConfig.runtime.type === 'remote' && sandboxConfig.runtime.host && sandboxConfig.runtime.user) {
-      const remotePath = `/home/${sandboxConfig.runtime.user}/.ao/sandboxes/${name}/${sandboxName}`
-      const transport = new RemoteTransport(
-        remotePath,
-        sandboxConfig.runtime.host,
-        sandboxConfig.runtime.user,
-        sandboxConfig.runtime.port,
-      )
-
-      sandboxStates[sandboxName] = await scaffoldRemoteSandbox({
-        sandboxName,
-        sourceRepo: absRepoPath,
-        sourceRef: config.source.ref,
-        config: sandboxConfig,
-        transport,
-      })
-      sandboxStates[sandboxName].remotePath = remotePath
-    } else {
-      sandboxStates[sandboxName] = await scaffoldSandbox({
-        workspacePath,
-        sandboxName,
-        sourceRepo: absRepoPath,
-        sourceRef: config.source.ref,
-        config: sandboxConfig,
-      })
-    }
-  }
-
-  const state: WorkspaceState = {
-    name,
-    sourceRepo,
-    sourceRepoPath: absRepoPath,
-    sourceRef: config.source.ref,
-    snapshot,
-    createdAt: new Date().toISOString(),
-    sandboxes: sandboxStates,
-  }
-
-  await writeYaml(join(workspacePath, 'workspace.yaml'), state)
-
-  await addToRegistry({
-    name,
-    sourceRepo,
-    path: workspacePath,
-    createdAt: state.createdAt,
-  })
-
-  return { state, config, workspacePath }
-}
+import { QuimbyError } from '../utils/errors.js'
+import type { QuimbyState } from '../types/workspace.js'
 
 export async function resolveWorkspace(): Promise<{
-  state: WorkspaceState
-  workspacePath: string
+  state: QuimbyState
+  repoRoot: string
 }> {
   const cwd = process.cwd()
-  const workspacesDir = getWorkspacesDir()
-
-  if (cwd.startsWith(workspacesDir)) {
-    const rel = cwd.slice(workspacesDir.length + 1)
-    const name = rel.split('/')[0]
-    const workspacePath = getWorkspacePath(name)
-    const state = await readYaml<WorkspaceState>(
-      join(workspacePath, 'workspace.yaml'),
-    )
-    return { state, workspacePath }
-  }
-
   const repoRoot = await git.findRoot(cwd)
-  if (repoRoot) {
-    const remoteUrl = await git.getRemoteUrl(repoRoot)
-    const registry = await loadRegistry()
-    const entry = registry.workspaces.find(
-      (w) => w.sourceRepo === (remoteUrl ?? repoRoot),
+
+  if (!repoRoot) {
+    throw new QuimbyError(
+      'Not inside a git repository. Run from within a git repo.',
     )
-    if (entry) {
-      const state = await readYaml<WorkspaceState>(
-        join(entry.path, 'workspace.yaml'),
-      )
-      return { state, workspacePath: entry.path }
-    }
   }
 
-  throw new AoError(
-    'Cannot determine workspace. Run from within a workspace ' +
-    'directory or a repo initialized with `ao init`.',
-  )
+  const statePath = getStatePath(repoRoot)
+
+  if (!(await exists(statePath))) {
+    throw new QuimbyError(
+      'No quimby workspace found. Run `quimby add <name>` to create a worker.',
+    )
+  }
+
+  const state = await readYaml<QuimbyState>(statePath)
+  return { state, repoRoot }
 }
 
-export async function loadWorkspaceState(
-  workspacePath: string,
-): Promise<WorkspaceState> {
-  return readYaml<WorkspaceState>(join(workspacePath, 'workspace.yaml'))
+export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
+  const statePath = getStatePath(repoRoot)
+
+  if (await exists(statePath)) {
+    return readYaml<QuimbyState>(statePath)
+  }
+
+  const quimbyDir = getQuimbyDir(repoRoot)
+  await ensureDir(quimbyDir)
+
+  const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
+  const sourceRef = await getCurrentBranch(repoRoot)
+  const snapshot = await git.getCurrentRef(repoRoot)
+
+  const state: QuimbyState = {
+    sourceRepo,
+    sourceRef,
+    snapshot,
+    createdAt: new Date().toISOString(),
+    workers: {},
+  }
+
+  await writeYaml(statePath, state)
+  await addToGitignore(repoRoot)
+
+  return state
 }
 
-export async function saveWorkspaceState(
-  workspacePath: string,
-  state: WorkspaceState,
+export async function loadState(repoRoot: string): Promise<QuimbyState> {
+  return readYaml<QuimbyState>(getStatePath(repoRoot))
+}
+
+export async function saveState(
+  repoRoot: string,
+  state: QuimbyState,
 ): Promise<void> {
-  await writeYaml(join(workspacePath, 'workspace.yaml'), state)
+  await writeYaml(getStatePath(repoRoot), state)
+}
+
+async function getCurrentBranch(repoRoot: string): Promise<string> {
+  try {
+    const { execa } = await import('execa')
+    const { stdout } = await execa(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      { cwd: repoRoot },
+    )
+    return stdout.trim()
+  } catch {
+    return 'main'
+  }
+}
+
+async function addToGitignore(repoRoot: string): Promise<void> {
+  const gitignorePath = join(repoRoot, '.gitignore')
+
+  if (await exists(gitignorePath)) {
+    const content = await readFile(gitignorePath, 'utf-8')
+    if (content.split('\n').some((line) => line.trim() === '.quimby')) {
+      return
+    }
+    await appendFile(gitignorePath, '\n.quimby\n')
+  } else {
+    await writeFile(gitignorePath, '.quimby\n', 'utf-8')
+  }
 }

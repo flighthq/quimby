@@ -1,56 +1,32 @@
 import { defineCommand, runCommand, showUsage } from 'citty'
 import { logger } from './utils/logger.js'
 
-const aliases: Record<string, string[]> = {
-  add: ['sandbox', 'add'],
-  list: ['sandbox', 'list'],
-  start: ['sandbox', 'start'],
-  stop: ['sandbox', 'stop'],
-  assign: ['sandbox', 'assign'],
-  status: ['sandbox', 'status'],
-  refresh: ['sandbox', 'refresh'],
-  review: ['bundle', 'review'],
-  apply: ['bundle', 'apply'],
-  send: ['bundle', 'send'],
-}
-
-const bundleSubCommands = new Set(['create', 'list', 'review', 'apply', 'send'])
-
-function expandAliases(argv: string[]): string[] {
-  const rawArgs = argv.slice(2)
-  const first = rawArgs[0]
-  if (first && first in aliases) {
-    return [...aliases[first], ...rawArgs.slice(1)]
-  }
-  // `ao bundle <sandbox>` → `ao bundle create <sandbox>`
-  if (
-    first === 'bundle' &&
-    rawArgs[1] &&
-    !rawArgs[1].startsWith('-') &&
-    !bundleSubCommands.has(rawArgs[1])
-  ) {
-    return ['bundle', 'create', ...rawArgs.slice(1)]
-  }
-  return rawArgs
-}
-
 const main = defineCommand({
   meta: {
-    name: 'ao',
-    version: '0.1.0',
-    description: 'Agent Orchestrator — manage isolated agent sandboxes',
+    name: 'quimby',
+    version: '0.2.0',
+    description: 'Orchestrate multiple AI agents in isolated workers',
   },
   subCommands: {
-    init: () => import('./commands/init.js').then((m) => m.default),
-    sandbox: () => import('./commands/sandbox/index.js').then((m) => m.default),
-    bundle: () => import('./commands/bundle/index.js').then((m) => m.default),
+    add: () => import('./commands/add.js').then((m) => m.default),
+    run: () => import('./commands/run.js').then((m) => m.default),
+    list: () => import('./commands/list.js').then((m) => m.default),
+    status: () => import('./commands/status.js').then((m) => m.default),
+    assign: () => import('./commands/assign.js').then((m) => m.default),
     diff: () => import('./commands/diff.js').then((m) => m.default),
-    watch: () => import('./commands/watch.js').then((m) => m.default),
-    workspace: () => import('./commands/workspace/index.js').then((m) => m.default),
+    pack: () => import('./commands/pack.js').then((m) => m.default),
+    apply: () => import('./commands/apply.js').then((m) => m.default),
+    send: () => import('./commands/send.js').then((m) => m.default),
+    reset: () => import('./commands/reset.js').then((m) => m.default),
+    rename: () => import('./commands/rename.js').then((m) => m.default),
+    remove: () => import('./commands/remove.js').then((m) => m.default),
+    serve: () => import('./commands/serve.js').then((m) => m.default),
+    subscribe: () => import('./commands/subscribe.js').then((m) => m.default),
+    unsubscribe: () => import('./commands/unsubscribe.js').then((m) => m.default),
   },
 })
 
-const rawArgs = expandAliases(process.argv)
+const rawArgs = process.argv.slice(2)
 
 async function resolveDeepest(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,7 +54,7 @@ async function run() {
     process.exit(0)
   }
   if (rawArgs.length === 1 && rawArgs[0] === '--version') {
-    console.log('0.1.0')
+    console.log('0.2.0')
     process.exit(0)
   }
   try {

@@ -1,24 +1,14 @@
-export interface WorkspaceState {
-  name: string
+export interface QuimbyState {
   sourceRepo: string
-  sourceRepoPath: string
   sourceRef: string
   snapshot: string
   createdAt: string
-  sandboxes: Record<string, SandboxState>
+  workers: Record<string, WorkerState>
+  subscriptions?: Record<string, string[]>
 }
 
-export interface SandboxState {
+export interface WorkerState {
   name: string
-  status: 'idle' | 'running' | 'stopped' | 'error'
-  pid?: number
-  runtimeType: string
   seedCommit: string
   createdAt: string
-  lastStartedAt?: string
-  lastStoppedAt?: string
-  host?: string
-  user?: string
-  port?: number
-  remotePath?: string
 }

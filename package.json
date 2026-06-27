@@ -1,11 +1,11 @@
 {
-  "name": "agent-orchestrator",
-  "version": "0.1.0",
-  "description": "Orchestrate multiple AI agents working on a single project in isolated sandboxes",
+  "name": "quimby",
+  "version": "0.2.0",
+  "description": "Orchestrate multiple AI agents in isolated workers",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "ao": "./dist/cli.js"
+    "quimby": "./dist/cli.js"
   },
   "exports": {
     ".": {
@@ -25,12 +25,9 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "chokidar": "^4.0.0",
     "citty": "^0.1.6",
     "consola": "^3.4.2",
-    "defu": "^6.1.4",
     "execa": "^9.6.1",
-    "jiti": "^2.4.2",
     "pathe": "^2.0.3",
     "yaml": "^2.7.1"
   },
