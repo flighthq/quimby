@@ -1,10 +1,10 @@
 import { defineCommand } from 'citty'
 import { resolve } from 'pathe'
 
-import { type ApplyMode, applyPack } from '../core/pack.js'
-import { resolveWorkspace } from '../core/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { logger } from '../utils/logger.js'
+import { type ApplyMode, applyPack } from '../core/pack'
+import { resolveWorkspace } from '../core/workspace'
+import { QuimbyError } from '../utils/errors'
+import { logger } from '../utils/logger'
 
 export default defineCommand({
   meta: {
@@ -38,29 +38,30 @@ export default defineCommand({
       description: 'Target repo path (defaults to current directory)',
     },
   },
-  async run({ args }) {
-    const { repoRoot } = await resolveWorkspace()
-
-    if (args.commits && args.patch) {
-      throw new QuimbyError('Cannot use --commits and --patch together')
-    }
-
-    const mode: ApplyMode = args.commits ? 'commits' : args.patch ? 'patch' : 'squashed'
-
-    const targetRepoPath = resolve(args.target ?? process.cwd())
-
-    let branch: boolean | string | undefined
-    if (args.branch !== undefined) {
-      branch = args.branch === '' ? true : args.branch
-    }
-
-    logger.start(`Applying pack "${args.pack}" (${mode} mode)`)
-
-    await applyPack({ repoRoot, packName: args.pack, targetRepoPath, mode, branch })
-
-    logger.success(`Pack applied to ${targetRepoPath}`)
-    if (mode === 'patch') {
-      logger.info('Changes applied to working tree (no commit created)')
-    }
-  },
+  run,
 })
+
+async function run({
+  args,
+}: {
+  args: { pack: string; commits: boolean; patch: boolean; branch?: string; target?: string }
+}) {
+  const { repoRoot } = await resolveWorkspace()
+
+  if (args.commits && args.patch) {
+    throw new QuimbyError('Cannot use --commits and --patch together')
+  }
+
+  const mode: ApplyMode = args.commits ? 'commits' : args.patch ? 'patch' : 'squashed'
+  const targetRepoPath = resolve(args.target ?? process.cwd())
+  const branch: boolean | string | undefined =
+    args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
+
+  logger.start(`Applying pack "${args.pack}" (${mode} mode)`)
+  await applyPack({ repoRoot, packName: args.pack, targetRepoPath, mode, branch })
+
+  logger.success(`Pack applied to ${targetRepoPath}`)
+  if (mode === 'patch') {
+    logger.info('Changes applied to working tree (no commit created)')
+  }
+}

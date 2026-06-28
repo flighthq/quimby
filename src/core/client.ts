@@ -1,8 +1,8 @@
 import { join } from 'pathe'
 
-import { exists, readText } from '../utils/fs.js'
-import { getQuimbyDir } from '../utils/paths.js'
-import type { ServerInfo } from './server.js'
+import { exists, readText } from '../utils/fs'
+import { getQuimbyDir } from '../utils/paths'
+import type { ServerInfo } from './server'
 
 export async function getServerInfo(repoRoot: string): Promise<ServerInfo | null> {
   const infoPath = join(getQuimbyDir(repoRoot), 'server.json')

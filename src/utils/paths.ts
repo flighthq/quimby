@@ -43,3 +43,37 @@ export function getWorkerInboxPackDir(
 export function getWorkerInboxStatusDir(repoRoot: string, name: string): string {
   return join(repoRoot, '.quimby', 'workers', name, 'inbox', 'status')
 }
+
+// ── Remote paths (SSH workers) ────────────────────────────────────────────────
+// Paths use ~ which the remote shell expands; never use these in local fs ops.
+
+export function remoteProjectRoot(projectId: string, base?: string): string {
+  return base ?? `~/.quimby/workspaces/${projectId}`
+}
+
+export function remoteQuimbyDir(projectId: string, base?: string): string {
+  return `${remoteProjectRoot(projectId, base)}/.quimby`
+}
+
+export function remoteWorkerDir(projectId: string, name: string, base?: string): string {
+  return `${remoteQuimbyDir(projectId, base)}/workers/${name}`
+}
+
+export function remoteWorkerRepoDir(projectId: string, name: string, base?: string): string {
+  return `${remoteWorkerDir(projectId, name, base)}/repo`
+}
+
+export function remotePacksDir(projectId: string, base?: string): string {
+  return `${remoteQuimbyDir(projectId, base)}/packs`
+}
+
+export function remotePackDir(projectId: string, packName: string, base?: string): string {
+  return `${remotePacksDir(projectId, base)}/${packName}`
+}
+
+// ── Stable identifiers ────────────────────────────────────────────────────────
+
+/** tmux session name derived from stable IDs — unaffected by quimby rename. */
+export function tmuxSessionName(projectId: string, workerId: string): string {
+  return `qb-${projectId.slice(0, 8)}-${workerId.slice(0, 8)}`
+}

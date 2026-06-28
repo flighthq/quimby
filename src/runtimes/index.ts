@@ -1,8 +1,8 @@
-import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '../types/runtime.js'
-import { getWorkerDir, getWorkerRepoDir } from '../utils/paths.js'
-import { local } from './local.js'
-import { openshell } from './openshell.js'
-import { sbx } from './sbx.js'
+import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '../types/runtime'
+import { getWorkerDir, getWorkerRepoDir } from '../utils/paths'
+import { local } from './local'
+import { openshell } from './openshell'
+import { sbx } from './sbx'
 
 const adapters: Record<RuntimeType, RuntimeAdapter> = {
   local,

@@ -1,3 +1,5 @@
+import type { WorkerLocation } from './location'
+
 export interface QuimbyState {
   id: string
   sourceRepo: string
@@ -13,6 +15,7 @@ export interface WorkerState {
   name: string
   seedCommit: string
   createdAt: string
+  location?: WorkerLocation
   defaults?: {
     runtime?: string
     agent?: string

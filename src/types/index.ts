@@ -1,2 +1,2 @@
-export type { CommitMeta, PackMeta } from './pack.js'
-export type { QuimbyState, WorkerState } from './workspace.js'
+export type { CommitMeta, PackMeta } from './pack'
+export type { QuimbyState, WorkerState } from './workspace'

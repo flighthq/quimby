@@ -1,6 +1,6 @@
 import { defineCommand, runCommand, showUsage } from 'citty'
 
-import { logger } from './utils/logger.js'
+import { logger } from './utils/logger'
 
 const main = defineCommand({
   meta: {
@@ -9,22 +9,23 @@ const main = defineCommand({
     description: 'Orchestrate multiple AI agents in isolated workers',
   },
   subCommands: {
-    add: () => import('./commands/add.js').then((m) => m.default),
-    run: () => import('./commands/run.js').then((m) => m.default),
-    list: () => import('./commands/list.js').then((m) => m.default),
-    status: () => import('./commands/status.js').then((m) => m.default),
-    assign: () => import('./commands/assign.js').then((m) => m.default),
-    diff: () => import('./commands/diff.js').then((m) => m.default),
-    pack: () => import('./commands/pack.js').then((m) => m.default),
-    apply: () => import('./commands/apply.js').then((m) => m.default),
-    send: () => import('./commands/send.js').then((m) => m.default),
-    set: () => import('./commands/set.js').then((m) => m.default),
-    reset: () => import('./commands/reset.js').then((m) => m.default),
-    rename: () => import('./commands/rename.js').then((m) => m.default),
-    remove: () => import('./commands/remove.js').then((m) => m.default),
-    serve: () => import('./commands/serve.js').then((m) => m.default),
-    subscribe: () => import('./commands/subscribe.js').then((m) => m.default),
-    unsubscribe: () => import('./commands/unsubscribe.js').then((m) => m.default),
+    add: () => import('./commands/add').then((m) => m.default),
+    run: () => import('./commands/run').then((m) => m.default),
+    list: () => import('./commands/list').then((m) => m.default),
+    status: () => import('./commands/status').then((m) => m.default),
+    assign: () => import('./commands/assign').then((m) => m.default),
+    diff: () => import('./commands/diff').then((m) => m.default),
+    pack: () => import('./commands/pack').then((m) => m.default),
+    apply: () => import('./commands/apply').then((m) => m.default),
+    send: () => import('./commands/send').then((m) => m.default),
+    set: () => import('./commands/set').then((m) => m.default),
+    sync: () => import('./commands/sync').then((m) => m.default),
+    reset: () => import('./commands/reset').then((m) => m.default),
+    rename: () => import('./commands/rename').then((m) => m.default),
+    remove: () => import('./commands/remove').then((m) => m.default),
+    serve: () => import('./commands/serve').then((m) => m.default),
+    subscribe: () => import('./commands/subscribe').then((m) => m.default),
+    unsubscribe: () => import('./commands/unsubscribe').then((m) => m.default),
   },
 })
 

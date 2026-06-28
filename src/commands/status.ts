@@ -1,10 +1,12 @@
 import { defineCommand } from 'citty'
 import { join } from 'pathe'
 
-import { resolveWorkspace } from '../core/workspace.js'
-import { exists, readText } from '../utils/fs.js'
-import { logger } from '../utils/logger.js'
-import { getWorkerDir } from '../utils/paths.js'
+import { getTransport } from '../core/transport'
+import { resolveWorkspace } from '../core/workspace'
+import { isSSH } from '../types/location'
+import { exists, readText } from '../utils/fs'
+import { logger } from '../utils/logger'
+import { getWorkerDir, remoteWorkerDir } from '../utils/paths'
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
 
@@ -20,32 +22,44 @@ export default defineCommand({
       required: false,
     },
   },
-  async run({ args }) {
-    const { state, repoRoot } = await resolveWorkspace()
+  run,
+})
 
-    const names = args.name ? [args.name] : Object.keys(state.workers)
+async function run({ args }: { args: { name?: string } }) {
+  const { state, repoRoot } = await resolveWorkspace()
 
-    if (names.length === 0) {
-      logger.info('No workers.')
-      return
+  const names = args.name ? [args.name] : Object.keys(state.workers)
+
+  if (names.length === 0) {
+    logger.info('No workers.')
+    return
+  }
+
+  for (const name of names) {
+    const worker = state.workers[name]
+    if (!worker) {
+      logger.warn(`Worker "${name}" not found`)
+      continue
     }
 
-    for (const name of names) {
-      if (!state.workers[name]) {
-        logger.warn(`Worker "${name}" not found`)
-        continue
+    let statusContent = '(no status)'
+
+    if (isSSH(worker.location)) {
+      const transport = getTransport(worker.location)
+      const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+      try {
+        statusContent = (await transport.readFile(`${rWorkerDir}/status.md`)).trim() || '(empty)'
+      } catch {
+        statusContent = '(unreachable)'
       }
-
-      const workerDir = getWorkerDir(repoRoot, name)
-      const statusPath = join(workerDir, 'status.md')
-
-      let statusContent = '(no status)'
+    } else {
+      const statusPath = join(getWorkerDir(repoRoot, name), 'status.md')
       if (await exists(statusPath)) {
         statusContent = (await readText(statusPath)).trim() || '(empty)'
       }
-
-      console.log(`\n${bold(name)}`)
-      console.log(statusContent)
     }
-  },
-})
+
+    console.log(`\n${bold(name)}`)
+    console.log(statusContent)
+  }
+}

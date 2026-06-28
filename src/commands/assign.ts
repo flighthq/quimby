@@ -1,12 +1,14 @@
 import { defineCommand } from 'citty'
 import { join } from 'pathe'
 
-import { sendPack } from '../core/pack.js'
-import { resolveWorkspace } from '../core/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { readText, writeText } from '../utils/fs.js'
-import { logger } from '../utils/logger.js'
-import { getWorkerDir } from '../utils/paths.js'
+import { sendPack } from '../core/pack'
+import { getSSHTransport } from '../core/transport'
+import { resolveWorkspace } from '../core/workspace'
+import { isSSH } from '../types/location'
+import { QuimbyError } from '../utils/errors'
+import { readText, writeText } from '../utils/fs'
+import { logger } from '../utils/logger'
+import { getPackDir, getWorkerDir, remoteWorkerDir } from '../utils/paths'
 
 export default defineCommand({
   meta: {
@@ -30,46 +32,63 @@ export default defineCommand({
       description: 'Pack to attach (sends to worker inbox)',
     },
   },
-  async run({ args }) {
-    const { state, repoRoot } = await resolveWorkspace()
+  run,
+})
 
-    if (!state.workers[args.name]) {
-      throw new QuimbyError(`Worker "${args.name}" not found`)
-    }
+async function run({ args }: { args: { name: string; message?: string; pack?: string } }) {
+  const { state, repoRoot } = await resolveWorkspace()
 
-    const packNames: string[] = []
+  const worker = state.workers[args.name]
+  if (!worker) {
+    throw new QuimbyError(`Worker "${args.name}" not found`)
+  }
 
-    if (args.pack) {
-      const names = Array.isArray(args.pack) ? args.pack : [args.pack]
-      for (const packName of names) {
+  const packNames: string[] = []
+
+  if (args.pack) {
+    const names = Array.isArray(args.pack) ? args.pack : [args.pack]
+    for (const packName of names) {
+      if (isSSH(worker.location)) {
+        const transport = getSSHTransport(worker.location)
+        const localPackDir = getPackDir(repoRoot, packName)
+        const rInboxDir = `${remoteWorkerDir(state.id, args.name, worker.location.base)}/inbox/packs/${packName}`
+        await transport.ensureDir(rInboxDir)
+        await transport.rsyncTo(localPackDir, rInboxDir)
+      } else {
         await sendPack({ repoRoot, packName, workerName: args.name })
-        packNames.push(packName)
       }
+      packNames.push(packName)
     }
+  }
 
-    let taskContent = args.message ?? ''
+  let taskContent = args.message ?? ''
 
-    if (taskContent.startsWith('@')) {
-      taskContent = await readText(taskContent.slice(1))
-    }
+  if (taskContent.startsWith('@')) {
+    taskContent = await readText(taskContent.slice(1))
+  }
 
-    if (!taskContent && packNames.length > 0) {
-      taskContent =
-        packNames.length === 1
-          ? `Please review the following pack: ${packNames[0]}`
-          : `Please review the following packs: ${packNames.join(', ')}`
-    }
+  if (!taskContent && packNames.length > 0) {
+    taskContent =
+      packNames.length === 1
+        ? `Please review the following pack: ${packNames[0]}`
+        : `Please review the following packs: ${packNames.join(', ')}`
+  }
 
-    if (!taskContent) {
-      throw new QuimbyError('Provide a message with -m or attach a pack with -p')
-    }
+  if (!taskContent) {
+    throw new QuimbyError('Provide a message with -m or attach a pack with -p')
+  }
 
+  if (isSSH(worker.location)) {
+    const transport = getSSHTransport(worker.location)
+    const rWorkerDir = remoteWorkerDir(state.id, args.name, worker.location.base)
+    await transport.writeFile(`${rWorkerDir}/assignment.md`, taskContent)
+  } else {
     const workerDir = getWorkerDir(repoRoot, args.name)
     await writeText(join(workerDir, 'assignment.md'), taskContent)
+  }
 
-    logger.success(`Assignment pushed to "${args.name}"`)
-    if (packNames.length > 0) {
-      logger.info(`Packs sent: ${packNames.join(', ')}`)
-    }
-  },
-})
+  logger.success(`Assignment pushed to "${args.name}"`)
+  if (packNames.length > 0) {
+    logger.info(`Packs sent: ${packNames.join(', ')}`)
+  }
+}

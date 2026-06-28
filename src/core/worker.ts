@@ -1,19 +1,33 @@
-import { rm } from 'node:fs/promises'
+import { rename, rm } from 'node:fs/promises'
 
+import { execa } from 'execa'
 import { join } from 'pathe'
 
-import type { WorkerState } from '../types/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { ensureDir, writeText } from '../utils/fs.js'
-import * as git from '../utils/git.js'
-import { getWorkerDir, getWorkerRepoDir } from '../utils/paths.js'
-import { renderWorkerClaudeMd } from './template.js'
-import { ensureWorkspace, loadState, saveState } from './workspace.js'
+import type { WorkerLocation } from '../types/location'
+import { isSSH } from '../types/location'
+import type { WorkerState } from '../types/workspace'
+import { QuimbyError } from '../utils/errors'
+import { ensureDir, writeText } from '../utils/fs'
+import * as git from '../utils/git'
+import {
+  getWorkerDir,
+  getWorkerRepoDir,
+  remoteProjectRoot,
+  remoteQuimbyDir,
+  remoteWorkerDir,
+  remoteWorkerRepoDir,
+} from '../utils/paths'
+import { renderWorkerClaudeMd } from './template'
+import { getSSHTransport, syncToRemote } from './transport'
+import { ensureWorkspace, loadState, saveState } from './workspace'
 
 export async function addWorker(
   repoRoot: string,
   name: string,
-  defaults?: { runtime?: string; agent?: string },
+  opts?: {
+    defaults?: { runtime?: string; agent?: string }
+    location?: WorkerLocation
+  },
 ): Promise<WorkerState> {
   validateWorkerName(name)
 
@@ -23,6 +37,25 @@ export async function addWorker(
     throw new QuimbyError(`Worker "${name}" already exists`)
   }
 
+  const workerState: WorkerState = {
+    id: crypto.randomUUID(),
+    name,
+    seedCommit: '',
+    createdAt: new Date().toISOString(),
+    ...(opts?.defaults ? { defaults: opts.defaults } : {}),
+    ...(opts?.location ? { location: opts.location } : {}),
+  }
+
+  if (isSSH(opts?.location)) {
+    // Remote workers are initialized lazily on first `quimby run`.
+    // Record the current HEAD as the intended seed baseline.
+    workerState.seedCommit = await git.getCurrentRef(repoRoot)
+    state.workers[name] = workerState
+    await saveState(repoRoot, state)
+    return workerState
+  }
+
+  // Local worker: create dirs, clone, tag, write files.
   const workerDir = getWorkerDir(repoRoot, name)
   const repoDir = getWorkerRepoDir(repoRoot, name)
 
@@ -32,21 +65,13 @@ export async function addWorker(
   await git.clone(repoRoot, repoDir, { ref: state.sourceRef })
   await git.tag(repoDir, 'quimby/seed')
 
-  const seedCommit = await git.getCurrentRef(repoDir)
+  workerState.seedCommit = await git.getCurrentRef(repoDir)
 
   await writeText(join(workerDir, 'assignment.md'), '')
   await writeText(join(workerDir, 'status.md'), 'idle')
 
   const claudeMd = renderWorkerClaudeMd({ workerName: name })
   await writeText(join(workerDir, 'CLAUDE.md'), claudeMd)
-
-  const workerState: WorkerState = {
-    id: crypto.randomUUID(),
-    name,
-    seedCommit,
-    createdAt: new Date().toISOString(),
-    ...(defaults ? { defaults } : {}),
-  }
 
   state.workers[name] = workerState
   await saveState(repoRoot, state)
@@ -67,6 +92,19 @@ export async function setWorkerDefaults(
   await saveState(repoRoot, state)
 }
 
+export async function setWorkerLocation(
+  repoRoot: string,
+  name: string,
+  location: WorkerLocation,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!state.workers[name]) {
+    throw new QuimbyError(`Worker "${name}" not found`)
+  }
+  state.workers[name].location = location
+  await saveState(repoRoot, state)
+}
+
 export async function removeWorker(repoRoot: string, name: string): Promise<void> {
   const state = await loadState(repoRoot)
 
@@ -74,8 +112,16 @@ export async function removeWorker(repoRoot: string, name: string): Promise<void
     throw new QuimbyError(`Worker "${name}" not found`)
   }
 
-  const workerDir = getWorkerDir(repoRoot, name)
-  await rm(workerDir, { recursive: true, force: true })
+  const worker = state.workers[name]
+
+  if (isSSH(worker.location)) {
+    const transport = getSSHTransport(worker.location)
+    const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+    await transport.exec(`rm -rf ${rWorkerDir}`)
+  } else {
+    const workerDir = getWorkerDir(repoRoot, name)
+    await rm(workerDir, { recursive: true, force: true })
+  }
 
   delete state.workers[name]
   await saveState(repoRoot, state)
@@ -98,16 +144,22 @@ export async function renameWorker(
     throw new QuimbyError(`Worker "${newName}" already exists`)
   }
 
-  const oldDir = getWorkerDir(repoRoot, oldName)
-  const newDir = getWorkerDir(repoRoot, newName)
+  const worker = state.workers[oldName]
 
-  const { rename } = await import('node:fs/promises')
-  await rename(oldDir, newDir)
+  if (isSSH(worker.location)) {
+    const transport = getSSHTransport(worker.location)
+    const oldDir = remoteWorkerDir(state.id, oldName, worker.location.base)
+    const newDir = remoteWorkerDir(state.id, newName, worker.location.base)
+    await transport.exec(`mv ${oldDir} ${newDir}`)
+  } else {
+    const oldDir = getWorkerDir(repoRoot, oldName)
+    const newDir = getWorkerDir(repoRoot, newName)
+    await rename(oldDir, newDir)
+  }
 
-  const workerState = state.workers[oldName]
-  workerState.name = newName
+  worker.name = newName
   delete state.workers[oldName]
-  state.workers[newName] = workerState
+  state.workers[newName] = worker
 
   await saveState(repoRoot, state)
 }
@@ -117,6 +169,31 @@ export async function resetWorker(repoRoot: string, name: string): Promise<void>
 
   if (!state.workers[name]) {
     throw new QuimbyError(`Worker "${name}" not found`)
+  }
+
+  const worker = state.workers[name]
+
+  if (isSSH(worker.location)) {
+    const transport = getSSHTransport(worker.location)
+    const rRoot = remoteProjectRoot(state.id, worker.location.base)
+    const rQuimby = remoteQuimbyDir(state.id, worker.location.base)
+    const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+    const rRepoDir = remoteWorkerRepoDir(state.id, name, worker.location.base)
+
+    await syncToRemote(repoRoot, rRoot, worker.location)
+    await transport.exec(`rm -rf ${rRepoDir}`)
+    await transport.ensureDir(`${rWorkerDir}/inbox/packs`)
+    await transport.ensureDir(`${rWorkerDir}/inbox/status`)
+    await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
+    await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
+    const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
+
+    await transport.writeFile(`${rWorkerDir}/assignment.md`, '')
+    await transport.writeFile(`${rWorkerDir}/status.md`, 'idle')
+
+    state.workers[name].seedCommit = seedCommit
+    await saveState(repoRoot, state)
+    return
   }
 
   const workerDir = getWorkerDir(repoRoot, name)
@@ -147,7 +224,6 @@ function validateWorkerName(name: string): void {
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {
   try {
-    const { execa } = await import('execa')
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot })
     const branch = stdout.trim()
     return branch === 'HEAD' ? await git.getCurrentRef(repoRoot) : branch

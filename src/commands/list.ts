@@ -1,67 +1,80 @@
 import { defineCommand } from 'citty'
 
-import { getServerInfo } from '../core/client.js'
-import { listPacks } from '../core/pack.js'
-import { resolveWorkspace } from '../core/workspace.js'
-import { logger } from '../utils/logger.js'
+import { getServerInfo } from '../core/client'
+import { listPacks } from '../core/pack'
+import { resolveWorkspace } from '../core/workspace'
+import { isSSH } from '../types/location'
+import { logger } from '../utils/logger'
+import { tmuxSessionName } from '../utils/paths'
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
 
 export default defineCommand({
   meta: {
     name: 'list',
     description: 'List workers, packs, and subscriptions',
   },
-  async run() {
-    const { state, repoRoot } = await resolveWorkspace()
-
-    const workerNames = Object.keys(state.workers)
-    const packs = await listPacks(repoRoot)
-    const subs = state.subscriptions ?? {}
-    const subEntries = Object.entries(subs)
-
-    if (workerNames.length === 0 && packs.length === 0) {
-      logger.info('No workers or packs. Run `quimby add <name>` to create a worker.')
-      return
-    }
-
-    if (workerNames.length > 0) {
-      console.log(bold('Workers'))
-      for (const name of workerNames) {
-        const worker = state.workers[name]
-        const defaults = worker.defaults
-        const config = defaults
-          ? dim(`${defaults.runtime ?? 'local'} / ${defaults.agent ?? 'claude'}`)
-          : dim('no defaults — run `quimby set`')
-        console.log(`  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}`)
-      }
-    }
-
-    if (packs.length > 0) {
-      if (workerNames.length > 0) console.log()
-      console.log(bold('Packs'))
-      for (const pack of packs) {
-        const desc =
-          pack.description.length > 60 ? pack.description.slice(0, 57) + '...' : pack.description
-        console.log(`  ${pack.name}  ${dim(`from: ${pack.worker}`)}  ${desc}`)
-      }
-    }
-
-    if (subEntries.length > 0) {
-      console.log()
-      console.log(bold('Subscriptions'))
-      for (const [subscriber, targets] of subEntries) {
-        for (const target of targets) {
-          console.log(`  ${subscriber} ${dim('←')} ${target}`)
-        }
-      }
-    }
-
-    const serverInfo = await getServerInfo(repoRoot)
-    if (serverInfo) {
-      console.log()
-      console.log(dim(`Server running on :${serverInfo.port} (PID: ${serverInfo.pid})`))
-    }
-  },
+  run,
 })
+
+async function run() {
+  const { state, repoRoot } = await resolveWorkspace()
+
+  const workerNames = Object.keys(state.workers)
+  const packs = await listPacks(repoRoot)
+  const subs = state.subscriptions ?? {}
+  const subEntries = Object.entries(subs)
+
+  if (workerNames.length === 0 && packs.length === 0) {
+    logger.info('No workers or packs. Run `quimby add <name>` to create a worker.')
+    return
+  }
+
+  if (workerNames.length > 0) {
+    console.log(bold('Workers'))
+    for (const name of workerNames) {
+      const worker = state.workers[name]
+      const defaults = worker.defaults
+
+      let locationStr = ''
+      if (isSSH(worker.location)) {
+        const session = tmuxSessionName(state.id, worker.id)
+        locationStr = `  ${cyan(`[ssh: ${worker.location.host}]`)} ${dim(`tmux: ${session}`)}`
+      }
+
+      const config = defaults
+        ? dim(`${defaults.runtime ?? 'local'} / ${defaults.agent ?? 'claude'}`)
+        : dim('no defaults — run `quimby set`')
+
+      console.log(`  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}`)
+    }
+  }
+
+  if (packs.length > 0) {
+    if (workerNames.length > 0) console.log()
+    console.log(bold('Packs'))
+    for (const pack of packs) {
+      const desc =
+        pack.description.length > 60 ? pack.description.slice(0, 57) + '...' : pack.description
+      console.log(`  ${pack.name}  ${dim(`from: ${pack.worker}`)}  ${desc}`)
+    }
+  }
+
+  if (subEntries.length > 0) {
+    console.log()
+    console.log(bold('Subscriptions'))
+    for (const [subscriber, targets] of subEntries) {
+      for (const target of targets) {
+        console.log(`  ${subscriber} ${dim('←')} ${target}`)
+      }
+    }
+  }
+
+  const serverInfo = await getServerInfo(repoRoot)
+  if (serverInfo) {
+    console.log()
+    console.log(dim(`Server running on :${serverInfo.port} (PID: ${serverInfo.pid})`))
+  }
+}

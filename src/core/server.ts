@@ -3,12 +3,19 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 
 import { join } from 'pathe'
 
-import type { QuimbyState } from '../types/workspace.js'
-import { ensureDir, exists, readText, writeText } from '../utils/fs.js'
-import { logger } from '../utils/logger.js'
-import { getQuimbyDir, getWorkerDir, getWorkerInboxStatusDir } from '../utils/paths.js'
-import { listPacks } from './pack.js'
-import { loadState, saveState } from './workspace.js'
+import { isSSH } from '../types/location'
+import type { QuimbyState } from '../types/workspace'
+import { ensureDir, exists, readText, writeText } from '../utils/fs'
+import { logger } from '../utils/logger'
+import {
+  getQuimbyDir,
+  getWorkerDir,
+  getWorkerInboxStatusDir,
+  remoteWorkerDir,
+} from '../utils/paths'
+import { listPacks } from './pack'
+import { getTransport } from './transport'
+import { loadState, saveState } from './workspace'
 
 export interface ServerOptions {
   repoRoot: string
@@ -168,33 +175,57 @@ async function pollWorkerStatus(
   name: string,
   cache: Map<string, StatusSnapshot>,
 ): Promise<void> {
-  const statusPath = join(getWorkerDir(repoRoot, name), 'status.md')
-  if (!(await exists(statusPath))) return
+  const worker = state.workers[name]
+  const previous = cache.get(name)
+  let content: string
 
-  const mtime = await getFileMtime(statusPath)
-  if (mtime === null) return
+  if (isSSH(worker.location)) {
+    // For SSH workers, fetch content and compare (no reliable mtime over SSH).
+    const transport = getTransport(worker.location)
+    const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+    try {
+      content = (await transport.readFile(`${rWorkerDir}/status.md`)).trim()
+    } catch {
+      return
+    }
+    if (previous && previous.content === content) return
+    cache.set(name, { content, mtime: 0 })
+  } else {
+    const statusPath = join(getWorkerDir(repoRoot, name), 'status.md')
+    if (!(await exists(statusPath))) return
 
-  const cached = cache.get(name)
-  if (cached && cached.mtime === mtime) return
+    const mtime = await getFileMtime(statusPath)
+    if (mtime === null) return
 
-  const content = (await readText(statusPath)).trim()
-  cache.set(name, { content, mtime })
+    if (previous && previous.mtime === mtime) return
 
-  if (!cached) return
+    content = (await readText(statusPath)).trim()
+    cache.set(name, { content, mtime })
+  }
+
+  // First time we've seen this worker's status — seed the cache without routing.
+  if (!previous) return
 
   logger.info(`[${name}] Status changed`)
 
   const subs = state.subscriptions ?? {}
+  const statusPayload = `# Status: ${name}\n\nUpdated: ${new Date().toISOString()}\n\n${content}\n`
+
   for (const [subscriber, targets] of Object.entries(subs)) {
     if (!targets.includes(name)) continue
-    if (!state.workers[subscriber]) continue
+    const subWorker = state.workers[subscriber]
+    if (!subWorker) continue
 
-    const inboxStatusDir = getWorkerInboxStatusDir(repoRoot, subscriber)
-    await ensureDir(inboxStatusDir)
-    await writeText(
-      join(inboxStatusDir, `${name}.md`),
-      `# Status: ${name}\n\nUpdated: ${new Date().toISOString()}\n\n${content}\n`,
-    )
+    if (isSSH(subWorker.location)) {
+      const transport = getTransport(subWorker.location)
+      const rInboxStatusDir = `${remoteWorkerDir(state.id, subscriber, subWorker.location.base)}/inbox/status`
+      await transport.ensureDir(rInboxStatusDir)
+      await transport.writeFile(`${rInboxStatusDir}/${name}.md`, statusPayload)
+    } else {
+      const inboxStatusDir = getWorkerInboxStatusDir(repoRoot, subscriber)
+      await ensureDir(inboxStatusDir)
+      await writeText(join(inboxStatusDir, `${name}.md`), statusPayload)
+    }
     logger.info(`  → routed to ${subscriber}`)
   }
 }

@@ -1,6 +1,6 @@
 import { execa } from 'execa'
 
-import { GitError } from './errors.js'
+import { GitError } from './errors'
 
 async function git(args: string[], cwd: string, opts?: { raw?: boolean }): Promise<string> {
   try {

@@ -1,14 +1,23 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 
 import { join } from 'pathe'
 
-import type { CommitMeta, PackMeta } from '../types/pack.js'
-import { PackError, QuimbyError } from '../utils/errors.js'
-import { ensureDir, exists, writeText } from '../utils/fs.js'
-import { cp } from '../utils/fs.js'
-import * as git from '../utils/git.js'
-import { getPackDir, getPacksDir, getWorkerDir, getWorkerRepoDir } from '../utils/paths.js'
-import { readYaml, writeYaml } from '../utils/yaml.js'
+import type { SSHLocation } from '../types/location'
+import type { CommitMeta, PackMeta } from '../types/pack'
+import { PackError, QuimbyError } from '../utils/errors'
+import { ensureDir, exists, writeText } from '../utils/fs'
+import { cp } from '../utils/fs'
+import * as git from '../utils/git'
+import {
+  getPackDir,
+  getPacksDir,
+  getWorkerDir,
+  getWorkerRepoDir,
+  remotePackDir,
+  remoteWorkerRepoDir,
+} from '../utils/paths'
+import { readYaml, writeYaml } from '../utils/yaml'
+import { getSSHTransport } from './transport'
 
 export async function createPack(opts: {
   repoRoot: string
@@ -107,7 +116,6 @@ export async function readPack(
   let squashedDiff = ''
   const diffPath = join(packDir, 'squashed.diff')
   if (await exists(diffPath)) {
-    const { readFile } = await import('node:fs/promises')
     squashedDiff = await readFile(diffPath, 'utf-8')
   }
 
@@ -204,6 +212,82 @@ export async function sendPack(opts: {
   const inboxDir = join(workerDir, 'inbox', 'packs', packName)
   await ensureDir(inboxDir)
   await cp(packDir, inboxDir, { recursive: true })
+}
+
+export async function createRemotePack(opts: {
+  repoRoot: string
+  workerName: string
+  workerLocation: SSHLocation
+  projectId: string
+  packName?: string
+  description?: string
+  suggestedMessage?: string
+}): Promise<PackMeta> {
+  const { repoRoot, workerName, workerLocation, projectId } = opts
+  const transport = getSSHTransport(workerLocation)
+  const rRepoDir = remoteWorkerRepoDir(projectId, workerName, workerLocation.base)
+
+  const logSubjects = await transport.exec(`git log quimby/seed..HEAD --format=%s`, {
+    cwd: rRepoDir,
+  })
+  const subjects = logSubjects.split('\n').filter(Boolean)
+
+  if (subjects.length === 0) {
+    throw new PackError('No commits since quimby/seed — nothing to pack')
+  }
+
+  const packName = opts.packName ?? (await nextPackName(repoRoot, workerName))
+  const description = opts.description ?? subjects.join('; ')
+  const suggestedMessage =
+    opts.suggestedMessage ?? (subjects.length === 1 ? subjects[0] : subjects[subjects.length - 1])
+
+  const packDir = getPackDir(repoRoot, packName)
+  if (await exists(packDir)) {
+    throw new PackError(`Pack "${packName}" already exists`)
+  }
+
+  const commitsDir = join(packDir, 'commits')
+  await ensureDir(commitsDir)
+
+  // Run format-patch on remote into a temp dir, then rsync back.
+  const rTmpDir = `/tmp/quimby-pack-${packName}`
+  await transport.exec(`mkdir -p ${rTmpDir}`, { cwd: rRepoDir })
+  await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, { cwd: rRepoDir })
+  await transport.rsyncFrom(rTmpDir, commitsDir)
+  await transport.exec(`rm -rf ${rTmpDir}`)
+
+  const squashedDiff = await transport.exec(`git diff quimby/seed`, { cwd: rRepoDir })
+  await writeText(join(packDir, 'squashed.diff'), squashedDiff)
+
+  const fullLog = await transport.exec(`git log quimby/seed..HEAD --format=%H|%s|%an|%aI`, {
+    cwd: rRepoDir,
+  })
+  const patchFiles = (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
+  const commits: CommitMeta[] = fullLog
+    .split('\n')
+    .filter(Boolean)
+    .map((line, i) => {
+      const [hash, message, author, date] = line.split('|')
+      return { hash, message, author, date, patchFile: patchFiles[i] ?? '' }
+    })
+
+  const meta: PackMeta = {
+    name: packName,
+    worker: workerName,
+    description,
+    suggestedMessage,
+    createdAt: new Date().toISOString(),
+    commits,
+  }
+
+  await writeYaml(join(packDir, 'meta.yaml'), meta)
+
+  // Also copy the pack to the remote packs dir so remote agents can reference it.
+  const rPackDir = remotePackDir(projectId, packName, workerLocation.base)
+  await transport.ensureDir(rPackDir)
+  await transport.rsyncTo(packDir, rPackDir)
+
+  return meta
 }
 
 async function nextPackName(repoRoot: string, workerName: string): Promise<string> {

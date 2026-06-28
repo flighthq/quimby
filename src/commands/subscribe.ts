@@ -1,8 +1,8 @@
 import { defineCommand } from 'citty'
 
-import { resolveWorkspace, saveState } from '../core/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { logger } from '../utils/logger.js'
+import { resolveWorkspace, saveState } from '../core/workspace'
+import { QuimbyError } from '../utils/errors'
+import { logger } from '../utils/logger'
 
 export default defineCommand({
   meta: {
@@ -21,32 +21,34 @@ export default defineCommand({
       required: true,
     },
   },
-  async run({ args }) {
-    const { state, repoRoot } = await resolveWorkspace()
-
-    if (!state.workers[args.worker]) {
-      throw new QuimbyError(`Worker "${args.worker}" not found`)
-    }
-    if (!state.workers[args.target]) {
-      throw new QuimbyError(`Worker "${args.target}" not found`)
-    }
-    if (args.worker === args.target) {
-      throw new QuimbyError('A worker cannot subscribe to itself')
-    }
-
-    const subs = state.subscriptions ?? {}
-    const targets = subs[args.worker] ?? []
-
-    if (targets.includes(args.target)) {
-      logger.info(`"${args.worker}" already subscribed to "${args.target}"`)
-      return
-    }
-
-    targets.push(args.target)
-    subs[args.worker] = targets
-    state.subscriptions = subs
-    await saveState(repoRoot, state)
-
-    logger.success(`"${args.worker}" now receives status updates from "${args.target}"`)
-  },
+  run,
 })
+
+async function run({ args }: { args: { worker: string; target: string } }) {
+  const { state, repoRoot } = await resolveWorkspace()
+
+  if (!state.workers[args.worker]) {
+    throw new QuimbyError(`Worker "${args.worker}" not found`)
+  }
+  if (!state.workers[args.target]) {
+    throw new QuimbyError(`Worker "${args.target}" not found`)
+  }
+  if (args.worker === args.target) {
+    throw new QuimbyError('A worker cannot subscribe to itself')
+  }
+
+  const subs = state.subscriptions ?? {}
+  const targets = subs[args.worker] ?? []
+
+  if (targets.includes(args.target)) {
+    logger.info(`"${args.worker}" already subscribed to "${args.target}"`)
+    return
+  }
+
+  targets.push(args.target)
+  subs[args.worker] = targets
+  state.subscriptions = subs
+  await saveState(repoRoot, state)
+
+  logger.success(`"${args.worker}" now receives status updates from "${args.target}"`)
+}

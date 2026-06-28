@@ -1,12 +1,15 @@
 import { defineCommand } from 'citty'
+import { execa } from 'execa'
 import { join } from 'pathe'
 
-import { readPack } from '../core/pack.js'
-import { resolveWorkspace } from '../core/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { exists } from '../utils/fs.js'
-import * as git from '../utils/git.js'
-import { getPackDir, getWorkerRepoDir } from '../utils/paths.js'
+import { readPack } from '../core/pack'
+import { getTransport } from '../core/transport'
+import { resolveWorkspace } from '../core/workspace'
+import type { WorkerLocation } from '../types/location'
+import { isSSH } from '../types/location'
+import { exists } from '../utils/fs'
+import * as git from '../utils/git'
+import { getPackDir, getWorkerRepoDir, remoteWorkerRepoDir } from '../utils/paths'
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`
@@ -31,13 +34,22 @@ function colorizeDiff(diff: string): string {
 async function getDiff(
   repoRoot: string,
   name: string,
-  workers: Record<string, unknown>,
+  state: { id: string; workers: Record<string, { location?: WorkerLocation }> },
   stat: boolean,
 ): Promise<string> {
-  if (workers[name]) {
+  const worker = state.workers[name]
+
+  if (worker) {
+    if (isSSH(worker.location)) {
+      const transport = getTransport(worker.location)
+      const rRepoDir = remoteWorkerRepoDir(state.id, name, worker.location.base)
+      return stat
+        ? transport.exec(`git diff --stat quimby/seed`, { cwd: rRepoDir })
+        : transport.exec(`git diff quimby/seed`, { cwd: rRepoDir })
+    }
+
     const repoPath = getWorkerRepoDir(repoRoot, name)
     if (stat) {
-      const { execa } = await import('execa')
       const { stdout } = await execa('git', ['diff', '--stat', 'quimby/seed'], { cwd: repoPath })
       return stdout
     }
@@ -48,14 +60,14 @@ async function getDiff(
   if (await exists(join(packDir, 'meta.yaml'))) {
     if (stat) {
       const { meta } = await readPack(repoRoot, name)
-      const files = meta.commits.length
-      return `${meta.name}: ${files} commit${files === 1 ? '' : 's'} from ${meta.worker}`
+      const count = meta.commits.length
+      return `${meta.name}: ${count} commit${count === 1 ? '' : 's'} from ${meta.worker}`
     }
     const { squashedDiff } = await readPack(repoRoot, name)
     return squashedDiff
   }
 
-  throw new QuimbyError(`"${name}" is not a worker or pack`)
+  throw new Error(`"${name}" is not a worker or pack`)
 }
 
 export default defineCommand({
@@ -80,29 +92,32 @@ export default defineCommand({
       default: false,
     },
   },
-  async run({ args }) {
-    const { state, repoRoot } = await resolveWorkspace()
-
-    if (args.other) {
-      const [diffA, diffB] = await Promise.all([
-        getDiff(repoRoot, args.name, state.workers, args.stat),
-        getDiff(repoRoot, args.other, state.workers, args.stat),
-      ])
-
-      console.log(bold(`\n═══ ${args.name} ═══`))
-      console.log(diffA ? (args.stat ? diffA : colorizeDiff(diffA)) : '  (no changes)')
-
-      console.log(bold(`\n═══ ${args.other} ═══`))
-      console.log(diffB ? (args.stat ? diffB : colorizeDiff(diffB)) : '  (no changes)')
-    } else {
-      const diff = await getDiff(repoRoot, args.name, state.workers, args.stat)
-
-      if (!diff) {
-        console.log('No changes.')
-        return
-      }
-
-      console.log(args.stat ? diff : colorizeDiff(diff))
-    }
-  },
+  run,
 })
+
+async function run({ args }: { args: { name: string; other?: string; stat: boolean } }) {
+  const { state, repoRoot } = await resolveWorkspace()
+
+  if (args.other) {
+    const [diffA, diffB] = await Promise.all([
+      getDiff(repoRoot, args.name, state, args.stat),
+      getDiff(repoRoot, args.other, state, args.stat),
+    ])
+
+    console.log(bold(`\n═══ ${args.name} ═══`))
+    console.log(diffA ? (args.stat ? diffA : colorizeDiff(diffA)) : '  (no changes)')
+
+    console.log(bold(`\n═══ ${args.other} ═══`))
+    console.log(diffB ? (args.stat ? diffB : colorizeDiff(diffB)) : '  (no changes)')
+    return
+  }
+
+  const diff = await getDiff(repoRoot, args.name, state, args.stat)
+
+  if (!diff) {
+    console.log('No changes.')
+    return
+  }
+
+  console.log(args.stat ? diff : colorizeDiff(diff))
+}

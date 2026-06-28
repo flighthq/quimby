@@ -1,13 +1,14 @@
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 
+import { execa } from 'execa'
 import { join } from 'pathe'
 
-import type { QuimbyState } from '../types/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { ensureDir, exists } from '../utils/fs.js'
-import * as git from '../utils/git.js'
-import { getQuimbyDir, getStatePath } from '../utils/paths.js'
-import { readYaml, writeYaml } from '../utils/yaml.js'
+import type { QuimbyState } from '../types/workspace'
+import { QuimbyError } from '../utils/errors'
+import { ensureDir, exists } from '../utils/fs'
+import * as git from '../utils/git'
+import { getQuimbyDir, getStatePath } from '../utils/paths'
+import { readYaml, writeYaml } from '../utils/yaml'
 
 export async function resolveWorkspace(): Promise<{
   state: QuimbyState
@@ -27,6 +28,21 @@ export async function resolveWorkspace(): Promise<{
   }
 
   const state = await readYaml<QuimbyState>(statePath)
+
+  // One-time migration: add stable IDs if missing (existing workspaces pre-date this field).
+  let dirty = false
+  if (!state.id) {
+    state.id = crypto.randomUUID()
+    dirty = true
+  }
+  for (const worker of Object.values(state.workers)) {
+    if (!worker.id) {
+      worker.id = crypto.randomUUID()
+      dirty = true
+    }
+  }
+  if (dirty) await saveState(repoRoot, state)
+
   return { state, repoRoot }
 }
 
@@ -69,7 +85,6 @@ export async function saveState(repoRoot: string, state: QuimbyState): Promise<v
 
 async function getCurrentBranch(repoRoot: string): Promise<string> {
   try {
-    const { execa } = await import('execa')
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot })
     return stdout.trim()
   } catch {

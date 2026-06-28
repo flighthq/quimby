@@ -1,4 +1,4 @@
-import type { RunSpec, RuntimeAdapter, RuntimeContext } from '../types/runtime.js'
+import type { RunSpec, RuntimeAdapter, RuntimeContext } from '../types/runtime'
 
 export const openshell: RuntimeAdapter = {
   type: 'openshell',

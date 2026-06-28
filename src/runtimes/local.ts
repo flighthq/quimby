@@ -1,4 +1,4 @@
-import type { RunSpec, RuntimeAdapter, RuntimeContext } from '../types/runtime.js'
+import type { RunSpec, RuntimeAdapter, RuntimeContext } from '../types/runtime'
 
 function parseCmd(agentCmd: string): { command: string; args: string[] } {
   const parts = agentCmd.split(/\s+/)

@@ -1,9 +1,9 @@
 import { defineCommand } from 'citty'
 
-import { renameWorker } from '../core/worker.js'
-import { resolveWorkspace } from '../core/workspace.js'
-import { QuimbyError } from '../utils/errors.js'
-import { logger } from '../utils/logger.js'
+import { renameWorker } from '../core/worker'
+import { resolveWorkspace } from '../core/workspace'
+import { QuimbyError } from '../utils/errors'
+import { logger } from '../utils/logger'
 
 export default defineCommand({
   meta: {
@@ -22,15 +22,16 @@ export default defineCommand({
       required: true,
     },
   },
-  async run({ args }) {
-    const { state, repoRoot } = await resolveWorkspace()
-
-    if (!state.workers[args.name]) {
-      throw new QuimbyError(`Worker "${args.name}" not found`)
-    }
-
-    await renameWorker(repoRoot, args.name, args.newName)
-
-    logger.success(`Worker "${args.name}" renamed to "${args.newName}"`)
-  },
+  run,
 })
+
+async function run({ args }: { args: { name: string; newName: string } }) {
+  const { state, repoRoot } = await resolveWorkspace()
+
+  if (!state.workers[args.name]) {
+    throw new QuimbyError(`Worker "${args.name}" not found`)
+  }
+
+  await renameWorker(repoRoot, args.name, args.newName)
+  logger.success(`Worker "${args.name}" renamed to "${args.newName}"`)
+}
