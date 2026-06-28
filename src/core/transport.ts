@@ -122,6 +122,22 @@ class SSHTransport implements Transport {
     await execa('ssh', ['-t', ...this.sshFlags, this.loc.host, remoteCmd], { stdio: 'inherit' })
   }
 
+  async checkCapabilities(required: string[]): Promise<void> {
+    const missing: string[] = []
+    for (const cmd of required) {
+      try {
+        await execa('ssh', [...this.sshFlags, this.loc.host, `command -v ${cmd}`])
+      } catch {
+        missing.push(cmd)
+      }
+    }
+    if (missing.length > 0) {
+      throw new Error(
+        `Remote host ${this.loc.host} is missing required tools: ${missing.join(', ')}. Install them before running an SSH worker.`,
+      )
+    }
+  }
+
   /** Copy a file from local to remote using scp. */
   async scpTo(localPath: string, remotePath: string): Promise<void> {
     await execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${remotePath}`])

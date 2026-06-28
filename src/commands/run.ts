@@ -63,6 +63,7 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
     // Lazy remote init: set up worker dirs and clone if this is the first run.
     const repoReady = await transport.fileExists(`${rRepoDir}/.git`)
     if (!repoReady) {
+      await transport.checkCapabilities(['git', 'rsync', 'tmux'])
       logger.start('Initializing remote worker...')
       await transport.ensureDir(`${rWorkerDir}/inbox/packs`)
       await transport.ensureDir(`${rWorkerDir}/inbox/status`)
@@ -99,7 +100,9 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
     )
     // Quote the user-supplied agentCmd wherever it appears in the args; leave
     // the runtime's own static tokens (e.g. 'run', 'sandbox') unquoted.
-    const remoteCmd = [spec.command, ...spec.args.map(a => (a === agentCmd ? sq(a) : a))].join(' ')
+    const remoteCmd = [spec.command, ...spec.args.map((a) => (a === agentCmd ? sq(a) : a))].join(
+      ' ',
+    )
 
     const sessionName = tmuxSessionName(state.id, worker.id)
     const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
@@ -113,7 +116,7 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
       '-s',
       sessionName,
       '-c',
-      rWorkerDir,     // unquoted so the remote shell expands ~
+      rWorkerDir, // unquoted so the remote shell expands ~
       'bash',
       '-l',
       '-c',
