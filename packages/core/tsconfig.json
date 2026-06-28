@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "paths": {
+      "@quimby/types": ["../../packages/types/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

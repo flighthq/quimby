@@ -1,7 +1,18 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "."
+    "rootDir": ".",
+    "paths": {
+      "@quimby/types": ["./packages/types/src/index.ts"],
+      "@quimby/core": ["./packages/core/src/index.ts"]
+    }
   },
-  "include": ["src", "*.ts", "*.js"]
+  "include": [
+    "apps/*/src/**/*",
+    "packages/*/src/**/*",
+    "apps/*/*.ts",
+    "packages/*/*.ts",
+    "*.ts",
+    "*.js"
+  ]
 }

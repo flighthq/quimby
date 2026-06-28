@@ -1,0 +1,155 @@
+import { createPack, createRemotePack } from '@quimby/core'
+import { getSSHTransport, sq } from '@quimby/core'
+import { advanceWorker } from '@quimby/core'
+import { resolveWorkspace } from '@quimby/core'
+import { QuimbyError } from '@quimby/core'
+import { git } from '@quimby/core'
+import { logger } from '@quimby/core'
+import { getWorkerRepoDir, remoteWorkerRepoDir } from '@quimby/core'
+import { isSSH } from '@quimby/types'
+import { defineCommand } from 'citty'
+import { execa } from 'execa'
+
+export default defineCommand({
+  meta: {
+    name: 'pack',
+    description: "Package a worker's work into a pack",
+  },
+  args: {
+    worker: {
+      type: 'positional',
+      description: 'Worker name',
+      required: true,
+    },
+    name: {
+      type: 'string',
+      alias: 'n',
+      description: 'Pack name (auto-generated if omitted)',
+    },
+    description: {
+      type: 'string',
+      alias: 'd',
+      description: 'Pack description (inferred from commits if omitted)',
+    },
+    message: {
+      type: 'string',
+      alias: 'm',
+      description: 'Commit message for uncommitted work + suggested apply message',
+    },
+    'skip-check': {
+      type: 'boolean',
+      description: "Skip the worker's configured verification command",
+      default: false,
+    },
+    rebase: {
+      type: 'boolean',
+      description: 'Rebase the worker onto host HEAD before packing (clean-applying pack)',
+      default: false,
+    },
+  },
+  run,
+})
+
+async function run({
+  args,
+}: {
+  args: {
+    worker: string
+    name?: string
+    description?: string
+    message?: string
+    'skip-check': boolean
+    rebase: boolean
+  }
+}) {
+  const { state, repoRoot } = await resolveWorkspace()
+
+  const worker = state.workers[args.worker]
+  if (!worker) {
+    throw new QuimbyError(`Worker "${args.worker}" not found`)
+  }
+
+  const commitMessage = args.message ?? args.description ?? `Work by ${args.worker}`
+
+  if (isSSH(worker.location)) {
+    const transport = getSSHTransport(worker.location)
+    const rRepoDir = remoteWorkerRepoDir(state.id, args.worker, worker.location.base)
+
+    const dirty = (await transport.exec(`git status --porcelain`, { cwd: rRepoDir })).trim()
+    if (dirty) {
+      await transport.exec(`git add -A && git commit -m ${sq(commitMessage)}`, { cwd: rRepoDir })
+      logger.info(`Committed working tree on "${args.worker}": "${commitMessage}"`)
+    }
+
+    if (args.rebase) await rebaseOntoHead(repoRoot, args.worker)
+
+    if (worker.check && !args['skip-check']) {
+      logger.start(`Running check on "${args.worker}": ${worker.check}`)
+      try {
+        await transport.runInteractive('bash', ['-lc', sq(worker.check)], rRepoDir)
+      } catch {
+        throw new QuimbyError(
+          `Check failed for "${args.worker}" — fix it in the worker and re-pack (or pass --skip-check)`,
+        )
+      }
+      logger.success('Check passed')
+    }
+
+    const meta = await createRemotePack({
+      repoRoot,
+      workerName: args.worker,
+      workerLocation: worker.location,
+      projectId: state.id,
+      packName: args.name,
+      description: args.description,
+      suggestedMessage: args.message,
+    })
+    reportPack(meta.name, meta.commits.length)
+    return
+  }
+
+  const repoDir = getWorkerRepoDir(repoRoot, args.worker)
+
+  if (!(await git.isClean(repoDir))) {
+    await git.addAll(repoDir)
+    await git.commit(repoDir, commitMessage)
+    logger.info(`Committed working tree on "${args.worker}": "${commitMessage}"`)
+  }
+
+  if (args.rebase) await rebaseOntoHead(repoRoot, args.worker)
+
+  if (worker.check && !args['skip-check']) {
+    logger.start(`Running check on "${args.worker}": ${worker.check}`)
+    try {
+      await execa(worker.check, { cwd: repoDir, stdio: 'inherit', shell: true })
+    } catch {
+      throw new QuimbyError(
+        `Check failed for "${args.worker}" — fix it in the worker and re-pack (or pass --skip-check)`,
+      )
+    }
+    logger.success('Check passed')
+  }
+
+  const meta = await createPack({
+    repoRoot,
+    workerName: args.worker,
+    packName: args.name,
+    description: args.description,
+    suggestedMessage: args.message,
+  })
+  reportPack(meta.name, meta.commits.length)
+}
+
+async function rebaseOntoHead(repoRoot: string, workerName: string): Promise<void> {
+  logger.start(`Rebasing "${workerName}" onto host HEAD`)
+  const result = await advanceWorker(repoRoot, workerName)
+  if (result.rebased) {
+    logger.success(`Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`)
+  } else {
+    logger.info(`Already based on host HEAD (${result.newSeed.slice(0, 8)})`)
+  }
+}
+
+function reportPack(name: string, commitCount: number): void {
+  logger.success(`Pack "${name}" created (${commitCount} commit${commitCount === 1 ? '' : 's'})`)
+}

@@ -9,12 +9,15 @@ export default [
   {
     ignores: [
       'dist/**',
+      '**/dist/**',
       'coverage/**',
       'node_modules/**',
+      '**/node_modules/**',
       '.git/**',
       '.quimby/**',
       '.vscode/**',
       'flight/**',
+      'src/**',
     ],
   },
   {
@@ -68,7 +71,7 @@ export default [
 
   {
     // Commands use console.log intentionally for clean formatted output
-    files: ['src/commands/**/*.ts'],
+    files: ['apps/cli/src/commands/**/*.ts'],
     rules: {
       'no-console': 'off',
     },
