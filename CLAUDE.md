@@ -68,7 +68,7 @@ quimby list                                          # show workers, packs, subs
 quimby status [worker]                               # show agent-written status
 quimby assign <worker> -m "..." [-p <pack>]          # push assignment
 quimby diff <worker|pack> [other]                    # show changes
-quimby pack <worker> [-n <name>] [-m <msg>] [--skip-check]  # package worker's work (auto-commits a dirty tree; runs the worker's check)
+quimby pack <worker> [-n <name>] [-m <msg>] [--rebase] [--skip-check]  # package worker's work (auto-commits dirty tree; --rebase rebases onto host HEAD first; runs the worker's check)
 quimby apply <pack> [--commits|--patch] [--3way]     # apply pack to host repo (--3way: merge conflicts instead of aborting)
 quimby send <worker> <pack>                          # route pack to worker
 quimby advance <worker...> [--all]                   # fast-forward worker(s) to host HEAD (preserves assignment/status/inbox); --all skips busy workers

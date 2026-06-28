@@ -3,6 +3,7 @@ import { execa } from 'execa'
 
 import { createPack, createRemotePack } from '../core/pack'
 import { getSSHTransport, sq } from '../core/transport'
+import { advanceWorker } from '../core/worker'
 import { resolveWorkspace } from '../core/workspace'
 import { isSSH } from '../types/location'
 import { QuimbyError } from '../utils/errors'
@@ -41,6 +42,11 @@ export default defineCommand({
       description: "Skip the worker's configured verification command",
       default: false,
     },
+    rebase: {
+      type: 'boolean',
+      description: 'Rebase the worker onto host HEAD before packing (clean-applying pack)',
+      default: false,
+    },
   },
   run,
 })
@@ -54,6 +60,7 @@ async function run({
     description?: string
     message?: string
     'skip-check': boolean
+    rebase: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -74,6 +81,8 @@ async function run({
       await transport.exec(`git add -A && git commit -m ${sq(commitMessage)}`, { cwd: rRepoDir })
       logger.info(`Committed working tree on "${args.worker}": "${commitMessage}"`)
     }
+
+    if (args.rebase) await rebaseOntoHead(repoRoot, args.worker)
 
     if (worker.check && !args['skip-check']) {
       logger.start(`Running check on "${args.worker}": ${worker.check}`)
@@ -108,6 +117,8 @@ async function run({
     logger.info(`Committed working tree on "${args.worker}": "${commitMessage}"`)
   }
 
+  if (args.rebase) await rebaseOntoHead(repoRoot, args.worker)
+
   if (worker.check && !args['skip-check']) {
     logger.start(`Running check on "${args.worker}": ${worker.check}`)
     try {
@@ -128,6 +139,16 @@ async function run({
     suggestedMessage: args.message,
   })
   reportPack(meta.name, meta.commits.length)
+}
+
+async function rebaseOntoHead(repoRoot: string, workerName: string): Promise<void> {
+  logger.start(`Rebasing "${workerName}" onto host HEAD`)
+  const result = await advanceWorker(repoRoot, workerName)
+  if (result.rebased) {
+    logger.success(`Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`)
+  } else {
+    logger.info(`Already based on host HEAD (${result.newSeed.slice(0, 8)})`)
+  }
 }
 
 function reportPack(name: string, commitCount: number): void {

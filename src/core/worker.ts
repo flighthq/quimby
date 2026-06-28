@@ -284,7 +284,9 @@ export async function advanceWorker(
   } catch {
     await git.rebaseAbort(repoDir)
     throw new QuimbyError(
-      `Worker "${name}" has rebase conflicts — resolve them manually or run "quimby reset ${name} --force" to start fresh`,
+      `Worker "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — the rebase was aborted and the work is intact. ` +
+        `Resolve them in the worker, or pack without --rebase and "quimby apply <pack> --3way". ` +
+        `"quimby reset ${name} --force" starts fresh but discards the worker's work.`,
     )
   }
 
@@ -343,7 +345,9 @@ async function advanceSSHWorker(
   } catch {
     await transport.exec(`git rebase --abort`, { cwd: rRepoDir }).catch(() => {})
     throw new QuimbyError(
-      `Worker "${name}" has rebase conflicts — run "quimby reset ${name} --force" to start fresh`,
+      `Worker "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — the rebase was aborted and the work is intact. ` +
+        `Resolve them on the worker, or pack without --rebase and "quimby apply <pack> --3way". ` +
+        `"quimby reset ${name} --force" starts fresh but discards the worker's work.`,
     )
   }
 
