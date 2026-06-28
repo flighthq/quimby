@@ -79,24 +79,45 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
       logger.success('Remote worker initialized')
     }
 
+    const runtime =
+      (args.runtime as RuntimeType | undefined) ??
+      (worker.defaults?.runtime as RuntimeType | undefined) ??
+      'local'
     const agentCmd = args.agent ?? worker.defaults?.agent ?? 'claude'
-    const sessionName = tmuxSessionName(state.id, worker.id)
 
-    logger.success(`Attaching to tmux session "${sessionName}" on ${loc.host}`)
+    if (!runtimeTypes.includes(runtime)) {
+      throw new QuimbyError(`Unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`)
+    }
+
+    // Build the shell command for the remote machine using the runtime adapter.
+    // For sbx: 'sbx run claude', for openshell: 'openshell sandbox create -- claude', etc.
+    // cwd is handled by tmux -c, so we pass remote paths but don't use spec.cwd.
+    const adapter = getRuntime(runtime)
+    const spec = await adapter.runSpec(
+      { workerName: args.name, workerDir: rWorkerDir, repoDir: rRepoDir, repoRoot: rRoot },
+      agentCmd,
+    )
+    // Quote the user-supplied agentCmd wherever it appears in the args; leave
+    // the runtime's own static tokens (e.g. 'run', 'sandbox') unquoted.
+    const remoteCmd = [spec.command, ...spec.args.map(a => (a === agentCmd ? sq(a) : a))].join(' ')
+
+    const sessionName = tmuxSessionName(state.id, worker.id)
+    const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
+    logger.success(`Attaching to tmux session "${sessionName}" on ${loc.host}${runtimeLabel}`)
     // CWD is rWorkerDir (parent of repo/) so the agent sees assignment.md, inbox/, etc.
     // tmux -A: attach to existing session or create a new one.
-    // bash -l: login shell so PATH includes user-installed tools like claude.
+    // bash -l: login shell so PATH includes user-installed tools like claude / sbx.
     await transport.runInteractive('tmux', [
       'new-session',
       '-A',
       '-s',
       sessionName,
       '-c',
-      sq(rWorkerDir),
+      rWorkerDir,     // unquoted so the remote shell expands ~
       'bash',
       '-l',
       '-c',
-      sq(agentCmd),
+      sq(remoteCmd),
     ])
     return
   }

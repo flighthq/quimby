@@ -259,7 +259,7 @@ export async function createRemotePack(opts: {
   const squashedDiff = await transport.exec(`git diff quimby/seed`, { cwd: rRepoDir })
   await writeText(join(packDir, 'squashed.diff'), squashedDiff)
 
-  const fullLog = await transport.exec(`git log quimby/seed..HEAD --format=%H|%s|%an|%aI`, {
+  const fullLog = await transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, {
     cwd: rRepoDir,
   })
   const patchFiles = (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
