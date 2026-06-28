@@ -69,9 +69,10 @@ quimby status [worker]                               # show agent-written status
 quimby assign <worker> -m "..." [-p <pack>]          # push assignment
 quimby diff <worker|pack> [other]                    # show changes
 quimby pack <worker> [-n <name>]                     # package worker's work
-quimby apply <pack> [--commits|--patch]              # apply pack to host repo
+quimby apply <pack> [--commits|--patch] [--3way]     # apply pack to host repo (--3way: merge conflicts instead of aborting)
 quimby send <worker> <pack>                          # route pack to worker
-quimby reset <worker> --force                        # nuclear reset worker (requires --force)
+quimby advance <worker>                              # fast-forward worker to host HEAD (preserves assignment/status/inbox)
+quimby reset <worker> --force                        # nuclear reset worker (requires --force; wipes assignment/status)
 quimby rename <worker> <new-name>                    # rename worker
 quimby remove <worker> [--force]                     # remove worker (--force skips remote cleanup)
 quimby serve [-p <port>] [--poll <secs>]             # start the server

@@ -71,6 +71,32 @@ export async function apply(
   await git(args, cwd)
 }
 
+/**
+ * Apply a patch with 3-way merge fallback. Returns conflicted file paths on partial
+ * success; empty array means clean apply. Throws GitError on total failure (patch
+ * could not be applied at all, e.g. malformed diff or missing blobs).
+ */
+export async function applyThreeWay(cwd: string, patchPath: string): Promise<string[]> {
+  try {
+    await execa('git', ['apply', '--3way', patchPath], { cwd, stripFinalNewline: true })
+    return []
+  } catch {
+    // Distinguish partial apply with conflicts from complete failure
+    try {
+      const { stdout } = await execa('git', ['status', '--porcelain'], {
+        cwd,
+        stripFinalNewline: true,
+      })
+      const conflicts = stdout
+        .split('\n')
+        .filter((l) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(l))
+        .map((l) => l.slice(3).trim())
+      if (conflicts.length > 0) return conflicts
+    } catch {}
+    throw new GitError('git apply --3way failed: patch could not be applied', undefined)
+  }
+}
+
 export async function am(cwd: string, patchPaths: string[]): Promise<void> {
   await git(['am', '--3way', ...patchPaths], cwd)
 }
@@ -144,8 +170,20 @@ export async function checkout(cwd: string, ref: string): Promise<void> {
   await git(['checkout', ref], cwd)
 }
 
-export async function tagForce(cwd: string, name: string): Promise<void> {
-  await git(['tag', '-f', name], cwd)
+export async function tagForce(cwd: string, name: string, ref?: string): Promise<void> {
+  const args = ['tag', '-f', name]
+  if (ref) args.push(ref)
+  await git(args, cwd)
+}
+
+export async function rebase(cwd: string, onto: string): Promise<void> {
+  await git(['rebase', onto], cwd)
+}
+
+export async function rebaseAbort(cwd: string): Promise<void> {
+  try {
+    await git(['rebase', '--abort'], cwd)
+  } catch {}
 }
 
 export async function stash(cwd: string): Promise<boolean> {

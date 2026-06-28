@@ -3,9 +3,9 @@ import { rename, rm } from 'node:fs/promises'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
-import type { WorkerLocation } from '../types/location'
+import type { SSHLocation, WorkerLocation } from '../types/location'
 import { isSSH } from '../types/location'
-import type { WorkerState } from '../types/workspace'
+import type { QuimbyState, WorkerState } from '../types/workspace'
 import { QuimbyError } from '../utils/errors'
 import { ensureDir, writeText } from '../utils/fs'
 import * as git from '../utils/git'
@@ -215,6 +215,125 @@ export async function resetWorker(repoRoot: string, name: string): Promise<void>
 
   await writeText(join(workerDir, 'assignment.md'), '')
   await writeText(join(workerDir, 'status.md'), 'idle')
+}
+
+export async function advanceWorker(
+  repoRoot: string,
+  name: string,
+): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
+  const state = await loadState(repoRoot)
+
+  if (!state.workers[name]) {
+    throw new QuimbyError(`Worker "${name}" not found`)
+  }
+
+  const worker = state.workers[name]
+
+  if (isSSH(worker.location)) {
+    return advanceSSHWorker(repoRoot, name, worker, state)
+  }
+
+  const repoDir = getWorkerRepoDir(repoRoot, name)
+
+  if (!(await git.isClean(repoDir))) {
+    throw new QuimbyError(
+      `Worker "${name}" has uncommitted changes — commit them first so they can be rebased onto the new baseline`,
+    )
+  }
+
+  const hostHead = await git.getCurrentRef(repoRoot)
+
+  if (hostHead === worker.seedCommit) {
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+  }
+
+  const logOutput = await git.log(repoDir, 'quimby/seed..HEAD', '%H')
+  const workerCommits = logOutput.split('\n').filter(Boolean)
+  const commitsReplayed = workerCommits.length
+
+  await git.fetch(repoDir, 'origin')
+
+  if (commitsReplayed === 0) {
+    await git.resetHard(repoDir, hostHead)
+    await git.tagForce(repoDir, 'quimby/seed')
+    state.workers[name].seedCommit = hostHead
+    await saveState(repoRoot, state)
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+  }
+
+  try {
+    await git.rebase(repoDir, hostHead)
+  } catch {
+    await git.rebaseAbort(repoDir)
+    throw new QuimbyError(
+      `Worker "${name}" has rebase conflicts — resolve them manually or run "quimby reset ${name} --force" to start fresh`,
+    )
+  }
+
+  // Tag the new base (hostHead), not the rebased HEAD
+  await git.tagForce(repoDir, 'quimby/seed', hostHead)
+  state.workers[name].seedCommit = hostHead
+  await saveState(repoRoot, state)
+
+  return { newSeed: hostHead, rebased: true, commitsReplayed }
+}
+
+async function advanceSSHWorker(
+  repoRoot: string,
+  name: string,
+  worker: WorkerState,
+  state: QuimbyState,
+): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
+  const location = worker.location as SSHLocation
+  const transport = getSSHTransport(location)
+  const rRoot = remoteProjectRoot(state.id, location.base)
+  const rRepoDir = remoteWorkerRepoDir(state.id, name, location.base)
+
+  await transport.syncProjectTo(repoRoot, rRoot)
+
+  const hostHead = await git.getCurrentRef(repoRoot)
+
+  if (hostHead === worker.seedCommit) {
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+  }
+
+  const statusOutput = await transport.exec(`git status --porcelain`, { cwd: rRepoDir })
+  if (statusOutput.trim()) {
+    throw new QuimbyError(
+      `Worker "${name}" has uncommitted changes — commit them first so they can be rebased onto the new baseline`,
+    )
+  }
+
+  const logOutput = await transport.exec(`git log quimby/seed..HEAD --format=%H`, {
+    cwd: rRepoDir,
+  })
+  const workerCommits = logOutput.split('\n').filter(Boolean)
+  const commitsReplayed = workerCommits.length
+
+  await transport.exec(`git fetch origin`, { cwd: rRepoDir })
+
+  if (commitsReplayed === 0) {
+    await transport.exec(`git reset --hard ${hostHead}`, { cwd: rRepoDir })
+    await transport.exec(`git tag -f quimby/seed`, { cwd: rRepoDir })
+    state.workers[name].seedCommit = hostHead
+    await saveState(repoRoot, state)
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+  }
+
+  try {
+    await transport.exec(`git rebase ${hostHead}`, { cwd: rRepoDir })
+  } catch {
+    await transport.exec(`git rebase --abort`, { cwd: rRepoDir }).catch(() => {})
+    throw new QuimbyError(
+      `Worker "${name}" has rebase conflicts — run "quimby reset ${name} --force" to start fresh`,
+    )
+  }
+
+  await transport.exec(`git tag -f quimby/seed ${hostHead}`, { cwd: rRepoDir })
+  state.workers[name].seedCommit = hostHead
+  await saveState(repoRoot, state)
+
+  return { newSeed: hostHead, rebased: true, commitsReplayed }
 }
 
 function validateWorkerName(name: string): void {

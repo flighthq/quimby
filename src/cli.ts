@@ -21,6 +21,7 @@ const main = defineCommand({
     send: () => import('./commands/send').then((m) => m.default),
     set: () => import('./commands/set').then((m) => m.default),
     sync: () => import('./commands/sync').then((m) => m.default),
+    advance: () => import('./commands/advance').then((m) => m.default),
     reset: () => import('./commands/reset').then((m) => m.default),
     rename: () => import('./commands/rename').then((m) => m.default),
     remove: () => import('./commands/remove').then((m) => m.default),

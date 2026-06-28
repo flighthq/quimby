@@ -3,7 +3,7 @@ import { resolve } from 'pathe'
 
 import { type ApplyMode, applyPack } from '../core/pack'
 import { resolveWorkspace } from '../core/workspace'
-import { QuimbyError } from '../utils/errors'
+import { ConflictError, QuimbyError } from '../utils/errors'
 import { logger } from '../utils/logger'
 
 export default defineCommand({
@@ -27,6 +27,12 @@ export default defineCommand({
       description: 'Apply as working tree changes without committing',
       default: false,
     },
+    '3way': {
+      type: 'boolean',
+      description:
+        'Use 3-way merge when applying — leaves conflict markers on overlap instead of aborting',
+      default: false,
+    },
     branch: {
       type: 'string',
       alias: 'b',
@@ -44,7 +50,14 @@ export default defineCommand({
 async function run({
   args,
 }: {
-  args: { pack: string; commits: boolean; patch: boolean; branch?: string; target?: string }
+  args: {
+    pack: string
+    commits: boolean
+    patch: boolean
+    '3way': boolean
+    branch?: string
+    target?: string
+  }
 }) {
   const { repoRoot } = await resolveWorkspace()
 
@@ -53,15 +66,30 @@ async function run({
   }
 
   const mode: ApplyMode = args.commits ? 'commits' : args.patch ? 'patch' : 'squashed'
+  const threeWay = args['3way']
   const targetRepoPath = resolve(args.target ?? process.cwd())
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
 
-  logger.start(`Applying pack "${args.pack}" (${mode} mode)`)
-  await applyPack({ repoRoot, packName: args.pack, targetRepoPath, mode, branch })
+  logger.start(`Applying pack "${args.pack}" (${mode} mode${threeWay ? ', 3-way merge' : ''})`)
 
-  logger.success(`Pack applied to ${targetRepoPath}`)
+  try {
+    await applyPack({ repoRoot, packName: args.pack, targetRepoPath, mode, branch, threeWay })
+  } catch (err) {
+    if (err instanceof ConflictError) {
+      logger.warn(`${err.message}`)
+      logger.info('Conflicted files:')
+      for (const f of err.conflicts) {
+        logger.info(`  ${f}`)
+      }
+      logger.info('Resolve conflicts, then: git add -A && git commit')
+      process.exit(1)
+    }
+    throw err
+  }
+
+  logger.success(`Pack "${args.pack}" applied`)
   if (mode === 'patch') {
-    logger.info('Changes applied to working tree (no commit created)')
+    logger.info('Changes in working tree — no commit created')
   }
 }

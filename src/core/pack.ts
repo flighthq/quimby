@@ -4,7 +4,7 @@ import { join } from 'pathe'
 
 import type { SSHLocation } from '../types/location'
 import type { CommitMeta, PackMeta } from '../types/pack'
-import { PackError, QuimbyError } from '../utils/errors'
+import { ConflictError, PackError, QuimbyError } from '../utils/errors'
 import { ensureDir, exists, writeText } from '../utils/fs'
 import { cp } from '../utils/fs'
 import * as git from '../utils/git'
@@ -130,8 +130,9 @@ export async function applyPack(opts: {
   targetRepoPath: string
   mode: ApplyMode
   branch?: boolean | string
+  threeWay?: boolean
 }): Promise<void> {
-  const { repoRoot, packName, targetRepoPath, mode, branch } = opts
+  const { repoRoot, packName, targetRepoPath, mode, branch, threeWay } = opts
   const packDir = getPackDir(repoRoot, packName)
   const { meta } = await readPack(repoRoot, packName)
 
@@ -154,8 +155,18 @@ export async function applyPack(opts: {
     switch (mode) {
       case 'squashed': {
         const diffPath = join(packDir, 'squashed.diff')
-        await git.apply(targetRepoPath, diffPath, { check: true })
-        await git.apply(targetRepoPath, diffPath)
+        if (threeWay) {
+          const conflicts = await git.applyThreeWay(targetRepoPath, diffPath)
+          if (conflicts.length > 0) {
+            throw new ConflictError(
+              `Pack "${packName}" applied with ${conflicts.length} conflict(s) — resolve then commit`,
+              conflicts,
+            )
+          }
+        } else {
+          await git.apply(targetRepoPath, diffPath, { check: true })
+          await git.apply(targetRepoPath, diffPath)
+        }
         await git.addAll(targetRepoPath)
         await git.commit(targetRepoPath, meta.suggestedMessage)
         break
@@ -177,6 +188,7 @@ export async function applyPack(opts: {
       }
     }
   } catch (err) {
+    if (err instanceof ConflictError) throw err
     try {
       await git.amAbort(targetRepoPath)
     } catch {}

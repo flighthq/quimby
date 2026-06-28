@@ -37,3 +37,13 @@ export class PackError extends QuimbyError {
     this.name = 'PackError'
   }
 }
+
+export class ConflictError extends QuimbyError {
+  constructor(
+    message: string,
+    public conflicts: string[],
+  ) {
+    super(message, 'CONFLICT')
+    this.name = 'ConflictError'
+  }
+}
