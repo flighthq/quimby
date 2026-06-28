@@ -1,5 +1,10 @@
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '../types/runtime'
 
+function sandboxName(ctx: RuntimeContext, agentCmd: string): string {
+  const agent = agentCmd.split(/\s+/)[0]
+  return `${agent}-${ctx.projectId.slice(0, 8)}-${ctx.workerId.slice(0, 8)}`
+}
+
 export const sbx: RuntimeAdapter = {
   type: 'sbx',
 
@@ -8,7 +13,7 @@ export const sbx: RuntimeAdapter = {
   runSpec(ctx: RuntimeContext, agentCmd: string): RunSpec {
     return {
       command: 'sbx',
-      args: ['run', agentCmd],
+      args: ['run', '--name', sandboxName(ctx, agentCmd), agentCmd],
       cwd: ctx.workerDir,
     }
   },
@@ -17,7 +22,7 @@ export const sbx: RuntimeAdapter = {
     const parts = agentCmd.split(/\s+/)
     return {
       command: 'sbx',
-      args: ['run', parts[0], '--', ...parts.slice(1)],
+      args: ['run', '--name', sandboxName(ctx, agentCmd), parts[0], '--', ...parts.slice(1)],
       cwd: ctx.workerDir,
     }
   },

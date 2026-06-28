@@ -95,7 +95,14 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
     // cwd is handled by tmux -c, so we pass remote paths but don't use spec.cwd.
     const adapter = getRuntime(runtime)
     const spec = await adapter.runSpec(
-      { workerName: args.name, workerDir: rWorkerDir, repoDir: rRepoDir, repoRoot: rRoot },
+      {
+        projectId: state.id,
+        workerId: worker.id,
+        workerName: args.name,
+        workerDir: rWorkerDir,
+        repoDir: rRepoDir,
+        repoRoot: rRoot,
+      },
       agentCmd,
     )
     // Quote the user-supplied agentCmd wherever it appears in the args; leave
@@ -136,7 +143,7 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
   }
 
   const adapter = getRuntime(runtime)
-  const ctx = buildContext(repoRoot, args.name)
+  const ctx = buildContext(repoRoot, args.name, state.id, worker.id)
   const spec = await adapter.runSpec(ctx, agentCmd)
 
   const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''

@@ -20,8 +20,15 @@ export function getRuntime(type: RuntimeType): RuntimeAdapter {
   return adapter
 }
 
-export function buildContext(repoRoot: string, workerName: string): RuntimeContext {
+export function buildContext(
+  repoRoot: string,
+  workerName: string,
+  projectId: string,
+  workerId: string,
+): RuntimeContext {
   return {
+    projectId,
+    workerId,
     workerName,
     workerDir: getWorkerDir(repoRoot, workerName),
     repoDir: getWorkerRepoDir(repoRoot, workerName),
