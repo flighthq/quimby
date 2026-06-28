@@ -1,10 +1,11 @@
 import { defineCommand } from 'citty'
 import { resolve } from 'pathe'
 
-import { type ApplyMode, applyPack } from '../core/pack'
+import { type ApplyMode, applyPack, readPack } from '../core/pack'
 import { resolveWorkspace } from '../core/workspace'
 import { ConflictError, QuimbyError } from '../utils/errors'
 import { logger } from '../utils/logger'
+import { getPackDir } from '../utils/paths'
 
 export default defineCommand({
   meta: {
@@ -71,6 +72,8 @@ async function run({
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
 
+  const { meta } = await readPack(repoRoot, args.pack)
+
   logger.start(`Applying pack "${args.pack}" (${mode} mode${threeWay ? ', 3-way merge' : ''})`)
 
   try {
@@ -82,7 +85,9 @@ async function run({
       for (const f of err.conflicts) {
         logger.info(`  ${f}`)
       }
-      logger.info('Resolve conflicts, then: git add -A && git commit')
+      logger.info(`Pack files: ${getPackDir(repoRoot, args.pack)}`)
+      logger.info('Resolve the conflicts, then run:')
+      logger.info(`  git add -A && git commit -m ${JSON.stringify(meta.suggestedMessage)}`)
       process.exit(1)
     }
     throw err
@@ -90,6 +95,8 @@ async function run({
 
   logger.success(`Pack "${args.pack}" applied`)
   if (mode === 'patch') {
-    logger.info('Changes in working tree — no commit created')
+    logger.info(`Changes in working tree — no commit created. Suggested message:`)
+    logger.info(`  ${meta.suggestedMessage}`)
   }
+  logger.info(`Resync other workers when ready: quimby advance --all`)
 }

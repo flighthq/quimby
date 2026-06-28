@@ -7,12 +7,14 @@ import { listPacks } from '../core/pack'
 import { resolveWorkspace } from '../core/workspace'
 import { isSSH } from '../types/location'
 import { exists } from '../utils/fs'
+import * as git from '../utils/git'
 import { logger } from '../utils/logger'
 import { getWorkerOutboxDir, tmuxSessionName } from '../utils/paths'
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
 
 export default defineCommand({
   meta: {
@@ -35,11 +37,21 @@ async function run() {
     return
   }
 
+  const hostHead = await git.getCurrentRef(repoRoot)
+
   if (workerNames.length > 0) {
     console.log(bold('Workers'))
     for (const name of workerNames) {
       const worker = state.workers[name]
       const defaults = worker.defaults
+
+      let behindStr = ''
+      if (worker.seedCommit && worker.seedCommit !== hostHead) {
+        const behind = await git.countCommits(repoRoot, `${worker.seedCommit}..${hostHead}`)
+        if (behind > 0) {
+          behindStr = `  ${yellow(`${behind} behind`)}`
+        }
+      }
 
       let locationStr = ''
       if (isSSH(worker.location)) {
@@ -61,7 +73,7 @@ async function run() {
       }
 
       console.log(
-        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${outboxStr}`,
+        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${outboxStr}${behindStr}`,
       )
     }
   }

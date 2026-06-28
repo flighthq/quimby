@@ -136,6 +136,19 @@ export async function branchExists(cwd: string, name: string): Promise<boolean> 
   }
 }
 
+export async function getConfig(cwd: string, key: string): Promise<string | undefined> {
+  try {
+    const stdout = await git(['config', '--get', key], cwd)
+    return stdout.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function setConfig(cwd: string, key: string, value: string): Promise<void> {
+  await git(['config', key, value], cwd)
+}
+
 export async function getRemoteUrl(cwd: string): Promise<string | undefined> {
   try {
     const stdout = await git(['remote', 'get-url', 'origin'], cwd)
@@ -204,6 +217,20 @@ export async function resetHard(cwd: string, ref: string): Promise<void> {
 export async function hasCommitsSince(cwd: string, baseRef: string): Promise<boolean> {
   const stdout = await git(['rev-list', '--count', `${baseRef}..HEAD`], cwd)
   return parseInt(stdout.trim(), 10) > 0
+}
+
+/**
+ * Count commits in a revision range (e.g. "seed..HEAD"). Returns 0 when either
+ * endpoint is unknown or unreachable, so callers can treat it as "nothing to do"
+ * rather than handling an error.
+ */
+export async function countCommits(cwd: string, range: string): Promise<number> {
+  try {
+    const stdout = await git(['rev-list', '--count', range], cwd)
+    return parseInt(stdout.trim(), 10) || 0
+  } catch {
+    return 0
+  }
 }
 
 export async function addRemote(cwd: string, name: string, url: string): Promise<void> {

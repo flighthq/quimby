@@ -19,6 +19,7 @@ import {
   remoteWorkerRepoDir,
 } from '../utils/paths'
 import { renderWorkerClaudeMd } from './template'
+import type { Transport } from './transport'
 import { getSSHTransport } from './transport'
 import { ensureWorkspace, loadState, saveState } from './workspace'
 
@@ -66,6 +67,7 @@ export async function addWorker(
 
   await git.clone(repoRoot, repoDir, { ref: state.sourceRef })
   await git.tag(repoDir, 'quimby/seed')
+  await configureWorkerIdentity(repoRoot, repoDir, name)
 
   workerState.seedCommit = await git.getCurrentRef(repoDir)
 
@@ -91,6 +93,20 @@ export async function setWorkerDefaults(
     throw new QuimbyError(`Worker "${name}" not found`)
   }
   state.workers[name].defaults = { ...state.workers[name].defaults, ...updates }
+  await saveState(repoRoot, state)
+}
+
+export async function setWorkerCheck(repoRoot: string, name: string, check: string): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!state.workers[name]) {
+    throw new QuimbyError(`Worker "${name}" not found`)
+  }
+  // An empty string clears the check; any non-empty value sets it.
+  if (check) {
+    state.workers[name].check = check
+  } else {
+    delete state.workers[name].check
+  }
   await saveState(repoRoot, state)
 }
 
@@ -189,6 +205,7 @@ export async function resetWorker(repoRoot: string, name: string): Promise<void>
     await transport.ensureDir(`${rWorkerDir}/outbox`)
     await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
     await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
+    await configureRemoteWorkerIdentity(transport, rRepoDir, name)
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
 
     await transport.writeFile(`${rWorkerDir}/assignment.md`, '')
@@ -207,6 +224,7 @@ export async function resetWorker(repoRoot: string, name: string): Promise<void>
   const currentRef = await getCurrentBranchOrRef(repoRoot)
   await git.clone(repoRoot, repoDir, { ref: currentRef })
   await git.tag(repoDir, 'quimby/seed')
+  await configureWorkerIdentity(repoRoot, repoDir, name)
 
   const seedCommit = await git.getCurrentRef(repoDir)
 
@@ -334,6 +352,40 @@ async function advanceSSHWorker(
   await saveState(repoRoot, state)
 
   return { newSeed: hostHead, rebased: true, commitsReplayed }
+}
+
+/**
+ * Configure git identity in a local worker clone so the agent never has to set
+ * git globals before its first commit. Inherits the host repo's identity when
+ * present, else falls back to a quimby-scoped identity.
+ */
+async function configureWorkerIdentity(
+  repoRoot: string,
+  repoDir: string,
+  workerName: string,
+): Promise<void> {
+  const name = (await git.getConfig(repoRoot, 'user.name')) ?? `quimby-${workerName}`
+  const email = (await git.getConfig(repoRoot, 'user.email')) ?? `quimby+${workerName}@local`
+  await git.setConfig(repoDir, 'user.name', name)
+  await git.setConfig(repoDir, 'user.email', email)
+}
+
+/**
+ * Configure git identity in a remote worker clone. Inherits the remote machine's
+ * global identity when present, else falls back to a quimby-scoped identity.
+ * Worker names are validated to contain no shell metacharacters, so they are
+ * safe to interpolate into the remote command.
+ */
+export async function configureRemoteWorkerIdentity(
+  transport: Transport,
+  repoDir: string,
+  workerName: string,
+): Promise<void> {
+  await transport.exec(
+    `git config user.name "$(git config --global user.name 2>/dev/null || echo 'quimby-${workerName}')" && ` +
+      `git config user.email "$(git config --global user.email 2>/dev/null || echo 'quimby+${workerName}@local')"`,
+    { cwd: repoDir },
+  )
 }
 
 function validateWorkerName(name: string): void {

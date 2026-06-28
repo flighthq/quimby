@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 
 .quimby
+
+# Lint cache
+.eslintcache

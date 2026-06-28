@@ -20,4 +20,6 @@ export interface WorkerState {
     runtime?: string
     agent?: string
   }
+  /** Shell command run in the worker repo by `quimby pack` to verify the work before it crosses the membrane. */
+  check?: string
 }

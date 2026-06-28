@@ -3,6 +3,7 @@ import { execa } from 'execa'
 
 import { renderWorkerClaudeMd } from '../core/template'
 import { getSSHTransport, sq } from '../core/transport'
+import { configureRemoteWorkerIdentity } from '../core/worker'
 import { resolveWorkspace, saveState } from '../core/workspace'
 import { buildContext, getRuntime, runtimeTypes } from '../runtimes/index'
 import { isSSH } from '../types/location'
@@ -69,6 +70,7 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
       await transport.ensureDir(`${rWorkerDir}/inbox/status`)
       await transport.exec(`git clone ${rRoot} ${rRepoDir}`)
       await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
+      await configureRemoteWorkerIdentity(transport, rRepoDir, args.name)
       const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
       await transport.writeFile(`${rWorkerDir}/assignment.md`, '')
       await transport.writeFile(`${rWorkerDir}/status.md`, 'idle')

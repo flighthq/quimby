@@ -1,6 +1,6 @@
 import { defineCommand } from 'citty'
 
-import { setWorkerDefaults, setWorkerLocation } from '../core/worker'
+import { setWorkerCheck, setWorkerDefaults, setWorkerLocation } from '../core/worker'
 import { resolveWorkspace } from '../core/workspace'
 import { runtimeTypes } from '../runtimes/index'
 import type { RuntimeType } from '../types/runtime'
@@ -37,6 +37,11 @@ export default defineCommand({
       type: 'string',
       description: 'Update SSH port',
     },
+    check: {
+      type: 'string',
+      alias: 'c',
+      description: 'Verification command run by `quimby pack` (empty string clears it)',
+    },
   },
   run,
 })
@@ -44,7 +49,14 @@ export default defineCommand({
 async function run({
   args,
 }: {
-  args: { name: string; runtime?: string; agent?: string; host?: string; port?: string }
+  args: {
+    name: string
+    runtime?: string
+    agent?: string
+    host?: string
+    port?: string
+    check?: string
+  }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -52,8 +64,8 @@ async function run({
     throw new QuimbyError(`Worker "${args.name}" not found`)
   }
 
-  if (!args.runtime && !args.agent && !args.host && !args.port) {
-    throw new QuimbyError('Specify at least one of --runtime, --agent, --host, or --port')
+  if (!args.runtime && !args.agent && !args.host && !args.port && args.check === undefined) {
+    throw new QuimbyError('Specify at least one of --runtime, --agent, --host, --port, or --check')
   }
 
   if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
@@ -67,6 +79,10 @@ async function run({
     if (args.runtime) updates.runtime = args.runtime
     if (args.agent) updates.agent = args.agent
     await setWorkerDefaults(repoRoot, args.name, updates)
+  }
+
+  if (args.check !== undefined) {
+    await setWorkerCheck(repoRoot, args.name, args.check)
   }
 
   if (args.host || args.port) {

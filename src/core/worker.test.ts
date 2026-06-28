@@ -12,6 +12,7 @@ import {
   removeWorker,
   renameWorker,
   resetWorker,
+  setWorkerCheck,
   setWorkerDefaults,
   setWorkerLocation,
 } from './worker'
@@ -78,6 +79,19 @@ describe('addWorker', () => {
   it('throws QuimbyError if a worker with that name already exists', async () => {
     await addWorker(dir, 'charlie')
     await expect(addWorker(dir, 'charlie')).rejects.toThrow('already exists')
+  })
+})
+
+describe('setWorkerCheck', () => {
+  it('sets and clears the worker check command', async () => {
+    await addWorker(dir, 'alice')
+    await setWorkerCheck(dir, 'alice', 'npm run ci')
+    let state = await loadState(dir)
+    expect(state.workers.alice.check).toBe('npm run ci')
+
+    await setWorkerCheck(dir, 'alice', '')
+    state = await loadState(dir)
+    expect(state.workers.alice.check).toBeUndefined()
   })
 })
 

@@ -63,15 +63,15 @@ npm run ci            # build + check + test (full gate)
 quimby add <worker> [-H <host>] [--port <n>]        # create a worker (--host for SSH)
 quimby run <worker> [-a <agent>] [-r <runtime>]     # launch agent interactively
 quimby sync <worker>                                 # rsync project to SSH worker host
-quimby set <worker> [-r <rt>] [-a <agent>] [-H <host>] [--port <n>]  # update worker config
+quimby set <worker> [-r <rt>] [-a <agent>] [-H <host>] [--port <n>] [-c <cmd>]  # update worker config (-c sets verification command)
 quimby list                                          # show workers, packs, subscriptions
 quimby status [worker]                               # show agent-written status
 quimby assign <worker> -m "..." [-p <pack>]          # push assignment
 quimby diff <worker|pack> [other]                    # show changes
-quimby pack <worker> [-n <name>]                     # package worker's work
+quimby pack <worker> [-n <name>] [-m <msg>] [--skip-check]  # package worker's work (auto-commits a dirty tree; runs the worker's check)
 quimby apply <pack> [--commits|--patch] [--3way]     # apply pack to host repo (--3way: merge conflicts instead of aborting)
 quimby send <worker> <pack>                          # route pack to worker
-quimby advance <worker>                              # fast-forward worker to host HEAD (preserves assignment/status/inbox)
+quimby advance <worker...> [--all]                   # fast-forward worker(s) to host HEAD (preserves assignment/status/inbox); --all skips busy workers
 quimby reset <worker> --force                        # nuclear reset worker (requires --force; wipes assignment/status)
 quimby rename <worker> <new-name>                    # rename worker
 quimby remove <worker> [--force]                     # remove worker (--force skips remote cleanup)
