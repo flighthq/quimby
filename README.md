@@ -1,4 +1,4 @@
-# agent-orchestrator
+# agent-orchestrator (quimby)
 
 Orchestrate multiple AI agents working on a single project in isolated sandboxes — local or remote.
 
