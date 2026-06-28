@@ -11,6 +11,7 @@ import { ensureDir, writeText } from '../utils/fs'
 import * as git from '../utils/git'
 import {
   getWorkerDir,
+  getWorkerOutboxDir,
   getWorkerRepoDir,
   remoteProjectRoot,
   remoteQuimbyDir,
@@ -61,6 +62,7 @@ export async function addWorker(
 
   await ensureDir(join(workerDir, 'inbox', 'packs'))
   await ensureDir(join(workerDir, 'inbox', 'status'))
+  await ensureDir(getWorkerOutboxDir(repoRoot, name))
 
   await git.clone(repoRoot, repoDir, { ref: state.sourceRef })
   await git.tag(repoDir, 'quimby/seed')
@@ -184,6 +186,7 @@ export async function resetWorker(repoRoot: string, name: string): Promise<void>
     await transport.exec(`rm -rf ${rRepoDir}`)
     await transport.ensureDir(`${rWorkerDir}/inbox/packs`)
     await transport.ensureDir(`${rWorkerDir}/inbox/status`)
+    await transport.ensureDir(`${rWorkerDir}/outbox`)
     await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
     await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()

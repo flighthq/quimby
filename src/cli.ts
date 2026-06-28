@@ -14,6 +14,7 @@ const main = defineCommand({
     list: () => import('./commands/list').then((m) => m.default),
     status: () => import('./commands/status').then((m) => m.default),
     assign: () => import('./commands/assign').then((m) => m.default),
+    flush: () => import('./commands/flush').then((m) => m.default),
     diff: () => import('./commands/diff').then((m) => m.default),
     pack: () => import('./commands/pack').then((m) => m.default),
     apply: () => import('./commands/apply').then((m) => m.default),

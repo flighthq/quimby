@@ -44,6 +44,14 @@ export function getWorkerInboxStatusDir(repoRoot: string, name: string): string 
   return join(repoRoot, '.quimby', 'workers', name, 'inbox', 'status')
 }
 
+export function getWorkerOutboxDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'workers', name, 'outbox')
+}
+
+export function getWorkerOutboxFile(repoRoot: string, workerName: string, target: string): string {
+  return join(repoRoot, '.quimby', 'workers', workerName, 'outbox', `${target}.md`)
+}
+
 // ── Remote paths (SSH workers) ────────────────────────────────────────────────
 // Paths use ~ which the remote shell expands; never use these in local fs ops.
 

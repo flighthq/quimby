@@ -1,11 +1,14 @@
+import { readdir } from 'node:fs/promises'
+
 import { defineCommand } from 'citty'
 
 import { getServerInfo } from '../core/client'
 import { listPacks } from '../core/pack'
 import { resolveWorkspace } from '../core/workspace'
 import { isSSH } from '../types/location'
+import { exists } from '../utils/fs'
 import { logger } from '../utils/logger'
-import { tmuxSessionName } from '../utils/paths'
+import { getWorkerOutboxDir, tmuxSessionName } from '../utils/paths'
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
@@ -48,7 +51,18 @@ async function run() {
         ? dim(`${defaults.runtime ?? 'local'} / ${defaults.agent ?? 'claude'}`)
         : dim('no defaults — run `quimby set`')
 
-      console.log(`  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}`)
+      const outboxDir = getWorkerOutboxDir(repoRoot, name)
+      let outboxStr = ''
+      if (await exists(outboxDir)) {
+        const drafts = (await readdir(outboxDir)).filter((e) => e.endsWith('.md'))
+        if (drafts.length > 0) {
+          outboxStr = `  ${cyan(`outbox: ${drafts.length}`)}`
+        }
+      }
+
+      console.log(
+        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${outboxStr}`,
+      )
     }
   }
 
