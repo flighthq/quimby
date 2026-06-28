@@ -1,3 +1,4 @@
+import type { CommandMeta } from 'citty'
 import { describe, expect, it, vi } from 'vitest'
 
 // Mock citty's runCommand to prevent actual CLI execution on import
@@ -11,15 +12,15 @@ describe('cli', () => {
     // Each command module has a default export with meta and run
     const add = await import('./commands/add')
     expect(add.default).toBeDefined()
-    expect(add.default.meta?.name).toBe('add')
+    expect((add.default.meta as CommandMeta)?.name).toBe('add')
 
     const run = await import('./commands/run')
     expect(run.default).toBeDefined()
-    expect(run.default.meta?.name).toBe('run')
+    expect((run.default.meta as CommandMeta)?.name).toBe('run')
 
     const list = await import('./commands/list')
     expect(list.default).toBeDefined()
-    expect(list.default.meta?.name).toBe('list')
+    expect((list.default.meta as CommandMeta)?.name).toBe('list')
   })
 
   it('all subcommands have a name in meta', async () => {
@@ -45,7 +46,7 @@ describe('cli', () => {
     for (const name of commands) {
       const mod = await import(`./commands/${name}`)
       expect(mod.default, `${name} command`).toBeDefined()
-      expect(mod.default.meta?.name, `${name} meta.name`).toBe(name)
+      expect((mod.default.meta as CommandMeta)?.name, `${name} meta.name`).toBe(name)
     }
   })
 })
