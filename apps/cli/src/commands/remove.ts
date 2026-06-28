@@ -1,8 +1,8 @@
-import { removeWorker } from '@quimby/core'
-import { loadState, resolveWorkspace, saveState } from '@quimby/core'
-import { QuimbyError } from '@quimby/core'
-import { logger } from '@quimby/core'
-import { isSSH } from '@quimby/types'
+import { removeWorker } from '@quimbyhq/core'
+import { loadState, resolveWorkspace, saveState } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
+import { isSSH } from '@quimbyhq/types'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

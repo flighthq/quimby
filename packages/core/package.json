@@ -1,5 +1,5 @@
 {
-  "name": "@quimby/core",
+  "name": "@quimbyhq/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,7 +18,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@quimby/types": "*",
+    "@quimbyhq/types": "*",
     "consola": "^3.4.2",
     "execa": "^9.6.1",
     "pathe": "^2.0.3",

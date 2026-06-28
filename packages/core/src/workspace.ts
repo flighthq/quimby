@@ -1,6 +1,6 @@
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 
-import type { QuimbyState } from '@quimby/types'
+import type { QuimbyState } from '@quimbyhq/types'
 import { execa } from 'execa'
 import { join } from 'pathe'
 

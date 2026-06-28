@@ -1,8 +1,8 @@
 import { stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 
-import type { QuimbyState } from '@quimby/types'
-import { isSSH } from '@quimby/types'
+import type { QuimbyState } from '@quimbyhq/types'
+import { isSSH } from '@quimbyhq/types'
 import { join } from 'pathe'
 
 import { listPacks } from './pack'

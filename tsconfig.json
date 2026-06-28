@@ -2,8 +2,8 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@quimby/types": ["./packages/types/src/index.ts"],
-      "@quimby/core": ["./packages/core/src/index.ts"]
+      "@quimbyhq/types": ["./packages/types/src/index.ts"],
+      "@quimbyhq/core": ["./packages/core/src/index.ts"]
     }
   },
   "include": [],

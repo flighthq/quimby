@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "paths": {
-      "@quimby/types": ["../../packages/types/src/index.ts"]
+      "@quimbyhq/types": ["../../packages/types/src/index.ts"]
     }
   },
   "include": ["src"]

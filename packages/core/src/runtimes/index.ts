@@ -1,4 +1,4 @@
-import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '@quimby/types'
+import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '@quimbyhq/types'
 
 import { getWorkerDir, getWorkerRepoDir } from '../utils/paths'
 import { local } from './local'

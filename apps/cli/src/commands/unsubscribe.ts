@@ -1,5 +1,5 @@
-import { resolveWorkspace, saveState } from '@quimby/core'
-import { logger } from '@quimby/core'
+import { resolveWorkspace, saveState } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

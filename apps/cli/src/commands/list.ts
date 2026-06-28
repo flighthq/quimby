@@ -1,13 +1,13 @@
 import { readdir } from 'node:fs/promises'
 
-import { getServerInfo } from '@quimby/core'
-import { listPacks } from '@quimby/core'
-import { resolveWorkspace } from '@quimby/core'
-import { exists } from '@quimby/core'
-import { git } from '@quimby/core'
-import { logger } from '@quimby/core'
-import { getWorkerOutboxDir, tmuxSessionName } from '@quimby/core'
-import { isSSH } from '@quimby/types'
+import { getServerInfo } from '@quimbyhq/core'
+import { listPacks } from '@quimbyhq/core'
+import { resolveWorkspace } from '@quimbyhq/core'
+import { exists } from '@quimbyhq/core'
+import { git } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
+import { getWorkerOutboxDir, tmuxSessionName } from '@quimbyhq/core'
+import { isSSH } from '@quimbyhq/types'
 import { defineCommand } from 'citty'
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`

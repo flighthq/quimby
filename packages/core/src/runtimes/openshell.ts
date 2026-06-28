@@ -1,4 +1,4 @@
-import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimby/types'
+import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
 export const openshell: RuntimeAdapter = {
   type: 'openshell',

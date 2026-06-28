@@ -1,4 +1,4 @@
-import { logger } from '@quimby/core'
+import { logger } from '@quimbyhq/core'
 import { defineCommand, runCommand, showUsage } from 'citty'
 
 const main = defineCommand({

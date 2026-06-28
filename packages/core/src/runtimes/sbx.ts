@@ -1,4 +1,4 @@
-import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimby/types'
+import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
 function sandboxName(ctx: RuntimeContext, agentCmd: string): string {
   const agent = agentCmd.split(/\s+/)[0]

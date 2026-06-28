@@ -1,8 +1,8 @@
 import { rename, rm } from 'node:fs/promises'
 
-import type { SSHLocation, WorkerLocation } from '@quimby/types'
-import type { QuimbyState, WorkerState } from '@quimby/types'
-import { isSSH } from '@quimby/types'
+import type { SSHLocation, WorkerLocation } from '@quimbyhq/types'
+import type { QuimbyState, WorkerState } from '@quimbyhq/types'
+import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 import { join } from 'pathe'
 

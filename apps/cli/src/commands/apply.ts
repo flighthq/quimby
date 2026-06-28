@@ -1,8 +1,8 @@
-import { type ApplyMode, applyPack, readPack } from '@quimby/core'
-import { resolveWorkspace } from '@quimby/core'
-import { ConflictError, QuimbyError } from '@quimby/core'
-import { logger } from '@quimby/core'
-import { getPackDir } from '@quimby/core'
+import { type ApplyMode, applyPack, readPack } from '@quimbyhq/core'
+import { resolveWorkspace } from '@quimbyhq/core'
+import { ConflictError, QuimbyError } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
+import { getPackDir } from '@quimbyhq/core'
 import { defineCommand } from 'citty'
 import { resolve } from 'pathe'
 

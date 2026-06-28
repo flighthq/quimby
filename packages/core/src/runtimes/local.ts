@@ -1,4 +1,4 @@
-import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimby/types'
+import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
 function parseCmd(agentCmd: string): { command: string; args: string[] } {
   const parts = agentCmd.split(/\s+/)

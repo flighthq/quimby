@@ -1,10 +1,10 @@
-import { addWorker } from '@quimby/core'
-import { runtimeTypes } from '@quimby/core'
-import { QuimbyError } from '@quimby/core'
-import { git } from '@quimby/core'
-import { logger } from '@quimby/core'
-import type { SSHLocation } from '@quimby/types'
-import type { RuntimeType } from '@quimby/types'
+import { addWorker } from '@quimbyhq/core'
+import { runtimeTypes } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/core'
+import { git } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
+import type { SSHLocation } from '@quimbyhq/types'
+import type { RuntimeType } from '@quimbyhq/types'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

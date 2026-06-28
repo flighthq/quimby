@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 
-import type { SSHLocation } from '@quimby/types'
-import type { CommitMeta, PackMeta } from '@quimby/types'
+import type { SSHLocation } from '@quimbyhq/types'
+import type { CommitMeta, PackMeta } from '@quimbyhq/types'
 import { join } from 'pathe'
 
 import { getSSHTransport } from './transport'

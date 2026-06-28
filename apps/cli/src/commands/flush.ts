@@ -1,17 +1,17 @@
 import { readdir, rm } from 'node:fs/promises'
 
-import { getSSHTransport } from '@quimby/core'
-import { resolveWorkspace } from '@quimby/core'
-import { QuimbyError } from '@quimby/core'
-import { exists, readText, writeText } from '@quimby/core'
-import { logger } from '@quimby/core'
+import { getSSHTransport } from '@quimbyhq/core'
+import { resolveWorkspace } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/core'
+import { exists, readText, writeText } from '@quimbyhq/core'
+import { logger } from '@quimbyhq/core'
 import {
   getWorkerDir,
   getWorkerOutboxDir,
   getWorkerOutboxFile,
   remoteWorkerDir,
-} from '@quimby/core'
-import { isSSH } from '@quimby/types'
+} from '@quimbyhq/core'
+import { isSSH } from '@quimbyhq/types'
 import { defineCommand } from 'citty'
 import { basename, join } from 'pathe'
 
