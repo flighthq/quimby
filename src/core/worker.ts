@@ -41,6 +41,7 @@ export async function addWorker(
   await writeText(join(workerDir, 'CLAUDE.md'), claudeMd)
 
   const workerState: WorkerState = {
+    id: crypto.randomUUID(),
     name,
     seedCommit,
     createdAt: new Date().toISOString(),

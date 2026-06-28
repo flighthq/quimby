@@ -45,6 +45,7 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
   const snapshot = await git.getCurrentRef(repoRoot)
 
   const state: QuimbyState = {
+    id: crypto.randomUUID(),
     sourceRepo,
     sourceRef,
     snapshot,

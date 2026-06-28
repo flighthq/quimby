@@ -1,4 +1,5 @@
 export interface QuimbyState {
+  id: string
   sourceRepo: string
   sourceRef: string
   snapshot: string
@@ -8,6 +9,7 @@ export interface QuimbyState {
 }
 
 export interface WorkerState {
+  id: string
   name: string
   seedCommit: string
   createdAt: string
