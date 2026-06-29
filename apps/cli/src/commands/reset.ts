@@ -22,10 +22,10 @@ export default defineCommand({
       default: false,
     },
   },
-  run,
+  run: runResetCommand,
 })
 
-async function run({ args }: { args: { name: string; force: boolean } }) {
+export async function runResetCommand({ args }: { args: { name: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (!state.workers[args.name]) {

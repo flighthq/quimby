@@ -23,10 +23,10 @@ export default defineCommand({
       default: false,
     },
   },
-  run,
+  run: runRemoveCommand,
 })
 
-async function run({ args }: { args: { name: string; force: boolean } }) {
+export async function runRemoveCommand({ args }: { args: { name: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.name]

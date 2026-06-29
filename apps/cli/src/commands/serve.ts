@@ -20,10 +20,10 @@ export default defineCommand({
       description: 'Poll interval in seconds (default: 5)',
     },
   },
-  run,
+  run: runServeCommand,
 })
 
-async function run({ args }: { args: { port?: string; poll?: string } }) {
+export async function runServeCommand({ args }: { args: { port?: string; poll?: string } }) {
   const { repoRoot } = await resolveWorkspace()
 
   const existing = await getServerInfo(repoRoot)

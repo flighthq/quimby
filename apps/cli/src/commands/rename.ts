@@ -21,10 +21,10 @@ export default defineCommand({
       required: true,
     },
   },
-  run,
+  run: runRenameCommand,
 })
 
-async function run({ args }: { args: { name: string; newName: string } }) {
+export async function runRenameCommand({ args }: { args: { name: string; newName: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (!state.workers[args.name]) {

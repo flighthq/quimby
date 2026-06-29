@@ -52,10 +52,10 @@ export default defineCommand({
       description: 'Retarget the ref `quimby advance` syncs against (e.g. main, release)',
     },
   },
-  run,
+  run: runSetCommand,
 })
 
-async function run({
+export async function runSetCommand({
   args,
 }: {
   args: {

@@ -19,10 +19,14 @@ export default defineCommand({
       required: true,
     },
   },
-  run,
+  run: runUnsubscribeCommand,
 })
 
-async function run({ args }: { args: { worker: string; target: string } }) {
+export async function runUnsubscribeCommand({
+  args,
+}: {
+  args: { worker: string; target: string }
+}) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const subs = state.subscriptions ?? {}

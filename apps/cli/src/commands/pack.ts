@@ -47,10 +47,10 @@ export default defineCommand({
       default: false,
     },
   },
-  run,
+  run: runPackCommand,
 })
 
-async function run({
+export async function runPackCommand({
   args,
 }: {
   args: {

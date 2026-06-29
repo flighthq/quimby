@@ -18,10 +18,10 @@ export default defineCommand({
       required: true,
     },
   },
-  run,
+  run: runSyncCommand,
 })
 
-async function run({ args }: { args: { name: string } }) {
+export async function runSyncCommand({ args }: { args: { name: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.name]

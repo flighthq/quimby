@@ -91,10 +91,14 @@ export default defineCommand({
       default: false,
     },
   },
-  run,
+  run: runDiffCommand,
 })
 
-async function run({ args }: { args: { name: string; other?: string; stat: boolean } }) {
+export async function runDiffCommand({
+  args,
+}: {
+  args: { name: string; other?: string; stat: boolean }
+}) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (args.other) {

@@ -31,10 +31,14 @@ export default defineCommand({
       description: 'Pack to attach (sends to worker inbox)',
     },
   },
-  run,
+  run: runAssignCommand,
 })
 
-async function run({ args }: { args: { name: string; message?: string; pack?: string } }) {
+export async function runAssignCommand({
+  args,
+}: {
+  args: { name: string; message?: string; pack?: string }
+}) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.name]

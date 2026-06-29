@@ -1,7 +1,7 @@
 {
   "name": "quimby",
   "version": "0.2.0",
-  "description": "Orchestrate multiple AI agents in isolated workers",
+  "description": "Run AI agents in isolated workers, ship their work as reviewable packs",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -28,6 +28,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@clack/prompts": "^1.6.0",
     "@quimbyhq/errors": "*",
     "@quimbyhq/git": "*",
     "@quimbyhq/pack": "*",

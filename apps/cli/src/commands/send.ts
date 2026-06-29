@@ -24,10 +24,10 @@ export default defineCommand({
       required: true,
     },
   },
-  run,
+  run: runSendCommand,
 })
 
-async function run({ args }: { args: { worker: string; pack: string } }) {
+export async function runSendCommand({ args }: { args: { worker: string; pack: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.worker]

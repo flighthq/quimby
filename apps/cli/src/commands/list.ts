@@ -20,10 +20,10 @@ export default defineCommand({
     name: 'list',
     description: 'List workers, packs, and subscriptions',
   },
-  run,
+  run: runListCommand,
 })
 
-async function run() {
+export async function runListCommand() {
   const { state, repoRoot } = await resolveWorkspace()
 
   const workerNames = Object.keys(state.workers)

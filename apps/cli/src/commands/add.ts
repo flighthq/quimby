@@ -1,11 +1,12 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { runtimeTypes } from '@quimbyhq/runtimes'
-import type { SSHLocation } from '@quimbyhq/types'
-import type { RuntimeType } from '@quimbyhq/types'
+import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { addWorker } from '@quimbyhq/worker'
+import { addWorker, setWorkerCheck } from '@quimbyhq/worker'
 import { defineCommand } from 'citty'
+
+import { buildSSHLocation, runWorkerWalkthrough } from '../walkthrough'
 
 export default defineCommand({
   meta: {
@@ -43,10 +44,10 @@ export default defineCommand({
       description: 'Ref to sync against (default: current host branch)',
     },
   },
-  run,
+  run: runAddCommand,
 })
 
-async function run({
+export async function runAddCommand({
   args,
 }: {
   args: {
@@ -63,35 +64,46 @@ async function run({
     throw new QuimbyError('Not inside a git repository.')
   }
 
-  if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
-    throw new QuimbyError(
-      `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
-    )
-  }
+  // With no config flags, walk the user through the worker's setup; with flags,
+  // honor them verbatim so `add` stays scriptable for unattended use.
+  const hasFlags = Boolean(args.runtime || args.agent || args.host || args.port || args.sync)
 
-  const defaults =
-    args.runtime || args.agent ? { runtime: args.runtime, agent: args.agent } : undefined
-
+  let defaults: { runtime?: string; agent?: string } | undefined
   let location: SSHLocation | undefined
-  if (args.host) {
-    // Accept  user@host  or  user@host:/remote/path
-    const colonSlash = args.host.indexOf(':/')
-    const sshHost = colonSlash >= 0 ? args.host.slice(0, colonSlash) : args.host
-    const base = colonSlash >= 0 ? args.host.slice(colonSlash + 1) : undefined
-    const port = args.port ? parseInt(args.port, 10) : undefined
-    location = {
-      type: 'ssh',
-      host: sshHost,
-      ...(port ? { port } : {}),
-      ...(base ? { base } : {}),
+  let syncRef: string | undefined
+  let check: string | undefined
+  let tmux: boolean | undefined
+
+  if (hasFlags) {
+    if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
+      throw new QuimbyError(
+        `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
+      )
     }
+    defaults = args.runtime || args.agent ? { runtime: args.runtime, agent: args.agent } : undefined
+    if (args.host) {
+      location = buildSSHLocation(args.host, args.port ? Number.parseInt(args.port, 10) : undefined)
+    }
+    syncRef = args.sync
+  } else {
+    const config = await runWorkerWalkthrough(args.name)
+    if (!config) return
+    defaults = { runtime: config.runtime, agent: config.agent }
+    location = config.location
+    syncRef = config.syncRef
+    check = config.check
+    tmux = config.tmux
   }
 
   const workerState = await addWorker(repoRoot, args.name, {
     defaults,
     location,
-    ...(args.sync ? { syncRef: args.sync } : {}),
+    ...(syncRef ? { syncRef } : {}),
+    ...(tmux ? { tmux: true } : {}),
   })
+  if (check) {
+    await setWorkerCheck(repoRoot, args.name, check)
+  }
 
   const locationHint = location ? ` [ssh: ${location.host}]` : ''
   const defaultsHint = defaults

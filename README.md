@@ -1,6 +1,6 @@
 # agent-orchestrator (quimby)
 
-Orchestrate multiple AI agents working on a single project in isolated sandboxes — local or remote.
+Run AI agents in isolated workers — local or remote — and ship their work as reviewable packs.
 
 ## Overview
 

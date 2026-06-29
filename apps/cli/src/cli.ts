@@ -1,14 +1,18 @@
 import { logger } from '@quimbyhq/utils'
+import type { SubCommandsDef } from 'citty'
 import { defineCommand, runCommand, showUsage } from 'citty'
+
+import { renderRootHelp } from './help'
 
 const main = defineCommand({
   meta: {
     name: 'quimby',
     version: '0.2.0',
-    description: 'Orchestrate multiple AI agents in isolated workers',
+    description: 'Dispatch AI agents, review their packs, apply what works',
   },
   subCommands: {
     add: () => import('./commands/add').then((m) => m.default),
+    config: () => import('./commands/config').then((m) => m.default),
     run: () => import('./commands/run').then((m) => m.default),
     list: () => import('./commands/list').then((m) => m.default),
     status: () => import('./commands/status').then((m) => m.default),
@@ -52,9 +56,24 @@ async function resolveDeepest(
 }
 
 async function run() {
-  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
-    const [cmd, parent] = await resolveDeepest(main, rawArgs)
-    await showUsage(cmd, parent)
+  // `help` is intercepted here rather than registered as a subcommand so it can
+  // introspect its siblings; `quimby help <cmd>` mirrors `quimby <cmd> --help`.
+  const isHelpVerb = rawArgs[0] === 'help'
+  const wantsHelp = isHelpVerb || rawArgs.includes('--help') || rawArgs.includes('-h')
+  if (wantsHelp || rawArgs.length === 0) {
+    const helpArgs = isHelpVerb ? rawArgs.slice(1) : rawArgs
+    const [cmd, parent] = await resolveDeepest(main, helpArgs)
+    if (cmd === main) {
+      // Root help: our grouped renderer + wordmark, not citty's flat list.
+      const { description = '', version = '' } = main.meta as {
+        description?: string
+        version?: string
+      }
+      const subCommands = (main.subCommands ?? {}) as SubCommandsDef
+      console.log(await renderRootHelp(description, version, subCommands)) // eslint-disable-line no-console
+    } else {
+      await showUsage(cmd, parent)
+    }
     process.exit(0)
   }
   if (rawArgs.length === 1 && rawArgs[0] === '--version') {

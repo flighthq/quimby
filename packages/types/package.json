@@ -12,13 +12,12 @@
     }
   },
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "clean": "tsc -b --clean",
     "check": "eslint src"
   },
   "devDependencies": {
-    "tsup": "*",
     "typescript": "*"
   }
 }

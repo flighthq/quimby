@@ -4,5 +4,8 @@ dist/
 
 .quimby
 
+# Local reference checkout (not part of quimby)
+flight/
+
 # Lint cache
 .eslintcache

@@ -20,10 +20,10 @@ export default defineCommand({
       required: true,
     },
   },
-  run,
+  run: runSubscribeCommand,
 })
 
-async function run({ args }: { args: { worker: string; target: string } }) {
+export async function runSubscribeCommand({ args }: { args: { worker: string; target: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (!state.workers[args.worker]) {

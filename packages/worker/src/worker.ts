@@ -29,6 +29,7 @@ export async function addWorker(
     defaults?: { runtime?: string; agent?: string }
     location?: WorkerLocation
     syncRef?: string
+    tmux?: boolean
   },
 ): Promise<WorkerState> {
   validateWorkerName(name)
@@ -52,6 +53,7 @@ export async function addWorker(
     createdAt: new Date().toISOString(),
     ...(opts?.defaults ? { defaults: opts.defaults } : {}),
     ...(opts?.location ? { location: opts.location } : {}),
+    ...(opts?.tmux ? { tmux: true } : {}),
   }
 
   if (isSSH(opts?.location)) {
@@ -139,6 +141,19 @@ export async function setWorkerSyncRef(
     throw new QuimbyError(`Worker "${name}" not found`)
   }
   state.workers[name].syncRef = syncRef
+  await saveState(repoRoot, state)
+}
+
+export async function setWorkerTmux(repoRoot: string, name: string, tmux: boolean): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!state.workers[name]) {
+    throw new QuimbyError(`Worker "${name}" not found`)
+  }
+  if (tmux) {
+    state.workers[name].tmux = true
+  } else {
+    delete state.workers[name].tmux
+  }
   await saveState(repoRoot, state)
 }
 

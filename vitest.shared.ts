@@ -31,7 +31,8 @@ const alias = Object.fromEntries(
 export default defineConfig({
   resolve: { alias },
   test: {
-    // Never collect tests from worker clones under .quimby/ or from build output.
-    exclude: [...configDefaults.exclude, '**/.quimby/**'],
+    // Never collect tests from worker clones under .quimby/, build output, or the
+    // local flight/ reference checkout.
+    exclude: [...configDefaults.exclude, '**/.quimby/**', '**/flight/**'],
   },
 })

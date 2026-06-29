@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/types" },
+    { "path": "./packages/errors" },
+    { "path": "./packages/utils" },
+    { "path": "./packages/paths" },
+    { "path": "./packages/template" },
+    { "path": "./packages/git" },
+    { "path": "./packages/transport" },
+    { "path": "./packages/runtimes" },
+    { "path": "./packages/workspace" },
+    { "path": "./packages/worker" },
+    { "path": "./packages/pack" },
+    { "path": "./packages/server" }
+  ]
+}

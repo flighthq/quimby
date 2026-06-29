@@ -21,10 +21,10 @@ export default defineCommand({
       default: false,
     },
   },
-  run,
+  run: runAdvanceCommand,
 })
 
-async function run({
+export async function runAdvanceCommand({
   args,
 }: {
   args: { name?: string; _?: string[]; all: boolean }

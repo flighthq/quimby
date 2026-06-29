@@ -21,10 +21,10 @@ export default defineCommand({
       required: false,
     },
   },
-  run,
+  run: runStatusCommand,
 })
 
-async function run({ args }: { args: { name?: string } }) {
+export async function runStatusCommand({ args }: { args: { name?: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const names = args.name ? [args.name] : Object.keys(state.workers)

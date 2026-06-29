@@ -4,7 +4,10 @@ import { getPackDir } from '@quimbyhq/paths'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
+import { colors } from 'consola/utils'
 import { resolve } from 'pathe'
+
+import { getQuimbySuccessQuip } from '../quips'
 
 export default defineCommand({
   meta: {
@@ -44,10 +47,10 @@ export default defineCommand({
       description: 'Target repo path (defaults to current directory)',
     },
   },
-  run,
+  run: runApplyCommand,
 })
 
-async function run({
+export async function runApplyCommand({
   args,
 }: {
   args: {
@@ -102,4 +105,5 @@ async function run({
     logger.info(`  ${meta.suggestedMessage}`)
   }
   logger.info(`Resync other workers when ready: quimby advance --all`)
+  logger.log(colors.dim(getQuimbySuccessQuip()))
 }

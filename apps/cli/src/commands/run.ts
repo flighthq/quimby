@@ -38,10 +38,14 @@ export default defineCommand({
       description: `Runtime override for this run (${runtimeTypes.join(', ')})`,
     },
   },
-  run,
+  run: runRunCommand,
 })
 
-async function run({ args }: { args: { name: string; agent?: string; runtime?: string } }) {
+export async function runRunCommand({
+  args,
+}: {
+  args: { name: string; agent?: string; runtime?: string }
+}) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.name]
@@ -148,6 +152,42 @@ async function run({ args }: { args: { name: string; agent?: string; runtime?: s
   const spec = await adapter.runSpec(ctx, agentCmd)
 
   const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
+
+  // Opt-in tmux for local workers: run the agent inside a named, reattachable
+  // session (the persistence SSH workers always get). `-A` attaches to an
+  // existing session or creates one; `-e` carries any runtime env into it.
+  if (worker.tmux) {
+    const sessionName = tmuxSessionName(state.id, worker.id)
+    const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [
+      '-e',
+      `${key}=${value}`,
+    ])
+    logger.success(`Attaching to tmux session "${sessionName}"${runtimeLabel}`)
+    try {
+      await execa(
+        'tmux',
+        [
+          'new-session',
+          '-A',
+          '-s',
+          sessionName,
+          '-c',
+          spec.cwd ?? repoRoot,
+          ...envArgs,
+          spec.command,
+          ...spec.args,
+        ],
+        { stdio: 'inherit' },
+      )
+    } catch (err) {
+      const e = err as { exitCode?: number }
+      if (e.exitCode !== undefined && e.exitCode !== 0) {
+        process.exit(e.exitCode)
+      }
+    }
+    return
+  }
+
   logger.start(`Running "${agentCmd}" in worker "${args.name}"${runtimeLabel}`)
 
   try {

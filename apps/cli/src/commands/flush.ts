@@ -32,10 +32,14 @@ export default defineCommand({
       required: false,
     },
   },
-  run,
+  run: runFlushCommand,
 })
 
-export async function run({ args }: { args: { worker: string; target?: string } }): Promise<void> {
+export async function runFlushCommand({
+  args,
+}: {
+  args: { worker: string; target?: string }
+}): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
 
   const worker = state.workers[args.worker]
