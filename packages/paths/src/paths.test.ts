@@ -1,27 +1,99 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getAgentDir,
+  getAgentInboxDir,
+  getAgentInboxDoneDir,
+  getAgentInboxParcelDir,
+  getAgentInboxStatusDir,
+  getAgentOutboxDir,
+  getAgentOutboxDraftDir,
+  getAgentOutboxSentDir,
+  getAgentOutboxSentDraftDir,
+  getAgentRepoDir,
+  getAgentsDir,
   getQuimbyDir,
   getStagingDir,
   getStagingHandoffDir,
   getStatePath,
-  getWorkerDir,
-  getWorkerInboxDir,
-  getWorkerInboxDoneDir,
-  getWorkerInboxParcelDir,
-  getWorkerInboxStatusDir,
-  getWorkerOutboxDir,
-  getWorkerOutboxDraftDir,
-  getWorkerOutboxSentDir,
-  getWorkerOutboxSentDraftDir,
-  getWorkerRepoDir,
-  getWorkersDir,
+  remoteAgentDir,
+  remoteAgentRepoDir,
   remoteProjectRoot,
   remoteQuimbyDir,
-  remoteWorkerDir,
-  remoteWorkerRepoDir,
   tmuxSessionName,
 } from './paths'
+
+describe('getAgentDir', () => {
+  it('returns agent dir by name', () => {
+    expect(getAgentDir('/root', 'alice')).toBe('/root/.quimby/agents/alice')
+  })
+})
+
+describe('getAgentInboxDir', () => {
+  it('returns inbox dir under agent dir', () => {
+    expect(getAgentInboxDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox')
+  })
+})
+
+describe('getAgentInboxDoneDir', () => {
+  it('returns the processed-parcels dir under inbox', () => {
+    expect(getAgentInboxDoneDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox/.done')
+  })
+})
+
+describe('getAgentInboxParcelDir', () => {
+  it('returns a delivered parcel dir directly under inbox', () => {
+    expect(getAgentInboxParcelDir('/root', 'alice', 'bob-a1b2c3d4')).toBe(
+      '/root/.quimby/agents/alice/inbox/bob-a1b2c3d4',
+    )
+  })
+})
+
+describe('getAgentInboxStatusDir', () => {
+  it('returns inbox status dir under agent dir', () => {
+    expect(getAgentInboxStatusDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox/status')
+  })
+})
+
+describe('getAgentOutboxDir', () => {
+  it('returns outbox dir under agent dir', () => {
+    expect(getAgentOutboxDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/outbox')
+  })
+})
+
+describe('getAgentOutboxDraftDir', () => {
+  it('returns a staged outbox parcel addressed by recipient', () => {
+    expect(getAgentOutboxDraftDir('/root', 'alice', 'bob')).toBe(
+      '/root/.quimby/agents/alice/outbox/bob',
+    )
+  })
+})
+
+describe('getAgentOutboxSentDir', () => {
+  it('returns the delivery ledger dir under outbox', () => {
+    expect(getAgentOutboxSentDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/outbox/.sent')
+  })
+})
+
+describe('getAgentOutboxSentDraftDir', () => {
+  it('returns a delivered parcel in the ledger by recipient', () => {
+    expect(getAgentOutboxSentDraftDir('/root', 'alice', 'bob')).toBe(
+      '/root/.quimby/agents/alice/outbox/.sent/bob',
+    )
+  })
+})
+
+describe('getAgentRepoDir', () => {
+  it('returns repo subdir of the agent dir', () => {
+    expect(getAgentRepoDir('/root', 'bob')).toBe('/root/.quimby/agents/bob/repo')
+  })
+})
+
+describe('getAgentsDir', () => {
+  it('returns agents dir under .quimby', () => {
+    expect(getAgentsDir('/root')).toBe('/root/.quimby/agents')
+  })
+})
 
 describe('getQuimbyDir', () => {
   it('returns .quimby under repo root', () => {
@@ -49,79 +121,27 @@ describe('getStatePath', () => {
   })
 })
 
-describe('getWorkerDir', () => {
-  it('returns worker dir by name', () => {
-    expect(getWorkerDir('/root', 'alice')).toBe('/root/.quimby/workers/alice')
-  })
-})
-
-describe('getWorkerInboxDir', () => {
-  it('returns inbox dir under worker dir', () => {
-    expect(getWorkerInboxDir('/root', 'alice')).toBe('/root/.quimby/workers/alice/inbox')
-  })
-})
-
-describe('getWorkerInboxDoneDir', () => {
-  it('returns the processed-parcels dir under inbox', () => {
-    expect(getWorkerInboxDoneDir('/root', 'alice')).toBe('/root/.quimby/workers/alice/inbox/.done')
-  })
-})
-
-describe('getWorkerInboxParcelDir', () => {
-  it('returns a delivered parcel dir directly under inbox', () => {
-    expect(getWorkerInboxParcelDir('/root', 'alice', 'bob-a1b2c3d4')).toBe(
-      '/root/.quimby/workers/alice/inbox/bob-a1b2c3d4',
+describe('remoteAgentDir', () => {
+  it('returns remote agent dir with agent name', () => {
+    expect(remoteAgentDir('proj-id', 'alice')).toBe(
+      '~/.quimby/workspaces/proj-id/.quimby/agents/alice',
     )
   })
+
+  it('uses base override', () => {
+    expect(remoteAgentDir('proj-id', 'alice', '/base')).toBe('/base/.quimby/agents/alice')
+  })
 })
 
-describe('getWorkerInboxStatusDir', () => {
-  it('returns inbox status dir under worker dir', () => {
-    expect(getWorkerInboxStatusDir('/root', 'alice')).toBe(
-      '/root/.quimby/workers/alice/inbox/status',
+describe('remoteAgentRepoDir', () => {
+  it('returns repo subdir of remote agent dir', () => {
+    expect(remoteAgentRepoDir('proj-id', 'alice')).toBe(
+      '~/.quimby/workspaces/proj-id/.quimby/agents/alice/repo',
     )
   })
-})
 
-describe('getWorkerOutboxDir', () => {
-  it('returns outbox dir under worker dir', () => {
-    expect(getWorkerOutboxDir('/root', 'alice')).toBe('/root/.quimby/workers/alice/outbox')
-  })
-})
-
-describe('getWorkerOutboxDraftDir', () => {
-  it('returns a staged outbox parcel addressed by recipient', () => {
-    expect(getWorkerOutboxDraftDir('/root', 'alice', 'bob')).toBe(
-      '/root/.quimby/workers/alice/outbox/bob',
-    )
-  })
-})
-
-describe('getWorkerOutboxSentDir', () => {
-  it('returns the delivery ledger dir under outbox', () => {
-    expect(getWorkerOutboxSentDir('/root', 'alice')).toBe(
-      '/root/.quimby/workers/alice/outbox/.sent',
-    )
-  })
-})
-
-describe('getWorkerOutboxSentDraftDir', () => {
-  it('returns a delivered parcel in the ledger by recipient', () => {
-    expect(getWorkerOutboxSentDraftDir('/root', 'alice', 'bob')).toBe(
-      '/root/.quimby/workers/alice/outbox/.sent/bob',
-    )
-  })
-})
-
-describe('getWorkerRepoDir', () => {
-  it('returns repo subdir of the worker dir', () => {
-    expect(getWorkerRepoDir('/root', 'bob')).toBe('/root/.quimby/workers/bob/repo')
-  })
-})
-
-describe('getWorkersDir', () => {
-  it('returns workers dir under .quimby', () => {
-    expect(getWorkersDir('/root')).toBe('/root/.quimby/workers')
+  it('uses base override', () => {
+    expect(remoteAgentRepoDir('proj-id', 'alice', '/base')).toBe('/base/.quimby/agents/alice/repo')
   })
 })
 
@@ -145,37 +165,11 @@ describe('remoteQuimbyDir', () => {
   })
 })
 
-describe('remoteWorkerDir', () => {
-  it('returns remote worker dir with worker name', () => {
-    expect(remoteWorkerDir('proj-id', 'alice')).toBe(
-      '~/.quimby/workspaces/proj-id/.quimby/workers/alice',
-    )
-  })
-
-  it('uses base override', () => {
-    expect(remoteWorkerDir('proj-id', 'alice', '/base')).toBe('/base/.quimby/workers/alice')
-  })
-})
-
-describe('remoteWorkerRepoDir', () => {
-  it('returns repo subdir of remote worker dir', () => {
-    expect(remoteWorkerRepoDir('proj-id', 'alice')).toBe(
-      '~/.quimby/workspaces/proj-id/.quimby/workers/alice/repo',
-    )
-  })
-
-  it('uses base override', () => {
-    expect(remoteWorkerRepoDir('proj-id', 'alice', '/base')).toBe(
-      '/base/.quimby/workers/alice/repo',
-    )
-  })
-})
-
 describe('tmuxSessionName', () => {
   it('returns qb-<first8>-<first8> format', () => {
     const projectId = 'abcdef12-1234-5678-9abc-def012345678'
-    const workerId = '98765432-abcd-ef01-2345-6789abcdef01'
-    expect(tmuxSessionName(projectId, workerId)).toBe('qb-abcdef12-98765432')
+    const agentId = '98765432-abcd-ef01-2345-6789abcdef01'
+    expect(tmuxSessionName(projectId, agentId)).toBe('qb-abcdef12-98765432')
   })
 
   it('truncates UUIDs to 8 characters', () => {

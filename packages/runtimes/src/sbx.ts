@@ -1,8 +1,8 @@
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
-function sandboxName(ctx: RuntimeContext, agentCmd: string): string {
-  const agent = agentCmd.split(/\s+/)[0]
-  return `${agent}-${ctx.projectId.slice(0, 8)}-${ctx.workerId.slice(0, 8)}`
+function sandboxName(ctx: RuntimeContext, entrypoint: string): string {
+  const program = entrypoint.split(/\s+/)[0]
+  return `${program}-${ctx.projectId.slice(0, 8)}-${ctx.agentId.slice(0, 8)}`
 }
 
 export const sbx: RuntimeAdapter = {
@@ -10,20 +10,20 @@ export const sbx: RuntimeAdapter = {
 
   async setup() {},
 
-  runSpec(ctx: RuntimeContext, agentCmd: string): RunSpec {
+  runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
     return {
       command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx, agentCmd), agentCmd],
-      cwd: ctx.workerDir,
+      args: ['run', '--name', sandboxName(ctx, entrypoint), entrypoint],
+      cwd: ctx.agentDir,
     }
   },
 
-  execSpec(ctx: RuntimeContext, agentCmd: string): RunSpec {
-    const parts = agentCmd.split(/\s+/)
+  execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
+    const parts = entrypoint.split(/\s+/)
     return {
       command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx, agentCmd), parts[0], '--', ...parts.slice(1)],
-      cwd: ctx.workerDir,
+      args: ['run', '--name', sandboxName(ctx, entrypoint), parts[0], '--', ...parts.slice(1)],
+      cwd: ctx.agentDir,
     }
   },
 

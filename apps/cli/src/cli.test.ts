@@ -29,6 +29,7 @@ describe('cli', () => {
       'apply',
       'assign',
       'diff',
+      'dispatch',
       'handoff',
       'list',
       'remove',

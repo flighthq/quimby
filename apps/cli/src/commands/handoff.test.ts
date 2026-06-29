@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => ({
-    state: { id: 'proj-id', workers: {}, subscriptions: {} },
+    state: { id: 'proj-id', agents: { review: { location: undefined } }, subscriptions: {} },
     repoRoot: '/fake/root',
   })),
 }))
@@ -14,28 +14,27 @@ describe('run', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
-  it('throws when the source worker does not exist', async () => {
-    const { default: cmd } = await import('./handoff')
-    await expect(
-      cmd.run!({ args: { from: 'ghost', 'skip-check': false, rebase: false } } as never),
-    ).rejects.toThrow('not found')
-  })
-
-  it('bounces an unknown recipient', async () => {
-    vi.resetModules()
-    vi.doMock('@quimbyhq/workspace', async (importOriginal) => ({
-      ...((await importOriginal()) as object),
-      resolveWorkspace: vi.fn(async () => ({
-        state: { id: 'proj-id', workers: { builder: { location: undefined } }, subscriptions: {} },
-        repoRoot: '/fake/root',
-      })),
-    }))
+  it('throws when the recipient agent does not exist (host → unknown)', async () => {
     const { default: cmd } = await import('./handoff')
     await expect(
       cmd.run!({
-        args: { from: 'builder', to: 'ghost', 'skip-check': false, rebase: false },
+        args: { from: 'ghost', rebase: false, 'skip-guard': false, 'no-verify': false },
       } as never),
     ).rejects.toThrow('not found')
-    vi.doUnmock('@quimbyhq/workspace')
+  })
+
+  it('throws when the source agent does not exist (unknown → review)', async () => {
+    const { default: cmd } = await import('./handoff')
+    await expect(
+      cmd.run!({
+        args: {
+          from: 'ghost',
+          to: 'review',
+          rebase: false,
+          'skip-guard': false,
+          'no-verify': false,
+        },
+      } as never),
+    ).rejects.toThrow('not found')
   })
 })

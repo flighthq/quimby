@@ -1,4 +1,4 @@
-import { getWorkerDir, getWorkerRepoDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
 import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '@quimbyhq/types'
 
 import { local } from './local'
@@ -23,16 +23,16 @@ export function getRuntime(type: RuntimeType): RuntimeAdapter {
 
 export function buildContext(
   repoRoot: string,
-  workerName: string,
+  agentName: string,
   projectId: string,
-  workerId: string,
+  agentId: string,
 ): RuntimeContext {
   return {
     projectId,
-    workerId,
-    workerName,
-    workerDir: getWorkerDir(repoRoot, workerName),
-    repoDir: getWorkerRepoDir(repoRoot, workerName),
+    agentId,
+    agentName,
+    agentDir: getAgentDir(repoRoot, agentName),
+    repoDir: getAgentRepoDir(repoRoot, agentName),
     repoRoot,
   }
 }

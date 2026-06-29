@@ -1,19 +1,19 @@
+import { removeAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { removeWorker } from '@quimbyhq/worker'
 import { loadState, resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
     name: 'remove',
-    description: 'Remove a worker',
+    description: 'Remove an agent',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
     force: {
@@ -29,20 +29,20 @@ export default defineCommand({
 export async function runRemoveCommand({ args }: { args: { name: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const worker = state.workers[args.name]
-  if (!worker) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  if (isSSH(worker.location) && args.force) {
+  if (isSSH(agent.location) && args.force) {
     // Skip remote cleanup — remove from state only
     const s = await loadState(repoRoot)
-    delete s.workers[args.name]
+    delete s.agents[args.name]
     await saveState(repoRoot, s)
-    logger.success(`Worker "${args.name}" removed from state (remote dir not cleaned up)`)
+    logger.success(`Agent "${args.name}" removed from state (remote dir not cleaned up)`)
     return
   }
 
-  await removeWorker(repoRoot, args.name)
-  logger.success(`Worker "${args.name}" removed`)
+  await removeAgent(repoRoot, args.name)
+  logger.success(`Agent "${args.name}" removed`)
 }

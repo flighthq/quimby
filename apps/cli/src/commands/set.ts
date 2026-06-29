@@ -1,25 +1,20 @@
+import { setAgentDefaults, setAgentGuard, setAgentLocation, setAgentSyncRef } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import type { RuntimeType } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import {
-  setWorkerCheck,
-  setWorkerDefaults,
-  setWorkerLocation,
-  setWorkerSyncRef,
-} from '@quimbyhq/worker'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
     name: 'set',
-    description: 'Update worker defaults',
+    description: 'Update agent config',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
     runtime: {
@@ -27,10 +22,10 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime environment (${runtimeTypes.join(', ')})`,
     },
-    agent: {
+    cmd: {
       type: 'string',
-      alias: 'a',
-      description: 'Agent to run (e.g. claude, codex)',
+      alias: 'c',
+      description: 'Entrypoint command to launch (e.g. claude, codex)',
     },
     host: {
       type: 'string',
@@ -41,10 +36,10 @@ export default defineCommand({
       type: 'string',
       description: 'Update SSH port',
     },
-    check: {
+    guard: {
       type: 'string',
-      alias: 'c',
-      description: 'Verification command run before apply/handoff (empty string clears it)',
+      alias: 'g',
+      description: 'Guard command run before apply/handoff (empty string clears it)',
     },
     sync: {
       type: 'string',
@@ -61,29 +56,29 @@ export async function runSetCommand({
   args: {
     name: string
     runtime?: string
-    agent?: string
+    cmd?: string
     host?: string
     port?: string
-    check?: string
+    guard?: string
     sync?: string
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!state.workers[args.name]) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  if (!state.agents[args.name]) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
   if (
     !args.runtime &&
-    !args.agent &&
+    !args.cmd &&
     !args.host &&
     !args.port &&
-    args.check === undefined &&
+    args.guard === undefined &&
     args.sync === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --agent, --host, --port, --check, or --sync',
+      'Specify at least one of --runtime, --cmd, --host, --port, --guard, or --sync',
     )
   }
 
@@ -93,26 +88,26 @@ export async function runSetCommand({
     )
   }
 
-  if (args.runtime || args.agent) {
-    const updates: { runtime?: string; agent?: string } = {}
+  if (args.runtime || args.cmd) {
+    const updates: { runtime?: string; entrypoint?: string } = {}
     if (args.runtime) updates.runtime = args.runtime
-    if (args.agent) updates.agent = args.agent
-    await setWorkerDefaults(repoRoot, args.name, updates)
+    if (args.cmd) updates.entrypoint = args.cmd
+    await setAgentDefaults(repoRoot, args.name, updates)
   }
 
-  if (args.check !== undefined) {
-    await setWorkerCheck(repoRoot, args.name, args.check)
+  if (args.guard !== undefined) {
+    await setAgentGuard(repoRoot, args.name, args.guard)
   }
 
   if (args.sync !== undefined) {
     if (!args.sync) {
       throw new QuimbyError('--sync requires a ref (e.g. main, release)')
     }
-    await setWorkerSyncRef(repoRoot, args.name, args.sync)
+    await setAgentSyncRef(repoRoot, args.name, args.sync)
   }
 
   if (args.host || args.port) {
-    const current = state.workers[args.name].location
+    const current = state.agents[args.name].location
     const colonSlash = args.host ? args.host.indexOf(':/') : -1
     const sshHost = args.host
       ? colonSlash >= 0
@@ -123,10 +118,10 @@ export async function runSetCommand({
     const port = args.port ? parseInt(args.port, 10) : (current as { port?: number })?.port
 
     if (!sshHost) {
-      throw new QuimbyError('Worker has no SSH host — provide --host to set one')
+      throw new QuimbyError('Agent has no SSH host — provide --host to set one')
     }
 
-    await setWorkerLocation(repoRoot, args.name, {
+    await setAgentLocation(repoRoot, args.name, {
       type: 'ssh',
       host: sshHost,
       ...(port ? { port } : {}),
@@ -134,5 +129,5 @@ export async function runSetCommand({
     })
   }
 
-  logger.success(`Worker "${args.name}" updated`)
+  logger.success(`Agent "${args.name}" updated`)
 }

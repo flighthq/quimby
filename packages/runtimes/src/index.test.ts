@@ -3,19 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { buildContext, getRuntime, runtimeTypes } from './index'
 
 describe('buildContext', () => {
-  it('returns a RuntimeContext with workerDir, repoDir, and claudeMdPath', () => {
-    const ctx = buildContext('/root', 'alice', 'proj-id', 'worker-id')
-    expect(ctx.workerDir).toContain('alice')
+  it('returns a RuntimeContext with agentDir, repoDir, and claudeMdPath', () => {
+    const ctx = buildContext('/root', 'alice', 'proj-id', 'agent-id')
+    expect(ctx.agentDir).toContain('alice')
     expect(ctx.repoDir).toContain('alice')
     expect(ctx.repoRoot).toBe('/root')
-    expect(ctx.workerName).toBe('alice')
+    expect(ctx.agentName).toBe('alice')
     expect(ctx.projectId).toBe('proj-id')
-    expect(ctx.workerId).toBe('worker-id')
+    expect(ctx.agentId).toBe('agent-id')
   })
 
-  it('workerDir and repoDir are under repoRoot', () => {
-    const ctx = buildContext('/root', 'bob', 'proj', 'worker')
-    expect(ctx.workerDir.startsWith('/root')).toBe(true)
+  it('agentDir and repoDir are under repoRoot', () => {
+    const ctx = buildContext('/root', 'bob', 'proj', 'agent')
+    expect(ctx.agentDir.startsWith('/root')).toBe(true)
     expect(ctx.repoDir.startsWith('/root')).toBe(true)
   })
 })

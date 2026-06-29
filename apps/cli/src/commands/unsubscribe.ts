@@ -5,40 +5,36 @@ import { defineCommand } from 'citty'
 export default defineCommand({
   meta: {
     name: 'unsubscribe',
-    description: 'Remove a subscription between workers',
+    description: 'Remove a subscription between agents',
   },
   args: {
-    worker: {
+    agent: {
       type: 'positional',
-      description: 'Subscribing worker',
+      description: 'Subscribing agent',
       required: true,
     },
     target: {
       type: 'positional',
-      description: 'Target worker to stop watching',
+      description: 'Target agent to stop watching',
       required: true,
     },
   },
   run: runUnsubscribeCommand,
 })
 
-export async function runUnsubscribeCommand({
-  args,
-}: {
-  args: { worker: string; target: string }
-}) {
+export async function runUnsubscribeCommand({ args }: { args: { agent: string; target: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   const subs = state.subscriptions ?? {}
-  if (!subs[args.worker] || !subs[args.worker].includes(args.target)) {
-    logger.info(`"${args.worker}" is not subscribed to "${args.target}"`)
+  if (!subs[args.agent] || !subs[args.agent].includes(args.target)) {
+    logger.info(`"${args.agent}" is not subscribed to "${args.target}"`)
     return
   }
 
-  subs[args.worker] = subs[args.worker].filter((t) => t !== args.target)
-  if (subs[args.worker].length === 0) delete subs[args.worker]
+  subs[args.agent] = subs[args.agent].filter((t) => t !== args.target)
+  if (subs[args.agent].length === 0) delete subs[args.agent]
   state.subscriptions = subs
   await saveState(repoRoot, state)
 
-  logger.success(`"${args.worker}" unsubscribed from "${args.target}"`)
+  logger.success(`"${args.agent}" unsubscribed from "${args.target}"`)
 }

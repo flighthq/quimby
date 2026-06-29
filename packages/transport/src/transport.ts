@@ -1,4 +1,4 @@
-import type { SSHLocation, WorkerLocation } from '@quimbyhq/types'
+import type { AgentLocation, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, exists, readText, writeText } from '@quimbyhq/utils'
 import { execa } from 'execa'
@@ -58,7 +58,7 @@ class SSHTransport implements Transport {
 
   constructor(private readonly loc: SSHLocation) {
     // Derive a short socket path from the host spec. Used by ControlMaster to
-    // multiplex all SSH connections for this worker through a single TCP session
+    // multiplex all SSH connections for this agent through a single TCP session
     // — the user only authenticates once per 60-second window.
     const safeHost = loc.host.replace(/[^a-zA-Z0-9._@-]/g, '_').slice(0, 50)
     const portSuffix = loc.port ? `_${loc.port}` : ''
@@ -132,7 +132,7 @@ class SSHTransport implements Transport {
     }
     if (missing.length > 0) {
       throw new Error(
-        `Remote host ${this.loc.host} is missing required tools: ${missing.join(', ')}. Install them before running an SSH worker.`,
+        `Remote host ${this.loc.host} is missing required tools: ${missing.join(', ')}. Install them before running an SSH agent.`,
       )
     }
   }
@@ -191,7 +191,7 @@ class SSHTransport implements Transport {
   }
 }
 
-export function getTransport(location: WorkerLocation | undefined): Transport {
+export function getTransport(location: AgentLocation | undefined): Transport {
   if (isSSH(location)) return new SSHTransport(location)
   return new LocalTransport()
 }

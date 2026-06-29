@@ -1,17 +1,17 @@
+import { configureRemoteAgentIdentity } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import {
+  remoteAgentDir,
+  remoteAgentRepoDir,
   remoteProjectRoot,
-  remoteWorkerDir,
-  remoteWorkerRepoDir,
   tmuxSessionName,
 } from '@quimbyhq/paths'
 import { buildContext, getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
-import { renderWorkerClaudeMd } from '@quimbyhq/template'
+import { renderAgentClaudeMd } from '@quimbyhq/template'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { RuntimeType } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { configureRemoteWorkerIdentity } from '@quimbyhq/worker'
 import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
@@ -19,18 +19,18 @@ import { execa } from 'execa'
 export default defineCommand({
   meta: {
     name: 'run',
-    description: 'Launch an agent interactively in a worker',
+    description: 'Launch an agent interactively',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
-    agent: {
+    cmd: {
       type: 'string',
-      alias: 'a',
-      description: 'Agent override for this run',
+      alias: 'c',
+      description: 'Entrypoint command to launch for this run (overrides the agent default)',
     },
     runtime: {
       type: 'string',
@@ -44,52 +44,52 @@ export default defineCommand({
 export async function runRunCommand({
   args,
 }: {
-  args: { name: string; agent?: string; runtime?: string }
+  args: { name: string; cmd?: string; runtime?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const worker = state.workers[args.name]
-  if (!worker) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  // ── SSH worker ──────────────────────────────────────────────────────────────
-  if (isSSH(worker.location)) {
-    const loc = worker.location
+  // ── SSH agent ──────────────────────────────────────────────────────────────
+  if (isSSH(agent.location)) {
+    const loc = agent.location
     const transport = getSSHTransport(loc)
     const rRoot = remoteProjectRoot(state.id, loc.base)
-    const rWorkerDir = remoteWorkerDir(state.id, args.name, loc.base)
-    const rRepoDir = remoteWorkerRepoDir(state.id, args.name, loc.base)
+    const rAgentDir = remoteAgentDir(state.id, args.name, loc.base)
+    const rRepoDir = remoteAgentRepoDir(state.id, args.name, loc.base)
 
     logger.start(`Syncing project to ${loc.host}...`)
     await transport.syncProjectTo(repoRoot, rRoot)
 
-    // Lazy remote init: set up worker dirs and clone if this is the first run.
+    // Lazy remote init: set up agent dirs and clone if this is the first run.
     const repoReady = await transport.fileExists(`${rRepoDir}/.git`)
     if (!repoReady) {
       await transport.checkCapabilities(['git', 'rsync', 'tmux'])
-      logger.start('Initializing remote worker...')
-      await transport.ensureDir(`${rWorkerDir}/inbox/status`)
-      await transport.ensureDir(`${rWorkerDir}/outbox`)
+      logger.start('Initializing remote agent...')
+      await transport.ensureDir(`${rAgentDir}/inbox/status`)
+      await transport.ensureDir(`${rAgentDir}/outbox`)
       await transport.exec(`git clone ${rRoot} ${rRepoDir}`)
       await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
-      await configureRemoteWorkerIdentity(transport, rRepoDir, args.name)
+      await configureRemoteAgentIdentity(transport, rRepoDir, args.name)
       const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
-      await transport.writeFile(`${rWorkerDir}/assignment.md`, '')
-      await transport.writeFile(`${rWorkerDir}/status.md`, 'idle')
-      const claudeMd = renderWorkerClaudeMd({ workerName: args.name })
-      await transport.writeFile(`${rWorkerDir}/CLAUDE.md`, claudeMd)
+      await transport.writeFile(`${rAgentDir}/assignment.md`, '')
+      await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
+      const claudeMd = renderAgentClaudeMd({ agentName: args.name })
+      await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
 
-      state.workers[args.name].seedCommit = seedCommit
+      state.agents[args.name].seedCommit = seedCommit
       await saveState(repoRoot, state)
-      logger.success('Remote worker initialized')
+      logger.success('Remote agent initialized')
     }
 
     const runtime =
       (args.runtime as RuntimeType | undefined) ??
-      (worker.defaults?.runtime as RuntimeType | undefined) ??
+      (agent.defaults?.runtime as RuntimeType | undefined) ??
       'local'
-    const agentCmd = args.agent ?? worker.defaults?.agent ?? 'claude'
+    const entrypoint = args.cmd ?? agent.defaults?.entrypoint ?? 'claude'
 
     if (!runtimeTypes.includes(runtime)) {
       throw new QuimbyError(`Unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`)
@@ -102,24 +102,24 @@ export async function runRunCommand({
     const spec = await adapter.runSpec(
       {
         projectId: state.id,
-        workerId: worker.id,
-        workerName: args.name,
-        workerDir: rWorkerDir,
+        agentId: agent.id,
+        agentName: args.name,
+        agentDir: rAgentDir,
         repoDir: rRepoDir,
         repoRoot: rRoot,
       },
-      agentCmd,
+      entrypoint,
     )
-    // Quote the user-supplied agentCmd wherever it appears in the args; leave
+    // Quote the user-supplied entrypoint wherever it appears in the args; leave
     // the runtime's own static tokens (e.g. 'run', 'sandbox') unquoted.
-    const remoteCmd = [spec.command, ...spec.args.map((a) => (a === agentCmd ? sq(a) : a))].join(
+    const remoteCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
       ' ',
     )
 
-    const sessionName = tmuxSessionName(state.id, worker.id)
+    const sessionName = tmuxSessionName(state.id, agent.id)
     const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
     logger.success(`Attaching to tmux session "${sessionName}" on ${loc.host}${runtimeLabel}`)
-    // CWD is rWorkerDir (parent of repo/) so the agent sees assignment.md, inbox/, etc.
+    // CWD is rAgentDir (parent of repo/) so the agent sees assignment.md, inbox/, etc.
     // tmux -A: attach to existing session or create a new one.
     // bash -l: login shell so PATH includes user-installed tools like claude / sbx.
     await transport.runInteractive('tmux', [
@@ -128,7 +128,7 @@ export async function runRunCommand({
       '-s',
       sessionName,
       '-c',
-      rWorkerDir, // unquoted so the remote shell expands ~
+      rAgentDir, // unquoted so the remote shell expands ~
       'bash',
       '-l',
       '-c',
@@ -137,27 +137,27 @@ export async function runRunCommand({
     return
   }
 
-  // ── Local worker ────────────────────────────────────────────────────────────
-  const saved = worker.defaults
+  // ── Local agent ────────────────────────────────────────────────────────────
+  const saved = agent.defaults
   const runtime =
     (args.runtime as RuntimeType | undefined) ?? (saved?.runtime as RuntimeType) ?? 'local'
-  const agentCmd = args.agent ?? saved?.agent ?? 'claude'
+  const entrypoint = args.cmd ?? saved?.entrypoint ?? 'claude'
 
   if (!runtimeTypes.includes(runtime)) {
     throw new QuimbyError(`Unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`)
   }
 
   const adapter = getRuntime(runtime)
-  const ctx = buildContext(repoRoot, args.name, state.id, worker.id)
-  const spec = await adapter.runSpec(ctx, agentCmd)
+  const ctx = buildContext(repoRoot, args.name, state.id, agent.id)
+  const spec = await adapter.runSpec(ctx, entrypoint)
 
   const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
 
-  // Opt-in tmux for local workers: run the agent inside a named, reattachable
-  // session (the persistence SSH workers always get). `-A` attaches to an
+  // Opt-in tmux for local agents: run the agent inside a named, reattachable
+  // session (the persistence SSH agents always get). `-A` attaches to an
   // existing session or creates one; `-e` carries any runtime env into it.
-  if (worker.tmux) {
-    const sessionName = tmuxSessionName(state.id, worker.id)
+  if (agent.tmux) {
+    const sessionName = tmuxSessionName(state.id, agent.id)
     const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [
       '-e',
       `${key}=${value}`,
@@ -188,7 +188,7 @@ export async function runRunCommand({
     return
   }
 
-  logger.start(`Running "${agentCmd}" in worker "${args.name}"${runtimeLabel}`)
+  logger.start(`Running "${entrypoint}" in agent "${args.name}"${runtimeLabel}`)
 
   try {
     await execa(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, stdio: 'inherit' })

@@ -5,20 +5,20 @@ export const openshell: RuntimeAdapter = {
 
   async setup() {},
 
-  runSpec(ctx: RuntimeContext, agentCmd: string): RunSpec {
+  runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
     return {
       command: 'openshell',
-      args: ['sandbox', 'create', '--', agentCmd],
-      cwd: ctx.workerDir,
+      args: ['sandbox', 'create', '--', entrypoint],
+      cwd: ctx.agentDir,
     }
   },
 
-  execSpec(ctx: RuntimeContext, agentCmd: string): RunSpec {
-    const parts = agentCmd.split(/\s+/)
+  execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
+    const parts = entrypoint.split(/\s+/)
     return {
       command: 'openshell',
       args: ['sandbox', 'create', '--', ...parts],
-      cwd: ctx.workerDir,
+      cwd: ctx.agentDir,
     }
   },
 

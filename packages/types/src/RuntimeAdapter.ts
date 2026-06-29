@@ -7,9 +7,9 @@ export interface RuntimeAdapter {
 
   setup(ctx: RuntimeContext): Promise<void>
 
-  runSpec(ctx: RuntimeContext, agentCmd: string): RunSpec
+  runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec
 
-  execSpec(ctx: RuntimeContext, agentCmd: string): RunSpec
+  execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec
 
   teardown(ctx: RuntimeContext): Promise<void>
 }

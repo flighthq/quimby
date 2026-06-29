@@ -1,22 +1,22 @@
+import { addAgent, setAgentGuard } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { addWorker, setWorkerCheck } from '@quimbyhq/worker'
 import { defineCommand } from 'citty'
 
-import { buildSSHLocation, runWorkerWalkthrough } from '../walkthrough'
+import { buildSSHLocation, runAgentWalkthrough } from '../walkthrough'
 
 export default defineCommand({
   meta: {
     name: 'add',
-    description: 'Create a new worker',
+    description: 'Create a new agent',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Name for the worker',
+      description: 'Name for the agent',
       required: true,
     },
     runtime: {
@@ -24,19 +24,19 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime environment (${runtimeTypes.join(', ')})`,
     },
-    agent: {
+    cmd: {
       type: 'string',
-      alias: 'a',
-      description: 'Agent to run (e.g. claude, codex)',
+      alias: 'c',
+      description: 'Entrypoint command to launch (e.g. claude, codex)',
     },
     host: {
       type: 'string',
       alias: 'H',
-      description: 'SSH host for remote worker (e.g. user@box or user@box:/remote/path)',
+      description: 'SSH host for remote agent (e.g. user@box or user@box:/remote/path)',
     },
     port: {
       type: 'string',
-      description: 'SSH port for remote worker (default: 22)',
+      description: 'SSH port for remote agent (default: 22)',
     },
     sync: {
       type: 'string',
@@ -53,7 +53,7 @@ export async function runAddCommand({
   args: {
     name: string
     runtime?: string
-    agent?: string
+    cmd?: string
     host?: string
     port?: string
     sync?: string
@@ -64,14 +64,14 @@ export async function runAddCommand({
     throw new QuimbyError('Not inside a git repository.')
   }
 
-  // With no config flags, walk the user through the worker's setup; with flags,
+  // With no config flags, walk the user through the agent's setup; with flags,
   // honor them verbatim so `add` stays scriptable for unattended use.
-  const hasFlags = Boolean(args.runtime || args.agent || args.host || args.port || args.sync)
+  const hasFlags = Boolean(args.runtime || args.cmd || args.host || args.port || args.sync)
 
-  let defaults: { runtime?: string; agent?: string } | undefined
+  let defaults: { runtime?: string; entrypoint?: string } | undefined
   let location: SSHLocation | undefined
   let syncRef: string | undefined
-  let check: string | undefined
+  let guard: string | undefined
   let tmux: boolean | undefined
 
   if (hasFlags) {
@@ -80,40 +80,41 @@ export async function runAddCommand({
         `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
       )
     }
-    defaults = args.runtime || args.agent ? { runtime: args.runtime, agent: args.agent } : undefined
+    defaults =
+      args.runtime || args.cmd ? { runtime: args.runtime, entrypoint: args.cmd } : undefined
     if (args.host) {
       location = buildSSHLocation(args.host, args.port ? Number.parseInt(args.port, 10) : undefined)
     }
     syncRef = args.sync
   } else {
-    const config = await runWorkerWalkthrough(args.name)
+    const config = await runAgentWalkthrough(args.name)
     if (!config) return
-    defaults = { runtime: config.runtime, agent: config.agent }
+    defaults = { runtime: config.runtime, entrypoint: config.entrypoint }
     location = config.location
     syncRef = config.syncRef
-    check = config.check
+    guard = config.guard
     tmux = config.tmux
   }
 
-  const workerState = await addWorker(repoRoot, args.name, {
+  const agentState = await addAgent(repoRoot, args.name, {
     defaults,
     location,
     ...(syncRef ? { syncRef } : {}),
     ...(tmux ? { tmux: true } : {}),
   })
-  if (check) {
-    await setWorkerCheck(repoRoot, args.name, check)
+  if (guard) {
+    await setAgentGuard(repoRoot, args.name, guard)
   }
 
   const locationHint = location ? ` [ssh: ${location.host}]` : ''
   const defaultsHint = defaults
-    ? ` (${[defaults.runtime, defaults.agent].filter(Boolean).join(', ')})`
+    ? ` (${[defaults.runtime, defaults.entrypoint].filter(Boolean).join(', ')})`
     : ''
 
   logger.success(
-    `Worker "${args.name}" created (seed: ${workerState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
+    `Agent "${args.name}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
   )
   if (location) {
-    logger.info('Remote worker created — run `quimby run` to sync and initialize.')
+    logger.info('Remote agent created — run `quimby run` to sync and initialize.')
   }
 }

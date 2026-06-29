@@ -13,12 +13,12 @@ import { getQuimbySuccessQuip } from '../quips'
 export default defineCommand({
   meta: {
     name: 'apply',
-    description: "Package a worker's work and apply it to your repository",
+    description: "Package an agent's work and apply it to your repository",
   },
   args: {
-    worker: {
+    agent: {
       type: 'positional',
-      description: 'Worker to apply (or a staged parcel left by a prior conflict)',
+      description: 'Agent to apply (or a staged parcel left by a prior conflict)',
       required: true,
     },
     commits: {
@@ -40,7 +40,7 @@ export default defineCommand({
     branch: {
       type: 'string',
       alias: 'b',
-      description: 'Create a branch before applying (default name: quimby/<worker>-<sha>)',
+      description: 'Create a branch before applying (default name: quimby/<agent>-<sha>)',
     },
     target: {
       type: 'string',
@@ -54,12 +54,17 @@ export default defineCommand({
     },
     rebase: {
       type: 'boolean',
-      description: 'Rebase the worker onto host HEAD before applying',
+      description: 'Rebase the agent onto host HEAD before applying',
       default: false,
     },
-    'skip-check': {
+    'skip-guard': {
       type: 'boolean',
-      description: "Skip the worker's configured verification command",
+      description: "Skip the agent's configured guard command",
+      default: false,
+    },
+    'no-verify': {
+      type: 'boolean',
+      description: 'Alias for --skip-guard (git muscle memory)',
       default: false,
     },
   },
@@ -70,7 +75,7 @@ export async function runApplyCommand({
   args,
 }: {
   args: {
-    worker: string
+    agent: string
     commits: boolean
     patch: boolean
     '3way': boolean
@@ -78,7 +83,8 @@ export async function runApplyCommand({
     target?: string
     message?: string
     rebase: boolean
-    'skip-check': boolean
+    'skip-guard': boolean
+    'no-verify': boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -93,23 +99,23 @@ export async function runApplyCommand({
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
 
-  // A worker name stages fresh work (committing the dirty tree — apply ships
+  // An agent name stages fresh work (committing the dirty tree — apply ships
   // everything across the membrane); anything else is a parcel already staged
   // in `.quimby/staging/` (e.g. one a prior conflict left behind).
-  const isWorker = Boolean(state.workers[args.worker])
-  const name = isWorker
+  const isAgent = Boolean(state.agents[args.agent])
+  const name = isAgent
     ? (
         await stageParcel({
           state,
           repoRoot,
-          from: args.worker,
+          from: args.agent,
           message: args.message,
           commitDirty: true,
-          skipCheck: args['skip-check'],
+          skipGuard: args['skip-guard'] || args['no-verify'],
           rebase: args.rebase,
         })
       ).name
-    : args.worker
+    : args.agent
 
   const { meta } = await readHandoff(repoRoot, name)
 
@@ -145,6 +151,6 @@ export async function runApplyCommand({
     logger.info(`Changes in working tree — no commit created. Suggested message:`)
     logger.info(`  ${meta.suggestedMessage}`)
   }
-  logger.info(`Resync other workers when ready: quimby advance --all`)
+  logger.info(`Resync other agents when ready: quimby advance --all`)
   logger.log(colors.dim(getQuimbySuccessQuip()))
 }

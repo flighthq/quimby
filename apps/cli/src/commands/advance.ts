@@ -1,23 +1,23 @@
+import { advanceAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
-import { advanceWorker } from '@quimbyhq/worker'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
     name: 'advance',
-    description: 'Fast-forward worker repos to current host HEAD, preserving assignment and status',
+    description: 'Fast-forward agent repos to current host HEAD, preserving assignment and status',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name(s) to advance (omit with --all)',
+      description: 'Agent name(s) to advance (omit with --all)',
       required: false,
     },
     all: {
       type: 'boolean',
-      description: 'Advance every worker, skipping any that are busy (uncommitted changes)',
+      description: 'Advance every agent, skipping any that are busy (uncommitted changes)',
       default: false,
     },
   },
@@ -34,26 +34,26 @@ export async function runAdvanceCommand({
   const explicit = [args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))
 
   if (!args.all && explicit.length === 0) {
-    throw new QuimbyError('Specify one or more worker names, or use --all')
+    throw new QuimbyError('Specify one or more agent names, or use --all')
   }
 
-  const names = args.all ? Object.keys(state.workers) : explicit
+  const names = args.all ? Object.keys(state.agents) : explicit
 
   if (names.length === 0) {
-    logger.info('No workers to advance.')
+    logger.info('No agents to advance.')
     return
   }
 
   for (const name of names) {
-    const prevSeed = state.workers[name]?.seedCommit
+    const prevSeed = state.agents[name]?.seedCommit
 
-    if (!state.workers[name]) {
+    if (!state.agents[name]) {
       // An explicit name that doesn't exist is a hard error; --all only sees real names.
-      throw new QuimbyError(`Worker "${name}" not found`)
+      throw new QuimbyError(`Agent "${name}" not found`)
     }
 
     try {
-      const result = await advanceWorker(repoRoot, name)
+      const result = await advanceAgent(repoRoot, name)
 
       if (result.newSeed === prevSeed) {
         logger.info(`${name}: already up to date`)
@@ -68,8 +68,8 @@ export async function runAdvanceCommand({
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      // In --all mode a busy or conflicted worker is skipped, not fatal — the
-      // whole point is to resync idle workers without disturbing the rest.
+      // In --all mode a busy or conflicted agent is skipped, not fatal — the
+      // whole point is to resync idle agents without disturbing the rest.
       if (args.all) {
         logger.warn(`${name}: skipped — ${message}`)
         continue

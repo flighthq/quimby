@@ -1,12 +1,7 @@
 import { stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 
-import {
-  getQuimbyDir,
-  getWorkerDir,
-  getWorkerInboxStatusDir,
-  remoteWorkerDir,
-} from '@quimbyhq/paths'
+import { getAgentDir, getAgentInboxStatusDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -56,31 +51,31 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         pid: process.pid,
         port,
         uptime: process.uptime(),
-        workers: Object.keys(state.workers).length,
+        agents: Object.keys(state.agents).length,
         subscriptions: countSubscriptions(state),
       })
       return
     }
 
-    if (req.method === 'GET' && path === '/api/workers') {
-      const workers: Record<string, unknown> = {}
-      for (const [name, worker] of Object.entries(state.workers)) {
+    if (req.method === 'GET' && path === '/api/agents') {
+      const agents: Record<string, unknown> = {}
+      for (const [name, agent] of Object.entries(state.agents)) {
         const cached = statusCache.get(name)
-        workers[name] = { ...worker, currentStatus: cached?.content ?? null }
+        agents[name] = { ...agent, currentStatus: cached?.content ?? null }
       }
-      json(res, workers)
+      json(res, agents)
       return
     }
 
-    if (req.method === 'GET' && path.startsWith('/api/workers/')) {
+    if (req.method === 'GET' && path.startsWith('/api/agents/')) {
       const name = path.split('/')[3]
-      if (!state.workers[name]) {
+      if (!state.agents[name]) {
         res.writeHead(404, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Worker "${name}" not found` }))
+        res.end(JSON.stringify({ error: `Agent "${name}" not found` }))
         return
       }
       const cached = statusCache.get(name)
-      json(res, { ...state.workers[name], currentStatus: cached?.content ?? null })
+      json(res, { ...state.agents[name], currentStatus: cached?.content ?? null })
       return
     }
 
@@ -121,8 +116,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       const newMtime = await getFileMtime(join(getQuimbyDir(repoRoot), 'state.yaml'))
       if (newMtime !== null) stateMtime = newMtime
 
-      for (const name of Object.keys(state.workers)) {
-        await pollWorkerStatus(repoRoot, state, name, statusCache)
+      for (const name of Object.keys(state.agents)) {
+        await pollAgentStatus(repoRoot, state, name, statusCache)
       }
     } catch (err) {
       logger.error(`Poll error: ${err}`)
@@ -142,7 +137,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   server.listen(port, '127.0.0.1', () => {
     logger.success(`Server listening on http://127.0.0.1:${port}`)
     logger.info(`Polling every ${pollInterval / 1000}s`)
-    logger.info(`Watching ${Object.keys(state.workers).length} worker(s)`)
+    logger.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
     const subCount = countSubscriptions(state)
     if (subCount > 0) {
       logger.info(`${subCount} active subscription(s)`)
@@ -161,29 +156,29 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   process.on('SIGTERM', shutdown)
 }
 
-async function pollWorkerStatus(
+async function pollAgentStatus(
   repoRoot: string,
   state: QuimbyState,
   name: string,
   cache: Map<string, StatusSnapshot>,
 ): Promise<void> {
-  const worker = state.workers[name]
+  const agent = state.agents[name]
   const previous = cache.get(name)
   let content: string
 
-  if (isSSH(worker.location)) {
-    // For SSH workers, fetch content and compare (no reliable mtime over SSH).
-    const transport = getTransport(worker.location)
-    const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+  if (isSSH(agent.location)) {
+    // For SSH agents, fetch content and compare (no reliable mtime over SSH).
+    const transport = getTransport(agent.location)
+    const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
     try {
-      content = (await transport.readFile(`${rWorkerDir}/status.md`)).trim()
+      content = (await transport.readFile(`${rAgentDir}/status.md`)).trim()
     } catch {
       return
     }
     if (previous && previous.content === content) return
     cache.set(name, { content, mtime: 0 })
   } else {
-    const statusPath = join(getWorkerDir(repoRoot, name), 'status.md')
+    const statusPath = join(getAgentDir(repoRoot, name), 'status.md')
     if (!(await exists(statusPath))) return
 
     const mtime = await getFileMtime(statusPath)
@@ -195,7 +190,7 @@ async function pollWorkerStatus(
     cache.set(name, { content, mtime })
   }
 
-  // First time we've seen this worker's status — seed the cache without routing.
+  // First time we've seen this agent's status — seed the cache without routing.
   if (!previous) return
 
   logger.info(`[${name}] Status changed`)
@@ -205,16 +200,16 @@ async function pollWorkerStatus(
 
   for (const [subscriber, targets] of Object.entries(subs)) {
     if (!targets.includes(name)) continue
-    const subWorker = state.workers[subscriber]
-    if (!subWorker) continue
+    const subAgent = state.agents[subscriber]
+    if (!subAgent) continue
 
-    if (isSSH(subWorker.location)) {
-      const transport = getTransport(subWorker.location)
-      const rInboxStatusDir = `${remoteWorkerDir(state.id, subscriber, subWorker.location.base)}/inbox/status`
+    if (isSSH(subAgent.location)) {
+      const transport = getTransport(subAgent.location)
+      const rInboxStatusDir = `${remoteAgentDir(state.id, subscriber, subAgent.location.base)}/inbox/status`
       await transport.ensureDir(rInboxStatusDir)
       await transport.writeFile(`${rInboxStatusDir}/${name}.md`, statusPayload)
     } else {
-      const inboxStatusDir = getWorkerInboxStatusDir(repoRoot, subscriber)
+      const inboxStatusDir = getAgentInboxStatusDir(repoRoot, subscriber)
       await ensureDir(inboxStatusDir)
       await writeText(join(inboxStatusDir, `${name}.md`), statusPayload)
     }

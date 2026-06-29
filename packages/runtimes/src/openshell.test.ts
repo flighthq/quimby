@@ -4,10 +4,10 @@ import { openshell } from './openshell'
 
 const ctx = {
   projectId: 'proj-id',
-  workerId: 'worker-id',
-  workerName: 'alice',
-  workerDir: '/root/.quimby/workers/alice',
-  repoDir: '/root/.quimby/workers/alice/repo',
+  agentId: 'agent-id',
+  agentName: 'alice',
+  agentDir: '/root/.quimby/agents/alice',
+  repoDir: '/root/.quimby/agents/alice/repo',
   repoRoot: '/root',
 }
 
@@ -23,7 +23,7 @@ describe('openshell', () => {
     expect(spec.args).toContain('create')
     expect(spec.args).toContain('--')
     expect(spec.args).toContain('claude')
-    expect(spec.cwd).toBe(ctx.workerDir)
+    expect(spec.cwd).toBe(ctx.agentDir)
   })
 
   it('execSpec splits command into parts', () => {

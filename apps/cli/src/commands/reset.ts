@@ -1,18 +1,18 @@
+import { resetAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
-import { resetWorker } from '@quimbyhq/worker'
 import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
     name: 'reset',
-    description: 'Reset a worker to current HEAD (destructive — all uncommitted work is lost)',
+    description: 'Reset an agent to current HEAD (destructive — all uncommitted work is lost)',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
     force: {
@@ -28,8 +28,8 @@ export default defineCommand({
 export async function runResetCommand({ args }: { args: { name: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!state.workers[args.name]) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  if (!state.agents[args.name]) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
   if (!args.force) {
@@ -39,10 +39,10 @@ export async function runResetCommand({ args }: { args: { name: string; force: b
     return
   }
 
-  await resetWorker(repoRoot, args.name)
+  await resetAgent(repoRoot, args.name)
 
   const newState = await loadState(repoRoot)
-  const newSeed = newState.workers[args.name].seedCommit
+  const newSeed = newState.agents[args.name].seedCommit
 
-  logger.success(`Worker "${args.name}" reset (seed: ${newSeed.slice(0, 8)})`)
+  logger.success(`Agent "${args.name}" reset (seed: ${newSeed.slice(0, 8)})`)
 }

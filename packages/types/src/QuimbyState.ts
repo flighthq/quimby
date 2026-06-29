@@ -1,4 +1,4 @@
-import type { WorkerState } from './WorkerState'
+import type { AgentState } from './AgentState'
 
 export interface QuimbyState {
   id: string
@@ -6,6 +6,6 @@ export interface QuimbyState {
   sourceRef: string
   snapshot: string
   createdAt: string
-  workers: Record<string, WorkerState>
+  agents: Record<string, AgentState>
   subscriptions?: Record<string, string[]>
 }

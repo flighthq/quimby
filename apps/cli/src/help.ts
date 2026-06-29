@@ -14,7 +14,7 @@ interface CommandGroup {
 // each command's one-liner is read from its own meta, so descriptions never drift.
 const COMMAND_GROUPS: readonly CommandGroup[] = [
   {
-    title: 'Workers',
+    title: 'Agents',
     names: [
       'add',
       'config',
@@ -29,7 +29,7 @@ const COMMAND_GROUPS: readonly CommandGroup[] = [
       'remove',
     ],
   },
-  { title: 'Work & assignments', names: ['assign', 'diff', 'handoff', 'apply'] },
+  { title: 'Work & assignments', names: ['assign', 'diff', 'handoff', 'dispatch', 'apply'] },
   { title: 'Server', names: ['serve', 'subscribe', 'unsubscribe'] },
   { title: 'Help', names: ['help'] },
 ]

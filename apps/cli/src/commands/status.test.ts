@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => ({
-    state: { id: 'proj-id', workers: {}, subscriptions: {} },
+    state: { id: 'proj-id', agents: {}, subscriptions: {} },
     repoRoot: '/fake/root',
   })),
 }))
@@ -14,7 +14,7 @@ describe('run', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
-  it('resolves (logs info) when there are no workers', async () => {
+  it('resolves (logs info) when there are no agents', async () => {
     const { default: cmd } = await import('./status')
     await expect(cmd.run!({ args: {} } as never)).resolves.toBeUndefined()
   })

@@ -9,12 +9,12 @@ import { defineCommand } from 'citty'
 export default defineCommand({
   meta: {
     name: 'sync',
-    description: 'Rsync local project to a remote SSH worker',
+    description: 'Rsync local project to a remote SSH agent',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
   },
@@ -24,21 +24,19 @@ export default defineCommand({
 export async function runSyncCommand({ args }: { args: { name: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const worker = state.workers[args.name]
-  if (!worker) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  if (!isSSH(worker.location)) {
-    throw new QuimbyError(
-      `Worker "${args.name}" is a local worker — sync only applies to SSH workers`,
-    )
+  if (!isSSH(agent.location)) {
+    throw new QuimbyError(`Agent "${args.name}" is a local agent — sync only applies to SSH agents`)
   }
 
-  const rRoot = remoteProjectRoot(state.id, worker.location.base)
-  const transport = getSSHTransport(worker.location)
-  logger.start(`Syncing to ${worker.location.host}:${rRoot}`)
+  const rRoot = remoteProjectRoot(state.id, agent.location.base)
+  const transport = getSSHTransport(agent.location)
+  logger.start(`Syncing to ${agent.location.host}:${rRoot}`)
   await transport.syncProjectTo(repoRoot, rRoot)
   await transport.ensureDir(`${rRoot}/.quimby/packs`)
-  logger.success(`Synced to ${worker.location.host}`)
+  logger.success(`Synced to ${agent.location.host}`)
 }

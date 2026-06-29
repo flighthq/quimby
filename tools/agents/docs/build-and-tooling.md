@@ -42,7 +42,7 @@ skipNodeModulesBundle: true // keep real deps (execa, yaml, …) external
 This is required, not cosmetic: the library `dist/` that `tsc -b` emits uses **extensionless ESM imports** (`from './fs'`), which Node's ESM loader cannot resolve at runtime. The packages are only Node-runnable once bundled into the CLI. So:
 
 - A published `quimby` must **not** list `@quimbyhq/*` as runtime deps (tsup inlines them); scrub them from the published manifest.
-- If a public programmatic API is ever wanted, add **one** curated umbrella package (`@quimbyhq/sdk` — never `core`, which the conventions forbid) re-exporting the stable subset (`types`, `workspace`, `pack`, `worker`), and publish only that + the CLI. Do not publish the leaf packages.
+- If a public programmatic API is ever wanted, add **one** curated umbrella package (`@quimbyhq/sdk` — never `core`, which the conventions forbid) re-exporting the stable subset (`types`, `workspace`, `pack`, `agent`), and publish only that + the CLI. Do not publish the leaf packages.
 
 ## Governance scripts (`scripts/`, run via `tsx`)
 
@@ -60,11 +60,11 @@ Adding a package? `packages:check` will tell you exactly what is missing (`tscon
 
 ## Interactive config & the walkthrough
 
-`quimby config <worker>` and a flag-less `quimby add <worker>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects a worker's full configuration: runtime, agent, local vs SSH (host/port/base), tmux, sync ref, verification command.
+`quimby config <agent>` and a flag-less `quimby add <agent>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects an agent's full configuration: runtime, entrypoint, local vs SSH (host/port/base), tmux, sync ref, guard.
 
-- Config is **per-worker** — there are **no** stored workspace-level defaults, so there is a single source of truth (the worker's own state). This is why `config` is effectively an interactive `set`, and why `add` walks through rather than applying saved defaults.
+- Config is **per-agent** — there are **no** stored workspace-level defaults, so there is a single source of truth (the agent's own state). This is why `config` is effectively an interactive `set`, and why `add` walks through rather than applying saved defaults.
 - `quimby add` honors flags when given (skips the walkthrough) so it stays scriptable for unattended use; it only prompts when no config flags are passed.
 
 ## tmux
 
-SSH workers always run in a named tmux session for persistence. Local workers can **opt in** via the `tmux` field on `WorkerState` (set through the walkthrough / `config`). When set, `quimby run` wraps the local agent in `tmux new-session -A -s <tmuxSessionName>` so the session is reattachable. The session name derives from stable IDs (`qb-<projectId[:8]>-<workerId[:8]>`), so it survives renames.
+SSH agents always run in a named tmux session for persistence. Local agents can **opt in** via the `tmux` field on `AgentState` (set through the walkthrough / `config`). When set, `quimby run` wraps the local agent in `tmux new-session -A -s <tmuxSessionName>` so the session is reattachable. The session name derives from stable IDs (`qb-<projectId[:8]>-<agentId[:8]>`), so it survives renames.

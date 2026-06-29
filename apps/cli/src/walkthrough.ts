@@ -1,22 +1,22 @@
 import { cancel, confirm, intro, isCancel, outro, select, text } from '@clack/prompts'
 import { runtimeTypes } from '@quimbyhq/runtimes'
-import type { RuntimeType, SSHLocation, WorkerLocation } from '@quimbyhq/types'
+import type { AgentLocation, RuntimeType, SSHLocation } from '@quimbyhq/types'
 
-export interface WorkerConfig {
+export interface AgentConfig {
   runtime: RuntimeType
-  agent: string
+  entrypoint: string
   location?: SSHLocation
   syncRef?: string
-  check?: string
+  guard?: string
   tmux?: boolean
 }
 
 export interface WalkthroughSeed {
   runtime?: string
-  agent?: string
-  location?: WorkerLocation
+  entrypoint?: string
+  location?: AgentLocation
   syncRef?: string
-  check?: string
+  guard?: string
   tmux?: boolean
 }
 
@@ -34,13 +34,13 @@ export function buildSSHLocation(host: string, port?: number): SSHLocation {
   }
 }
 
-// Interactive, arrow-key walkthrough that collects a worker's full configuration.
+// Interactive, arrow-key walkthrough that collects an agent's full configuration.
 // Returns null if the user cancels at any step.
-export async function runWorkerWalkthrough(
+export async function runAgentWalkthrough(
   name: string,
   seed: WalkthroughSeed = {},
-): Promise<WorkerConfig | null> {
-  intro(`Configure worker "${name}"`)
+): Promise<AgentConfig | null> {
+  intro(`Configure agent "${name}"`)
 
   const seededRuntime = runtimeTypes.find((rt) => rt === seed.runtime) ?? runtimeTypes[0]
   const runtime = await prompt(
@@ -52,19 +52,19 @@ export async function runWorkerWalkthrough(
   )
   if (runtime === null) return cancelled()
 
-  const agent = await prompt(
+  const entrypoint = await prompt(
     text({
-      message: 'Agent',
+      message: 'Entrypoint command',
       placeholder: 'claude, codex, …',
-      initialValue: seed.agent ?? 'claude',
+      initialValue: seed.entrypoint ?? 'claude',
     }),
   )
-  if (agent === null) return cancelled()
+  if (entrypoint === null) return cancelled()
 
   const seedLocal = !seed.location || seed.location.type !== 'ssh'
   const where = await prompt(
     select({
-      message: 'Where does this worker run?',
+      message: 'Where does this agent run?',
       options: [
         { value: 'local', label: '1. Local' },
         { value: 'ssh', label: '2. Remote (SSH)' },
@@ -82,7 +82,7 @@ export async function runWorkerWalkthrough(
         message: 'SSH host',
         placeholder: 'user@box or user@box:/remote/path',
         initialValue: seedSSH ? formatSSHHost(seedSSH) : '',
-        validate: (value) => (value?.trim() ? undefined : 'A host is required for a remote worker'),
+        validate: (value) => (value?.trim() ? undefined : 'A host is required for a remote agent'),
       }),
     )
     if (host === null) return cancelled()
@@ -102,7 +102,7 @@ export async function runWorkerWalkthrough(
     location = buildSSHLocation(host.trim(), port)
   }
 
-  // SSH workers always run in tmux for persistence; only local workers choose.
+  // SSH agents always run in tmux for persistence; only local agents choose.
   let tmux = false
   if (where === 'local') {
     const useTmux = await prompt(
@@ -121,23 +121,23 @@ export async function runWorkerWalkthrough(
   )
   if (syncRef === null) return cancelled()
 
-  const check = await prompt(
+  const guard = await prompt(
     text({
-      message: 'Verification command (run by `quimby pack`)',
+      message: 'Guard command (run before apply/handoff)',
       placeholder: 'e.g. npm test',
-      initialValue: seed.check ?? '',
+      initialValue: seed.guard ?? '',
     }),
   )
-  if (check === null) return cancelled()
+  if (guard === null) return cancelled()
 
-  outro(`Worker "${name}" configured`)
+  outro(`Agent "${name}" configured`)
 
   return {
     runtime: runtime as RuntimeType,
-    agent: agent.trim() || 'claude',
+    entrypoint: entrypoint.trim() || 'claude',
     location,
     ...(syncRef.trim() ? { syncRef: syncRef.trim() } : {}),
-    ...(check.trim() ? { check: check.trim() } : {}),
+    ...(guard.trim() ? { guard: guard.trim() } : {}),
     ...(tmux ? { tmux: true } : {}),
   }
 }

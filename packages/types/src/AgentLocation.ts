@@ -1,8 +1,8 @@
 import type { LocalLocation } from './LocalLocation'
 import type { SSHLocation } from './SSHLocation'
 
-export type WorkerLocation = LocalLocation | SSHLocation
+export type AgentLocation = LocalLocation | SSHLocation
 
-export function isSSH(loc: WorkerLocation | undefined): loc is SSHLocation {
+export function isSSH(loc: AgentLocation | undefined): loc is SSHLocation {
   return loc?.type === 'ssh'
 }

@@ -1,0 +1,28 @@
+import type { AgentLocation } from './AgentLocation'
+
+export interface AgentState {
+  id: string
+  name: string
+  seedCommit: string
+  /**
+   * Ref the agent synchronizes against (e.g. `main`, `refs/heads/release`).
+   * `quimby advance` resolves this ref's tip in the host repo as the new baseline —
+   * it does NOT follow whatever the host happens to be checked out to. Retarget
+   * explicitly with `quimby set <agent> --sync <ref>`.
+   */
+  syncRef?: string
+  createdAt: string
+  location?: AgentLocation
+  defaults?: {
+    runtime?: string
+    /** The command launched in the agent (overloaded to include args); a runtime adapter wraps it. */
+    entrypoint?: string
+  }
+  /** Shell command run in the agent repo before its work crosses the membrane (apply) or is handed off. */
+  guard?: string
+  /**
+   * Run the agent inside a named tmux session. SSH agents always use tmux for
+   * persistence; this opts a local agent into the same behavior.
+   */
+  tmux?: boolean
+}

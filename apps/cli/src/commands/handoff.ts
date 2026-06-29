@@ -1,57 +1,49 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import {
-  deliverHandoff,
-  discardHandoff,
-  markHandoffSent,
-  readOutboxDraft,
-  readOutboxRecipients,
-} from '@quimbyhq/handoff'
-import { getStagingHandoffDir } from '@quimbyhq/paths'
-import type { QuimbyState } from '@quimbyhq/types'
-import { cp, ensureDir, logger } from '@quimbyhq/utils'
+import { assembleHostHandoff, deliverHandoff, discardHandoff, HOST_SENDER } from '@quimbyhq/handoff'
+import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-import { join, resolve } from 'pathe'
 
 import { stageParcel } from '../courier'
 
 export default defineCommand({
   meta: {
     name: 'handoff',
-    description: "Carry a worker's work to another worker (or its whole outbox, or a directory)",
+    description: "Carry an agent's work to another agent, or your host's work to an agent",
   },
   args: {
     from: {
       type: 'positional',
-      description: 'Source worker (the sender)',
+      description: 'Source agent — or, used alone, the recipient (host → it)',
       required: true,
     },
     to: {
       type: 'positional',
-      description: 'Recipient worker; omit to deliver the whole outbox',
+      description: 'Recipient agent (when a source agent is given)',
       required: false,
     },
     message: {
       type: 'string',
       alias: 'm',
-      description: "The parcel's note (overrides an outbox draft's note)",
+      description: "The parcel's note",
     },
     attach: {
       type: 'string',
-      description: "Carry a different worker's diff than <from>",
-    },
-    out: {
-      type: 'string',
-      description: 'Export the parcel to a directory instead of a worker inbox',
+      description: "Carry a different agent's diff than the source",
     },
     rebase: {
       type: 'boolean',
       description: 'Rebase the code source onto host HEAD before packaging',
       default: false,
     },
-    'skip-check': {
+    'skip-guard': {
       type: 'boolean',
-      description: "Skip the code source's configured verification command",
+      description: "Skip the source agent's guard command",
+      default: false,
+    },
+    'no-verify': {
+      type: 'boolean',
+      description: 'Alias for --skip-guard (git muscle memory)',
       default: false,
     },
   },
@@ -66,118 +58,65 @@ export async function runHandoffCommand({
     to?: string
     message?: string
     attach?: string
-    out?: string
     rebase: boolean
-    'skip-check': boolean
+    'skip-guard': boolean
+    'no-verify': boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!state.workers[args.from]) {
-    throw new QuimbyError(`Worker "${args.from}" not found`)
+  // The recipient is the last positional; a leading positional overrides the
+  // default source (the host). So `handoff B` is host → B and `handoff A B` is A → B.
+  const recipient = args.to ?? args.from
+  const fromHost = args.to === undefined
+
+  const recip = state.agents[recipient]
+  if (!recip) {
+    throw new QuimbyError(`Agent "${recipient}" not found`)
   }
 
-  // Export: assemble the parcel and write it to a directory, then forget it.
-  if (args.out) {
-    const meta = await stageParcel({
-      state,
+  if (fromHost) {
+    const meta = await assembleHostHandoff({
       repoRoot,
-      from: args.from,
+      to: recipient,
+      base: recip.seedCommit,
       note: args.message,
-      attach: args.attach,
-      skipCheck: args['skip-check'],
-      rebase: args.rebase,
     })
-    const dest = resolve(join(args.out, meta.name))
-    await ensureDir(dest)
-    await cp(getStagingHandoffDir(repoRoot, meta.name), dest, { recursive: true })
+    await deliverHandoff({
+      repoRoot,
+      name: meta.name,
+      to: recipient,
+      toLocation: recip.location,
+      projectId: state.id,
+    })
     await discardHandoff(repoRoot, meta.name)
-    logger.success(`Exported "${meta.name}" → ${dest}`)
+    logger.success(`Handed off from ${HOST_SENDER} to "${recipient}"`)
     return
   }
 
-  // Fan-out: no recipient named — carry every queued outbox parcel to its addressee.
-  if (!args.to) {
-    const recipients = await readOutboxRecipients(repoRoot, args.from)
-    if (recipients.length === 0) {
-      logger.info(`Worker "${args.from}" has no queued handoffs.`)
-      return
-    }
-    for (const recipient of recipients) {
-      if (!state.workers[recipient]) {
-        logger.warn(`Skipping "${recipient}" — no such worker (left in outbox to fix)`)
-        continue
-      }
-      try {
-        const draft = await readOutboxDraft(repoRoot, args.from, recipient)
-        await carry(state, repoRoot, {
-          from: args.from,
-          to: recipient,
-          note: draft.note || undefined,
-          attach: draft.attach,
-          rebase: args.rebase,
-          skipCheck: args['skip-check'],
-        })
-        await markHandoffSent(repoRoot, args.from, recipient)
-        logger.success(`Delivered to "${recipient}"`)
-      } catch (err) {
-        logger.warn(
-          `Failed to deliver to "${recipient}" (left in outbox): ${err instanceof Error ? err.message : err}`,
-        )
-      }
-    }
-    return
+  const source = args.from
+  if (!state.agents[source]) {
+    throw new QuimbyError(`Agent "${source}" not found`)
   }
 
-  // Direct 1:1 delivery. Bounce an unknown recipient before doing any work.
-  if (!state.workers[args.to]) {
-    throw new QuimbyError(`Worker "${args.to}" not found`)
-  }
-
-  const queued = (await readOutboxRecipients(repoRoot, args.from)).includes(args.to)
-  const draft = queued ? await readOutboxDraft(repoRoot, args.from, args.to) : { note: '' }
-
-  await carry(state, repoRoot, {
-    from: args.from,
-    to: args.to,
-    note: (args.message ?? draft.note) || undefined,
-    attach: args.attach ?? draft.attach,
-    rebase: args.rebase,
-    skipCheck: args['skip-check'],
-  })
-  if (queued) await markHandoffSent(repoRoot, args.from, args.to)
-
-  logger.success(`Handed off from "${args.from}" to "${args.to}"`)
-}
-
-async function carry(
-  state: Readonly<QuimbyState>,
-  repoRoot: string,
-  opts: {
-    from: string
-    to: string
-    note?: string
-    attach?: string
-    rebase: boolean
-    skipCheck: boolean
-  },
-): Promise<void> {
+  const skipGuard = args['skip-guard'] || args['no-verify']
   const meta = await stageParcel({
     state,
     repoRoot,
-    from: opts.from,
-    to: opts.to,
-    note: opts.note,
-    attach: opts.attach,
-    skipCheck: opts.skipCheck,
-    rebase: opts.rebase,
+    from: source,
+    to: recipient,
+    note: args.message,
+    attach: args.attach,
+    skipGuard,
+    rebase: args.rebase,
   })
   await deliverHandoff({
     repoRoot,
     name: meta.name,
-    to: opts.to,
-    toLocation: state.workers[opts.to].location,
+    to: recipient,
+    toLocation: recip.location,
     projectId: state.id,
   })
   await discardHandoff(repoRoot, meta.name)
+  logger.success(`Handed off from "${source}" to "${recipient}"`)
 }

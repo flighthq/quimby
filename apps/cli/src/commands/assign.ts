@@ -1,5 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { getWorkerDir, remoteWorkerDir } from '@quimbyhq/paths'
+import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
 import { isSSH } from '@quimbyhq/types'
 import { logger, readText, writeText } from '@quimbyhq/utils'
@@ -10,12 +10,12 @@ import { join } from 'pathe'
 export default defineCommand({
   meta: {
     name: 'assign',
-    description: "Set a worker's current task",
+    description: "Set an agent's current task",
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
     message: {
@@ -30,9 +30,9 @@ export default defineCommand({
 export async function runAssignCommand({ args }: { args: { name: string; message?: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const worker = state.workers[args.name]
-  if (!worker) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
   let taskContent = args.message ?? ''
@@ -43,13 +43,13 @@ export async function runAssignCommand({ args }: { args: { name: string; message
     throw new QuimbyError('Provide a message with -m (use `quimby handoff` to deliver work)')
   }
 
-  if (isSSH(worker.location)) {
-    const transport = getSSHTransport(worker.location)
-    const rWorkerDir = remoteWorkerDir(state.id, args.name, worker.location.base)
-    await transport.writeFile(`${rWorkerDir}/assignment.md`, taskContent)
+  if (isSSH(agent.location)) {
+    const transport = getSSHTransport(agent.location)
+    const rAgentDir = remoteAgentDir(state.id, args.name, agent.location.base)
+    await transport.writeFile(`${rAgentDir}/assignment.md`, taskContent)
   } else {
-    const workerDir = getWorkerDir(repoRoot, args.name)
-    await writeText(join(workerDir, 'assignment.md'), taskContent)
+    const agentDir = getAgentDir(repoRoot, args.name)
+    await writeText(join(agentDir, 'assignment.md'), taskContent)
   }
 
   logger.success(`Assignment set for "${args.name}"`)

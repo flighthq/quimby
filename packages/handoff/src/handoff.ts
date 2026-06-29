@@ -4,24 +4,27 @@ import { readdir, readFile, rename, rm } from 'node:fs/promises'
 import { ConflictError, HandoffError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
+  getAgentDir,
+  getAgentInboxParcelDir,
+  getAgentOutboxDir,
+  getAgentOutboxDraftDir,
+  getAgentOutboxSentDir,
+  getAgentOutboxSentDraftDir,
+  getAgentRepoDir,
   getStagingHandoffDir,
-  getWorkerDir,
-  getWorkerInboxParcelDir,
-  getWorkerOutboxDir,
-  getWorkerOutboxDraftDir,
-  getWorkerOutboxSentDir,
-  getWorkerOutboxSentDraftDir,
-  getWorkerRepoDir,
-  remoteWorkerDir,
-  remoteWorkerRepoDir,
+  remoteAgentDir,
+  remoteAgentRepoDir,
 } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { CommitMeta, HandoffMeta, SSHLocation, WorkerLocation } from '@quimbyhq/types'
+import type { AgentLocation, CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { cp, ensureDir, exists, readYaml, writeText, writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
 export type ApplyMode = 'squashed' | 'commits' | 'patch'
+
+/** Reserved sender name for a host → agent handoff (the host is not an agent). */
+export const HOST_SENDER = 'host'
 
 export async function applyHandoff(opts: {
   repoRoot: string
@@ -134,7 +137,7 @@ export async function assembleHandoff(opts: {
 }): Promise<HandoffMeta> {
   const { repoRoot, from } = opts
   const codeSource = opts.codeSource ?? from
-  const repoDir = getWorkerRepoDir(repoRoot, codeSource)
+  const repoDir = getAgentRepoDir(repoRoot, codeSource)
 
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
   const hasCode = subjects.length > 0
@@ -166,7 +169,62 @@ export async function assembleHandoff(opts: {
   return meta
 }
 
-/** SSH counterpart of {@link assembleHandoff}: the code source is a remote worker. */
+/**
+ * Assemble a parcel from the host's own working tree, for a host → agent handoff.
+ * The diff is the host tree against the recipient's seed (what the recipient is
+ * missing relative to its baseline), squashed — host commit history is not grafted
+ * into an agent. Sender is the reserved name `host`. No guard runs: the host is not
+ * a guarded agent, and the recipient guards its own work when it later hands off.
+ */
+export async function assembleHostHandoff(opts: {
+  repoRoot: string
+  to: string
+  base: string
+  note?: string
+  name?: string
+}): Promise<HandoffMeta> {
+  const { repoRoot, to } = opts
+
+  // The recipient's seed should be a host commit; if it isn't reachable (the host
+  // history was rewritten), fall back to HEAD so we carry just the uncommitted work.
+  let base = opts.base
+  try {
+    await git.revParse(repoRoot, base)
+  } catch {
+    base = 'HEAD'
+  }
+
+  const squashedDiff = await git.diff(repoRoot, base)
+  const hasCode = squashedDiff.trim().length > 0
+  if (!hasCode && !opts.note) {
+    throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
+  }
+
+  const head = await git.revParse(repoRoot, 'HEAD')
+  const name = opts.name ?? `${HOST_SENDER}-${head.slice(0, 8)}`
+  const dir = getStagingHandoffDir(repoRoot, name)
+  await rm(dir, { recursive: true, force: true })
+  await ensureDir(dir)
+
+  if (hasCode) await writeText(join(dir, 'squashed.diff'), squashedDiff)
+  if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
+
+  const firstLine = (opts.note ?? '').split('\n').find(Boolean) ?? 'Work from host'
+  const meta: HandoffMeta = {
+    name,
+    from: HOST_SENDER,
+    to,
+    note: opts.note,
+    description: firstLine,
+    suggestedMessage: firstLine,
+    createdAt: new Date().toISOString(),
+    commits: [],
+  }
+  await writeYaml(join(dir, 'meta.yaml'), meta)
+  return meta
+}
+
+/** SSH counterpart of {@link assembleHandoff}: the code source is a remote agent. */
 export async function assembleRemoteHandoff(opts: {
   repoRoot: string
   from: string
@@ -182,7 +240,7 @@ export async function assembleRemoteHandoff(opts: {
   const { repoRoot, from, codeSourceLocation, projectId } = opts
   const codeSource = opts.codeSource ?? from
   const transport = getSSHTransport(codeSourceLocation)
-  const rRepoDir = remoteWorkerRepoDir(projectId, codeSource, codeSourceLocation.base)
+  const rRepoDir = remoteAgentRepoDir(projectId, codeSource, codeSourceLocation.base)
 
   const subjects = (
     await transport.exec(`git log quimby/seed..HEAD --format=%s`, { cwd: rRepoDir })
@@ -228,12 +286,12 @@ export async function assembleRemoteHandoff(opts: {
   return meta
 }
 
-/** Carry a staged parcel into a recipient worker's inbox (local copy or rsync). */
+/** Carry a staged parcel into a recipient agent's inbox (local copy or rsync). */
 export async function deliverHandoff(opts: {
   repoRoot: string
   name: string
   to: string
-  toLocation: Readonly<WorkerLocation> | undefined
+  toLocation: Readonly<AgentLocation> | undefined
   projectId: string
 }): Promise<void> {
   const { repoRoot, name, to, toLocation, projectId } = opts
@@ -245,16 +303,16 @@ export async function deliverHandoff(opts: {
 
   if (isSSH(toLocation)) {
     const transport = getSSHTransport(toLocation)
-    const rInboxDir = `${remoteWorkerDir(projectId, to, toLocation.base)}/inbox/${name}`
+    const rInboxDir = `${remoteAgentDir(projectId, to, toLocation.base)}/inbox/${name}`
     await transport.ensureDir(rInboxDir)
     await transport.rsyncTo(stagingDir, rInboxDir)
     return
   }
 
-  if (!(await exists(getWorkerDir(repoRoot, to)))) {
-    throw new QuimbyError(`Worker "${to}" not found`)
+  if (!(await exists(getAgentDir(repoRoot, to)))) {
+    throw new QuimbyError(`Agent "${to}" not found`)
   }
-  const inboxDir = getWorkerInboxParcelDir(repoRoot, to, name)
+  const inboxDir = getAgentInboxParcelDir(repoRoot, to, name)
   await ensureDir(inboxDir)
   await cp(stagingDir, inboxDir, { recursive: true })
 }
@@ -270,10 +328,10 @@ export async function markHandoffSent(
   from: string,
   recipient: string,
 ): Promise<void> {
-  const draft = getWorkerOutboxDraftDir(repoRoot, from, recipient)
+  const draft = getAgentOutboxDraftDir(repoRoot, from, recipient)
   if (!(await exists(draft))) return
-  await ensureDir(getWorkerOutboxSentDir(repoRoot, from))
-  const sent = getWorkerOutboxSentDraftDir(repoRoot, from, recipient)
+  await ensureDir(getAgentOutboxSentDir(repoRoot, from))
+  const sent = getAgentOutboxSentDraftDir(repoRoot, from, recipient)
   await rm(sent, { recursive: true, force: true })
   await rename(draft, sent)
 }
@@ -303,14 +361,14 @@ export async function readOutboxDraft(
   from: string,
   recipient: string,
 ): Promise<{ note: string; attach?: string }> {
-  const readmePath = join(getWorkerOutboxDraftDir(repoRoot, from, recipient), 'README.md')
+  const readmePath = join(getAgentOutboxDraftDir(repoRoot, from, recipient), 'README.md')
   if (!(await exists(readmePath))) return { note: '' }
   return parseDraft(await readFile(readmePath, 'utf-8'))
 }
 
-/** List recipients with a queued outbox draft (local workers; ignores the `.sent/` ledger). */
+/** List recipients with a queued outbox draft (local agents; ignores the `.sent/` ledger). */
 export async function readOutboxRecipients(repoRoot: string, from: string): Promise<string[]> {
-  const outboxDir = getWorkerOutboxDir(repoRoot, from)
+  const outboxDir = getAgentOutboxDir(repoRoot, from)
   if (!(await exists(outboxDir))) return []
   const entries = await readdir(outboxDir, { withFileTypes: true })
   return entries

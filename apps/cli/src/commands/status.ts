@@ -1,4 +1,4 @@
-import { getWorkerDir, remoteWorkerDir } from '@quimbyhq/paths'
+import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
 import { isSSH } from '@quimbyhq/types'
 import { exists, readText } from '@quimbyhq/utils'
@@ -12,12 +12,12 @@ const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
 export default defineCommand({
   meta: {
     name: 'status',
-    description: 'Show agent-written status for workers',
+    description: 'Show agent-written status for agents',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name (omit to show all)',
+      description: 'Agent name (omit to show all)',
       required: false,
     },
   },
@@ -27,32 +27,32 @@ export default defineCommand({
 export async function runStatusCommand({ args }: { args: { name?: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const names = args.name ? [args.name] : Object.keys(state.workers)
+  const names = args.name ? [args.name] : Object.keys(state.agents)
 
   if (names.length === 0) {
-    logger.info('No workers.')
+    logger.info('No agents.')
     return
   }
 
   for (const name of names) {
-    const worker = state.workers[name]
-    if (!worker) {
-      logger.warn(`Worker "${name}" not found`)
+    const agent = state.agents[name]
+    if (!agent) {
+      logger.warn(`Agent "${name}" not found`)
       continue
     }
 
     let statusContent = '(no status)'
 
-    if (isSSH(worker.location)) {
-      const transport = getTransport(worker.location)
-      const rWorkerDir = remoteWorkerDir(state.id, name, worker.location.base)
+    if (isSSH(agent.location)) {
+      const transport = getTransport(agent.location)
+      const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
       try {
-        statusContent = (await transport.readFile(`${rWorkerDir}/status.md`)).trim() || '(empty)'
+        statusContent = (await transport.readFile(`${rAgentDir}/status.md`)).trim() || '(empty)'
       } catch {
         statusContent = '(unreachable)'
       }
     } else {
-      const statusPath = join(getWorkerDir(repoRoot, name), 'status.md')
+      const statusPath = join(getAgentDir(repoRoot, name), 'status.md')
       if (await exists(statusPath)) {
         statusContent = (await readText(statusPath)).trim() || '(empty)'
       }

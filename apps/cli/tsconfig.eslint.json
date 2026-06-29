@@ -12,7 +12,7 @@
       "@quimbyhq/transport": ["../../packages/transport/src/index.ts"],
       "@quimbyhq/runtimes": ["../../packages/runtimes/src/index.ts"],
       "@quimbyhq/workspace": ["../../packages/workspace/src/index.ts"],
-      "@quimbyhq/worker": ["../../packages/worker/src/index.ts"],
+      "@quimbyhq/agent": ["../../packages/agent/src/index.ts"],
       "@quimbyhq/handoff": ["../../packages/pack/src/index.ts"],
       "@quimbyhq/server": ["../../packages/server/src/index.ts"]
     }

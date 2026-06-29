@@ -19,7 +19,7 @@ The author's multi-agent workflow evolved through these stages:
 
 ### 1. Token Exhaustion
 
-Reusing agent sessions left contexts open, burning through tokens quickly. This led to interest in using cheaper models (Sonnet, Ollama+qwen) for some workers, and ensuring sessions are ephemeral rather than long-lived.
+Reusing agent sessions left contexts open, burning through tokens quickly. This led to interest in using cheaper models (Sonnet, Ollama+qwen) for some agents, and ensuring sessions are ephemeral rather than long-lived.
 
 **Quimby's answer**: Session-less model. Assignments go in, packs come out. No persistent context.
 
@@ -27,13 +27,13 @@ Reusing agent sessions left contexts open, burning through tokens quickly. This 
 
 Different tasks warrant different models and different compute. Opus for hard architecture, Sonnet for routine work, Ollama on a GPU box for cheap exploration.
 
-**Quimby's answer**: Workers are runtime-agnostic. The protocol (assignment.md, status.md, packs) is the same regardless of what agent or model runs inside the sandbox.
+**Quimby's answer**: Agents are runtime-agnostic. The protocol (assignment.md, status.md, packs) is the same regardless of what agent or model runs inside the sandbox.
 
 ### 3. Manual Orchestration / Messenger Problem
 
 The user becomes a messenger relaying problems between agents. Builder hits an issue → user reads status → user manually tells reviewer → reviewer responds → user relays back.
 
-**Quimby's answer**: The server (`quimby serve`) polls worker status and routes updates via subscriptions. `quimby assign --pack` carries code artifacts between workers. The user orchestrates at a higher level instead of manually shuttling information.
+**Quimby's answer**: The server (`quimby serve`) polls agent status and routes updates via subscriptions. `quimby assign --pack` carries code artifacts between agents. The user orchestrates at a higher level instead of manually shuttling information.
 
 ### 4. Integration Bottleneck (Most Acute)
 
@@ -43,4 +43,4 @@ Gets a green repo in one lane, dispatches work in others, something goes wrong, 
 
 ## Key Insight
 
-The fundamental tension is: **agents produce work faster than a human can integrate it.** Every design decision should be evaluated against whether it makes integration easier, not just whether it makes agent work easier. The membrane, packs, squashed-by-default apply, worker reset, and server-based routing all serve this goal.
+The fundamental tension is: **agents produce work faster than a human can integrate it.** Every design decision should be evaluated against whether it makes integration easier, not just whether it makes agent work easier. The membrane, packs, squashed-by-default apply, agent reset, and server-based routing all serve this goal.

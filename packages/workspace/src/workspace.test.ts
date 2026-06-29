@@ -55,7 +55,7 @@ describe('ensureWorkspace', () => {
       sourceRef: 'main',
       snapshot: 'abc123',
       createdAt: '2024-01-01T00:00:00.000Z',
-      workers: {
+      agents: {
         alice: {
           name: 'alice',
           seedCommit: 'abc123',
@@ -66,10 +66,10 @@ describe('ensureWorkspace', () => {
     process.chdir(dir)
     const { state } = await resolveWorkspace()
     expect(state.id).toBeDefined()
-    expect(state.workers.alice.id).toBeDefined()
+    expect(state.agents.alice.id).toBeDefined()
   })
 
-  it('backfills a missing worker syncRef from the workspace sourceRef', async () => {
+  it('backfills a missing agent syncRef from the workspace sourceRef', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
       id: 'ws-id',
@@ -77,7 +77,7 @@ describe('ensureWorkspace', () => {
       sourceRef: 'main',
       snapshot: 'abc123',
       createdAt: '2024-01-01T00:00:00.000Z',
-      workers: {
+      agents: {
         alice: {
           id: 'alice-id',
           name: 'alice',
@@ -88,7 +88,7 @@ describe('ensureWorkspace', () => {
     })
     process.chdir(dir)
     const { state } = await resolveWorkspace()
-    expect(state.workers.alice.syncRef).toBe('main')
+    expect(state.agents.alice.syncRef).toBe('main')
   })
 })
 
@@ -97,7 +97,7 @@ describe('loadState', () => {
     await ensureWorkspace(dir)
     const state = await loadState(dir)
     expect(state.id).toBeDefined()
-    expect(state.workers).toBeDefined()
+    expect(state.agents).toBeDefined()
     expect(state.sourceRepo).toBeDefined()
   })
 })
@@ -108,7 +108,7 @@ describe('resolveWorkspace', () => {
     process.chdir(dir)
     const { state, repoRoot } = await resolveWorkspace()
     expect(repoRoot).toBe(dir)
-    expect(state.workers).toBeDefined()
+    expect(state.agents).toBeDefined()
   })
 
   it('throws when called outside a git repo', async () => {
@@ -131,16 +131,16 @@ describe('resolveWorkspace', () => {
 describe('saveState', () => {
   it('writes state.yaml with the correct content', async () => {
     const state = await ensureWorkspace(dir)
-    state.workers['test-worker'] = {
-      id: 'worker-uuid',
-      name: 'test-worker',
+    state.agents['test-agent'] = {
+      id: 'agent-uuid',
+      name: 'test-agent',
       seedCommit: 'abc123',
       createdAt: new Date().toISOString(),
     }
     await saveState(dir, state)
 
     const loaded = await loadState(dir)
-    expect(loaded.workers['test-worker']).toBeDefined()
-    expect(loaded.workers['test-worker'].id).toBe('worker-uuid')
+    expect(loaded.agents['test-agent']).toBeDefined()
+    expect(loaded.agents['test-agent'].id).toBe('agent-uuid')
   })
 })

@@ -22,7 +22,7 @@ export async function resolveWorkspace(): Promise<{
   const statePath = getStatePath(repoRoot)
 
   if (!(await exists(statePath))) {
-    throw new QuimbyError('No quimby workspace found. Run `quimby add <name>` to create a worker.')
+    throw new QuimbyError('No quimby workspace found. Run `quimby add <name>` to create an agent.')
   }
 
   const state = await readYaml<QuimbyState>(statePath)
@@ -33,14 +33,14 @@ export async function resolveWorkspace(): Promise<{
     state.id = crypto.randomUUID()
     dirty = true
   }
-  for (const worker of Object.values(state.workers)) {
-    if (!worker.id) {
-      worker.id = crypto.randomUUID()
+  for (const agent of Object.values(state.agents)) {
+    if (!agent.id) {
+      agent.id = crypto.randomUUID()
       dirty = true
     }
-    // Workers created before sync targets existed advance against the workspace ref.
-    if (!worker.syncRef) {
-      worker.syncRef = state.sourceRef
+    // Agents created before sync targets existed advance against the workspace ref.
+    if (!agent.syncRef) {
+      agent.syncRef = state.sourceRef
       dirty = true
     }
   }
@@ -69,7 +69,7 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
     sourceRef,
     snapshot,
     createdAt: new Date().toISOString(),
-    workers: {},
+    agents: {},
   }
 
   await writeYaml(statePath, state)

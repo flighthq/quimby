@@ -1,7 +1,7 @@
 {
   "name": "quimby",
   "version": "0.2.0",
-  "description": "Run AI agents in isolated workers, ship their work as reviewable packs",
+  "description": "Run AI agents in isolated agents, ship their work as reviewable packs",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -39,7 +39,7 @@
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",
-    "@quimbyhq/worker": "*",
+    "@quimbyhq/agent": "*",
     "@quimbyhq/workspace": "*",
     "citty": "^0.1.6",
     "execa": "^9.6.1",

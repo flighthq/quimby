@@ -6,48 +6,48 @@ import { defineCommand } from 'citty'
 export default defineCommand({
   meta: {
     name: 'subscribe',
-    description: "Subscribe a worker to another worker's status updates",
+    description: "Subscribe an agent to another agent's status updates",
   },
   args: {
-    worker: {
+    agent: {
       type: 'positional',
-      description: 'Subscribing worker',
+      description: 'Subscribing agent',
       required: true,
     },
     target: {
       type: 'positional',
-      description: 'Target worker to watch',
+      description: 'Target agent to watch',
       required: true,
     },
   },
   run: runSubscribeCommand,
 })
 
-export async function runSubscribeCommand({ args }: { args: { worker: string; target: string } }) {
+export async function runSubscribeCommand({ args }: { args: { agent: string; target: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!state.workers[args.worker]) {
-    throw new QuimbyError(`Worker "${args.worker}" not found`)
+  if (!state.agents[args.agent]) {
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
-  if (!state.workers[args.target]) {
-    throw new QuimbyError(`Worker "${args.target}" not found`)
+  if (!state.agents[args.target]) {
+    throw new QuimbyError(`Agent "${args.target}" not found`)
   }
-  if (args.worker === args.target) {
-    throw new QuimbyError('A worker cannot subscribe to itself')
+  if (args.agent === args.target) {
+    throw new QuimbyError('An agent cannot subscribe to itself')
   }
 
   const subs = state.subscriptions ?? {}
-  const targets = subs[args.worker] ?? []
+  const targets = subs[args.agent] ?? []
 
   if (targets.includes(args.target)) {
-    logger.info(`"${args.worker}" already subscribed to "${args.target}"`)
+    logger.info(`"${args.agent}" already subscribed to "${args.target}"`)
     return
   }
 
   targets.push(args.target)
-  subs[args.worker] = targets
+  subs[args.agent] = targets
   state.subscriptions = subs
   await saveState(repoRoot, state)
 
-  logger.success(`"${args.worker}" now receives status updates from "${args.target}"`)
+  logger.success(`"${args.agent}" now receives status updates from "${args.target}"`)
 }

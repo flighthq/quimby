@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises'
 
 import * as git from '@quimbyhq/git'
-import { getWorkerOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
+import { getAgentOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { isSSH } from '@quimbyhq/types'
 import { exists } from '@quimbyhq/utils'
@@ -17,7 +17,7 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
 export default defineCommand({
   meta: {
     name: 'list',
-    description: 'List workers and subscriptions',
+    description: 'List agents and subscriptions',
   },
   run: runListCommand,
 })
@@ -25,29 +25,29 @@ export default defineCommand({
 export async function runListCommand() {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const workerNames = Object.keys(state.workers)
+  const agentNames = Object.keys(state.agents)
   const subs = state.subscriptions ?? {}
   const subEntries = Object.entries(subs)
 
-  if (workerNames.length === 0) {
-    logger.info('No workers. Run `quimby add <name>` to create a worker.')
+  if (agentNames.length === 0) {
+    logger.info('No agents. Run `quimby add <name>` to create an agent.')
     return
   }
 
-  if (workerNames.length > 0) {
-    console.log(bold('Workers'))
-    for (const name of workerNames) {
-      const worker = state.workers[name]
-      const defaults = worker.defaults
+  if (agentNames.length > 0) {
+    console.log(bold('Agents'))
+    for (const name of agentNames) {
+      const agent = state.agents[name]
+      const defaults = agent.defaults
 
-      // "behind" is measured against the worker's sync target, not the host's
+      // "behind" is measured against the agent's sync target, not the host's
       // live HEAD — that is the commit `quimby advance` would move it onto.
-      const syncRef = worker.syncRef ?? state.sourceRef
+      const syncRef = agent.syncRef ?? state.sourceRef
       const target = await git.revParse(repoRoot, syncRef).catch(() => undefined)
 
       let behindStr = ''
-      if (target && worker.seedCommit && worker.seedCommit !== target) {
-        const behind = await git.countCommits(repoRoot, `${worker.seedCommit}..${target}`)
+      if (target && agent.seedCommit && agent.seedCommit !== target) {
+        const behind = await git.countCommits(repoRoot, `${agent.seedCommit}..${target}`)
         if (behind > 0) {
           behindStr = `  ${yellow(`${behind} behind`)}`
         }
@@ -56,16 +56,16 @@ export async function runListCommand() {
       const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
 
       let locationStr = ''
-      if (isSSH(worker.location)) {
-        const session = tmuxSessionName(state.id, worker.id)
-        locationStr = `  ${cyan(`[ssh: ${worker.location.host}]`)} ${dim(`tmux: ${session}`)}`
+      if (isSSH(agent.location)) {
+        const session = tmuxSessionName(state.id, agent.id)
+        locationStr = `  ${cyan(`[ssh: ${agent.location.host}]`)} ${dim(`tmux: ${session}`)}`
       }
 
       const config = defaults
-        ? dim(`${defaults.runtime ?? 'local'} / ${defaults.agent ?? 'claude'}`)
+        ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
         : dim('no defaults — run `quimby set`')
 
-      const outboxDir = getWorkerOutboxDir(repoRoot, name)
+      const outboxDir = getAgentOutboxDir(repoRoot, name)
       let outboxStr = ''
       if (await exists(outboxDir)) {
         const drafts = (await readdir(outboxDir, { withFileTypes: true })).filter(
@@ -77,7 +77,7 @@ export async function runListCommand() {
       }
 
       console.log(
-        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
+        `  ${name}  ${dim(agent.seedCommit.slice(0, 8))}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
       )
     }
   }

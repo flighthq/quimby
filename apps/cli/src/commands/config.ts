@@ -1,26 +1,26 @@
+import {
+  setAgentDefaults,
+  setAgentGuard,
+  setAgentLocation,
+  setAgentSyncRef,
+  setAgentTmux,
+} from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
-import {
-  setWorkerCheck,
-  setWorkerDefaults,
-  setWorkerLocation,
-  setWorkerSyncRef,
-  setWorkerTmux,
-} from '@quimbyhq/worker'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { runWorkerWalkthrough } from '../walkthrough'
+import { runAgentWalkthrough } from '../walkthrough'
 
 export default defineCommand({
   meta: {
     name: 'config',
-    description: 'Configure a worker interactively (runtime, agent, location, …)',
+    description: 'Configure an agent interactively (runtime, entrypoint, location, …)',
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
   },
@@ -30,27 +30,30 @@ export default defineCommand({
 export async function runConfigCommand({ args }: { args: { name: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const worker = state.workers[args.name]
-  if (!worker) {
-    throw new QuimbyError(`Worker "${args.name}" not found`)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  const config = await runWorkerWalkthrough(args.name, {
-    runtime: worker.defaults?.runtime,
-    agent: worker.defaults?.agent,
-    location: worker.location,
-    syncRef: worker.syncRef,
-    check: worker.check,
+  const config = await runAgentWalkthrough(args.name, {
+    runtime: agent.defaults?.runtime,
+    entrypoint: agent.defaults?.entrypoint,
+    location: agent.location,
+    syncRef: agent.syncRef,
+    guard: agent.guard,
   })
   if (!config) return
 
-  await setWorkerDefaults(repoRoot, args.name, { runtime: config.runtime, agent: config.agent })
-  await setWorkerLocation(repoRoot, args.name, config.location ?? { type: 'local' })
-  await setWorkerCheck(repoRoot, args.name, config.check ?? '')
-  await setWorkerTmux(repoRoot, args.name, config.tmux ?? false)
+  await setAgentDefaults(repoRoot, args.name, {
+    runtime: config.runtime,
+    entrypoint: config.entrypoint,
+  })
+  await setAgentLocation(repoRoot, args.name, config.location ?? { type: 'local' })
+  await setAgentGuard(repoRoot, args.name, config.guard ?? '')
+  await setAgentTmux(repoRoot, args.name, config.tmux ?? false)
   if (config.syncRef) {
-    await setWorkerSyncRef(repoRoot, args.name, config.syncRef)
+    await setAgentSyncRef(repoRoot, args.name, config.syncRef)
   }
 
-  logger.success(`Worker "${args.name}" configured`)
+  logger.success(`Agent "${args.name}" configured`)
 }

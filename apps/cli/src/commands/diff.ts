@@ -1,7 +1,7 @@
 import * as git from '@quimbyhq/git'
-import { getWorkerRepoDir, remoteWorkerRepoDir } from '@quimbyhq/paths'
+import { getAgentRepoDir, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
-import type { WorkerLocation } from '@quimbyhq/types'
+import type { AgentLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -30,23 +30,23 @@ function colorizeDiff(diff: string): string {
 async function getDiff(
   repoRoot: string,
   name: string,
-  state: { id: string; workers: Record<string, { location?: WorkerLocation }> },
+  state: { id: string; agents: Record<string, { location?: AgentLocation }> },
   stat: boolean,
 ): Promise<string> {
-  const worker = state.workers[name]
-  if (!worker) {
-    throw new Error(`"${name}" is not a worker`)
+  const agent = state.agents[name]
+  if (!agent) {
+    throw new Error(`"${name}" is not an agent`)
   }
 
-  if (isSSH(worker.location)) {
-    const transport = getTransport(worker.location)
-    const rRepoDir = remoteWorkerRepoDir(state.id, name, worker.location.base)
+  if (isSSH(agent.location)) {
+    const transport = getTransport(agent.location)
+    const rRepoDir = remoteAgentRepoDir(state.id, name, agent.location.base)
     return stat
       ? transport.exec(`git diff --stat quimby/seed`, { cwd: rRepoDir })
       : transport.exec(`git diff quimby/seed`, { cwd: rRepoDir })
   }
 
-  const repoPath = getWorkerRepoDir(repoRoot, name)
+  const repoPath = getAgentRepoDir(repoRoot, name)
   if (stat) {
     const { stdout } = await execa('git', ['diff', '--stat', 'quimby/seed'], { cwd: repoPath })
     return stdout
@@ -57,17 +57,17 @@ async function getDiff(
 export default defineCommand({
   meta: {
     name: 'diff',
-    description: "Show a worker's changes against its seed",
+    description: "Show an agent's changes against its seed",
   },
   args: {
     name: {
       type: 'positional',
-      description: 'Worker name',
+      description: 'Agent name',
       required: true,
     },
     other: {
       type: 'positional',
-      description: 'Second worker (side-by-side)',
+      description: 'Second agent (side-by-side)',
       required: false,
     },
     stat: {

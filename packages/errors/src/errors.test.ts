@@ -1,6 +1,39 @@
 import { describe, expect, it } from 'vitest'
 
-import { GitError, HandoffError, QuimbyError, WorkerError } from './errors'
+import { AgentError, GitError, HandoffError, QuimbyError } from './errors'
+
+describe('AgentError', () => {
+  it('is instanceof QuimbyError and Error', () => {
+    const err = new AgentError('agent not found')
+    expect(err instanceof QuimbyError).toBe(true)
+    expect(err instanceof Error).toBe(true)
+  })
+
+  it('sets name to AgentError', () => {
+    const err = new AgentError('agent not found')
+    expect(err.name).toBe('AgentError')
+  })
+
+  it('sets message correctly', () => {
+    const err = new AgentError('Agent "alice" not found')
+    expect(err.message).toBe('Agent "alice" not found')
+  })
+
+  it('sets code to AGENT_ERROR', () => {
+    const err = new AgentError('test')
+    expect(err.code).toBe('AGENT_ERROR')
+  })
+
+  it('sets optional agentName', () => {
+    const err = new AgentError('not found', 'alice')
+    expect(err.agentName).toBe('alice')
+  })
+
+  it('agentName is undefined when not provided', () => {
+    const err = new AgentError('not found')
+    expect(err.agentName).toBeUndefined()
+  })
+})
 
 describe('GitError', () => {
   it('is instanceof QuimbyError and Error', () => {
@@ -92,38 +125,5 @@ describe('QuimbyError', () => {
   it('code is undefined when not provided', () => {
     const err = new QuimbyError('test')
     expect(err.code).toBeUndefined()
-  })
-})
-
-describe('WorkerError', () => {
-  it('is instanceof QuimbyError and Error', () => {
-    const err = new WorkerError('worker not found')
-    expect(err instanceof QuimbyError).toBe(true)
-    expect(err instanceof Error).toBe(true)
-  })
-
-  it('sets name to WorkerError', () => {
-    const err = new WorkerError('worker not found')
-    expect(err.name).toBe('WorkerError')
-  })
-
-  it('sets message correctly', () => {
-    const err = new WorkerError('Worker "alice" not found')
-    expect(err.message).toBe('Worker "alice" not found')
-  })
-
-  it('sets code to WORKER_ERROR', () => {
-    const err = new WorkerError('test')
-    expect(err.code).toBe('WORKER_ERROR')
-  })
-
-  it('sets optional workerName', () => {
-    const err = new WorkerError('not found', 'alice')
-    expect(err.workerName).toBe('alice')
-  })
-
-  it('workerName is undefined when not provided', () => {
-    const err = new WorkerError('not found')
-    expect(err.workerName).toBeUndefined()
   })
 })

@@ -18,13 +18,13 @@ export class GitError extends QuimbyError {
   }
 }
 
-export class WorkerError extends QuimbyError {
+export class AgentError extends QuimbyError {
   constructor(
     message: string,
-    public workerName?: string,
+    public agentName?: string,
   ) {
-    super(message, 'WORKER_ERROR')
-    this.name = 'WorkerError'
+    super(message, 'AGENT_ERROR')
+    this.name = 'AgentError'
   }
 }
 

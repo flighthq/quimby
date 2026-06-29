@@ -8,16 +8,16 @@ export function getStatePath(repoRoot: string): string {
   return join(repoRoot, '.quimby', 'state.yaml')
 }
 
-export function getWorkersDir(repoRoot: string): string {
-  return join(repoRoot, '.quimby', 'workers')
+export function getAgentsDir(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'agents')
 }
 
-export function getWorkerDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name)
+export function getAgentDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name)
 }
 
-export function getWorkerRepoDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'repo')
+export function getAgentRepoDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'repo')
 }
 
 // The host loading dock: a parcel is assembled here while being applied or carried,
@@ -30,55 +30,55 @@ export function getStagingHandoffDir(repoRoot: string, name: string): string {
   return join(repoRoot, '.quimby', 'staging', name)
 }
 
-export function getWorkerInboxDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'inbox')
+export function getAgentInboxDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'inbox')
 }
 
 // A delivered parcel sits directly in the inbox, named by sender + contents.
-export function getWorkerInboxParcelDir(
+export function getAgentInboxParcelDir(
   repoRoot: string,
-  workerName: string,
+  agentName: string,
   parcelName: string,
 ): string {
-  return join(repoRoot, '.quimby', 'workers', workerName, 'inbox', parcelName)
+  return join(repoRoot, '.quimby', 'agents', agentName, 'inbox', parcelName)
 }
 
-// Where a worker moves parcels it has processed.
-export function getWorkerInboxDoneDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'inbox', '.done')
+// Where an agent moves parcels it has processed.
+export function getAgentInboxDoneDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'inbox', '.done')
 }
 
-export function getWorkerInboxStatusDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'inbox', 'status')
+export function getAgentInboxStatusDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'inbox', 'status')
 }
 
-export function getWorkerOutboxDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'outbox')
+export function getAgentOutboxDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'outbox')
 }
 
 // A staged parcel awaiting pickup, addressed by recipient.
-export function getWorkerOutboxDraftDir(
+export function getAgentOutboxDraftDir(
   repoRoot: string,
-  workerName: string,
+  agentName: string,
   recipient: string,
 ): string {
-  return join(repoRoot, '.quimby', 'workers', workerName, 'outbox', recipient)
+  return join(repoRoot, '.quimby', 'agents', agentName, 'outbox', recipient)
 }
 
 // The delivery ledger: parcels already carried, moved aside on success.
-export function getWorkerOutboxSentDir(repoRoot: string, name: string): string {
-  return join(repoRoot, '.quimby', 'workers', name, 'outbox', '.sent')
+export function getAgentOutboxSentDir(repoRoot: string, name: string): string {
+  return join(repoRoot, '.quimby', 'agents', name, 'outbox', '.sent')
 }
 
-export function getWorkerOutboxSentDraftDir(
+export function getAgentOutboxSentDraftDir(
   repoRoot: string,
-  workerName: string,
+  agentName: string,
   recipient: string,
 ): string {
-  return join(repoRoot, '.quimby', 'workers', workerName, 'outbox', '.sent', recipient)
+  return join(repoRoot, '.quimby', 'agents', agentName, 'outbox', '.sent', recipient)
 }
 
-// ── Remote paths (SSH workers) ────────────────────────────────────────────────
+// ── Remote paths (SSH agents) ────────────────────────────────────────────────
 // Paths use ~ which the remote shell expands; never use these in local fs ops.
 
 export function remoteProjectRoot(projectId: string, base?: string): string {
@@ -89,17 +89,17 @@ export function remoteQuimbyDir(projectId: string, base?: string): string {
   return `${remoteProjectRoot(projectId, base)}/.quimby`
 }
 
-export function remoteWorkerDir(projectId: string, name: string, base?: string): string {
-  return `${remoteQuimbyDir(projectId, base)}/workers/${name}`
+export function remoteAgentDir(projectId: string, name: string, base?: string): string {
+  return `${remoteQuimbyDir(projectId, base)}/agents/${name}`
 }
 
-export function remoteWorkerRepoDir(projectId: string, name: string, base?: string): string {
-  return `${remoteWorkerDir(projectId, name, base)}/repo`
+export function remoteAgentRepoDir(projectId: string, name: string, base?: string): string {
+  return `${remoteAgentDir(projectId, name, base)}/repo`
 }
 
 // ── Stable identifiers ────────────────────────────────────────────────────────
 
 /** tmux session name derived from stable IDs — unaffected by quimby rename. */
-export function tmuxSessionName(projectId: string, workerId: string): string {
-  return `qb-${projectId.slice(0, 8)}-${workerId.slice(0, 8)}`
+export function tmuxSessionName(projectId: string, agentId: string): string {
+  return `qb-${projectId.slice(0, 8)}-${agentId.slice(0, 8)}`
 }

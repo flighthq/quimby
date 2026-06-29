@@ -10,7 +10,7 @@
     { "path": "./packages/transport" },
     { "path": "./packages/runtimes" },
     { "path": "./packages/workspace" },
-    { "path": "./packages/worker" },
+    { "path": "./packages/agent" },
     { "path": "./packages/handoff" },
     { "path": "./packages/server" }
   ]

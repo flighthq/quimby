@@ -1,8 +1,8 @@
 export interface RuntimeContext {
   projectId: string
-  workerId: string
-  workerName: string
-  workerDir: string
+  agentId: string
+  agentName: string
+  agentDir: string
   repoDir: string
   repoRoot: string
 }
