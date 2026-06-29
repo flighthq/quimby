@@ -117,7 +117,11 @@ async function runRemoteGuard(
 ): Promise<void> {
   logger.start(`Running guard on "${agentName}": ${guard}`)
   try {
-    await transport.runInteractive('bash', ['-lc', sq(guard)], rRepoDir)
+    // Interactive login shell (`-i`): version managers like nvm put `npm`/`node`
+    // on PATH from `~/.bashrc`, which a non-interactive `-lc` shell skips — so a
+    // guard like `npm run ci` would fail with "npm: command not found". `ssh -t`
+    // gives us a PTY, so an interactive shell runs cleanly here.
+    await transport.runInteractive('bash', ['-lic', sq(guard)], rRepoDir)
   } catch {
     throw new QuimbyError(
       `Guard failed for "${agentName}" — fix it and retry (or pass --skip-guard)`,

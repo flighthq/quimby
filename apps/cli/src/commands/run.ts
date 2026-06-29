@@ -73,7 +73,7 @@ export async function runRunCommand({
       await transport.ensureDir(`${rAgentDir}/outbox`)
       await transport.exec(`git clone ${rRoot} ${rRepoDir}`)
       await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
-      await configureRemoteAgentIdentity(transport, rRepoDir, args.name)
+      await configureRemoteAgentIdentity(transport, rRepoDir, args.name, repoRoot)
       const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
       await transport.writeFile(`${rAgentDir}/assignment.md`, '')
       await transport.writeFile(`${rAgentDir}/status.md`, 'idle')

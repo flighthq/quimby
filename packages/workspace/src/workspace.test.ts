@@ -7,6 +7,7 @@ import { ensureDir, exists, writeYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { loadState } from './state'
 import { ensureWorkspace, resolveWorkspace } from './workspace'
 
 let dir: string

@@ -18,7 +18,7 @@ describe('run', () => {
     const { default: cmd } = await import('./handoff')
     await expect(
       cmd.run!({
-        args: { from: 'ghost', rebase: false, 'skip-guard': false, 'no-verify': false },
+        args: { from: 'ghost', rebase: false, 'skip-guard': false, verify: true },
       } as never),
     ).rejects.toThrow('not found')
   })
@@ -32,7 +32,7 @@ describe('run', () => {
           to: 'review',
           rebase: false,
           'skip-guard': false,
-          'no-verify': false,
+          verify: true,
         },
       } as never),
     ).rejects.toThrow('not found')

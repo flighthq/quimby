@@ -33,10 +33,13 @@ export default defineCommand({
       description: "Skip each source agent's guard command",
       default: false,
     },
-    'no-verify': {
+    // citty maps `--no-verify` onto this `verify` flag (its built-in `--no-`
+    // negation) — a literal `no-verify` arg would never flip, so the alias
+    // lives here as the git-muscle-memory way to skip the guard.
+    verify: {
       type: 'boolean',
-      description: 'Alias for --skip-guard (git muscle memory)',
-      default: false,
+      description: 'Run each guard before packaging (--no-verify or --skip-guard to skip)',
+      default: true,
     },
   },
   run: runDispatchCommand,
@@ -45,14 +48,14 @@ export default defineCommand({
 export async function runDispatchCommand({
   args,
 }: {
-  args: { agent: string; rebase: boolean; 'skip-guard': boolean; 'no-verify': boolean }
+  args: { agent: string; rebase: boolean; 'skip-guard': boolean; verify: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (!state.agents[args.agent]) {
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
-  const skipGuard = args['skip-guard'] || args['no-verify']
+  const skipGuard = args['skip-guard'] || !args.verify
 
   const recipients = await readOutboxRecipients(repoRoot, args.agent)
   if (recipients.length === 0) {

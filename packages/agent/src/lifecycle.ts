@@ -13,7 +13,7 @@ import {
 } from '@quimbyhq/paths'
 import { renderAgentClaudeMd } from '@quimbyhq/template'
 import type { Transport } from '@quimbyhq/transport'
-import { getSSHTransport } from '@quimbyhq/transport'
+import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
@@ -111,7 +111,7 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     await transport.ensureDir(`${rAgentDir}/outbox`)
     await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
     await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
-    await configureRemoteAgentIdentity(transport, rRepoDir, name)
+    await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
 
     await transport.writeFile(`${rAgentDir}/assignment.md`, '')
@@ -207,21 +207,22 @@ export async function renameAgent(
 }
 
 /**
- * Configure git identity in a remote agent clone. Inherits the remote machine's
- * global identity when present, else falls back to a quimby-scoped identity.
- * Agent names are validated to contain no shell metacharacters, so they are
- * safe to interpolate into the remote command.
+ * Configure git identity in a remote agent clone. Inherits the *host repo's*
+ * identity (not the remote machine's), so an agent's commits — and the patches
+ * `apply --commits` replays from them — carry the user's name, not a stray
+ * worker-box default. Falls back to a quimby-scoped identity when the host has
+ * none. Values are passed through `sq()` since a real name may contain spaces.
  */
 export async function configureRemoteAgentIdentity(
   transport: Transport,
   repoDir: string,
   agentName: string,
+  hostRepoRoot: string,
 ): Promise<void> {
-  await transport.exec(
-    `git config user.name "$(git config --global user.name 2>/dev/null || echo 'quimby-${agentName}')" && ` +
-      `git config user.email "$(git config --global user.email 2>/dev/null || echo 'quimby+${agentName}@local')"`,
-    { cwd: repoDir },
-  )
+  const { name, email } = await resolveAgentIdentity(hostRepoRoot, agentName)
+  await transport.exec(`git config user.name ${sq(name)} && git config user.email ${sq(email)}`, {
+    cwd: repoDir,
+  })
 }
 
 /**
@@ -234,10 +235,24 @@ async function configureAgentIdentity(
   repoDir: string,
   agentName: string,
 ): Promise<void> {
-  const name = (await git.getConfig(repoRoot, 'user.name')) ?? `quimby-${agentName}`
-  const email = (await git.getConfig(repoRoot, 'user.email')) ?? `quimby+${agentName}@local`
+  const { name, email } = await resolveAgentIdentity(repoRoot, agentName)
   await git.setConfig(repoDir, 'user.name', name)
   await git.setConfig(repoDir, 'user.email', email)
+}
+
+/**
+ * Resolve the git identity an agent clone should commit under: the host repo's
+ * identity when set, else a quimby-scoped fallback. Shared by local and remote
+ * agents so both attribute work to the same author the user uses.
+ */
+async function resolveAgentIdentity(
+  hostRepoRoot: string,
+  agentName: string,
+): Promise<{ name: string; email: string }> {
+  return {
+    name: (await git.getConfig(hostRepoRoot, 'user.name')) ?? `quimby-${agentName}`,
+    email: (await git.getConfig(hostRepoRoot, 'user.email')) ?? `quimby+${agentName}@local`,
+  }
 }
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {

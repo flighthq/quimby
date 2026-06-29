@@ -62,10 +62,13 @@ export default defineCommand({
       description: "Skip the agent's configured guard command",
       default: false,
     },
-    'no-verify': {
+    // citty maps `--no-verify` onto this `verify` flag (its built-in `--no-`
+    // negation) — a literal `no-verify` arg would never flip, so the alias
+    // lives here as the git-muscle-memory way to skip the guard.
+    verify: {
       type: 'boolean',
-      description: 'Alias for --skip-guard (git muscle memory)',
-      default: false,
+      description: 'Run the guard before applying (--no-verify or --skip-guard to skip)',
+      default: true,
     },
   },
   run: runApplyCommand,
@@ -84,7 +87,7 @@ export async function runApplyCommand({
     message?: string
     rebase: boolean
     'skip-guard': boolean
-    'no-verify': boolean
+    verify: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -110,7 +113,7 @@ export async function runApplyCommand({
           repoRoot,
           from: args.agent,
           message: args.message,
-          skipGuard: args['skip-guard'] || args['no-verify'],
+          skipGuard: args['skip-guard'] || !args.verify,
           rebase: args.rebase,
         })
       ).name
@@ -136,6 +139,27 @@ export async function runApplyCommand({
         logger.info('  git add -A && git am --continue   (or: git am --abort to bail out)')
       } else {
         logger.info(`  git add -A && git commit -m ${JSON.stringify(meta.suggestedMessage)}`)
+      }
+      process.exit(1)
+    }
+    // A plain (non-3way) git apply aborts on any context drift — typically the
+    // agent's seed has diverged from your repo. Point at the recovery paths
+    // instead of dead-ending on a bare "patch does not apply".
+    if (!threeWay && (mode === 'squashed' || mode === 'patch')) {
+      logger.error(err instanceof Error ? err.message : String(err))
+      logger.info(
+        "The patch didn't apply cleanly — your repo has drifted from the agent's seed. Try:",
+      )
+      logger.info(
+        `  quimby apply ${args.agent} --3way      # merge, leaving conflict markers to resolve`,
+      )
+      logger.info(
+        `  quimby apply ${args.agent} --commits   # replay the agent's commits individually`,
+      )
+      if (isAgent) {
+        logger.info(
+          `  quimby sync ${args.agent}             # rebase the agent onto your latest, then re-apply`,
+        )
       }
       process.exit(1)
     }
