@@ -60,6 +60,10 @@ async function setupRepoRoot(): Promise<string> {
   await execa('git', ['add', '-A'], { cwd: repoRoot })
   await execa('git', ['commit', '-m', 'initial'], { cwd: repoRoot })
   await ensureWorkspace(repoRoot)
+  // ensureWorkspace gitignores .quimby; commit that so the host working tree is
+  // clean (mirrors a real repo, where .quimby never shows up in a capture).
+  await execa('git', ['add', '.gitignore'], { cwd: repoRoot })
+  await execa('git', ['commit', '-m', 'gitignore .quimby'], { cwd: repoRoot })
   return repoRoot
 }
 

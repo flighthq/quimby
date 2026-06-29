@@ -17,6 +17,7 @@ import {
   deleteBranch,
   diff,
   diffStaged,
+  diffWorkingTree,
   findRoot,
   formatPatch,
   getConflicts,
@@ -191,6 +192,35 @@ describe('diffStaged', () => {
     const output = await diffStaged(dir, 'quimby/seed')
     expect(output).toContain('staged change')
     expect(output).toContain('original')
+  })
+})
+
+describe('diffWorkingTree', () => {
+  it('captures committed, uncommitted, and untracked changes without a commit', async () => {
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await makeCommit(dir, 'committed.txt', 'committed\n', 'a commit since seed')
+    await writeFile(join(dir, 'base.txt'), 'modified\n') // uncommitted tracked edit
+    await writeFile(join(dir, 'untracked.txt'), 'new file\n') // untracked
+
+    const output = await diffWorkingTree(dir, 'quimby/seed')
+    expect(output).toContain('committed.txt')
+    expect(output).toContain('modified')
+    expect(output).toContain('untracked.txt')
+
+    // The real index/HEAD are untouched — nothing was committed or staged.
+    const { stdout: head } = await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })
+    const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: dir })
+    expect(head.trim()).toBe(await revParse(dir, 'HEAD'))
+    expect(status).toContain('?? untracked.txt') // still untracked, not staged
+  })
+
+  it('yields only the uncommitted remainder against HEAD', async () => {
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await writeFile(join(dir, 'wip.txt'), 'wip\n')
+
+    const output = await diffWorkingTree(dir, 'HEAD')
+    expect(output).toContain('wip.txt')
   })
 })
 

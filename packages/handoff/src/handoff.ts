@@ -75,11 +75,18 @@ export async function applyHandoff(opts: {
       }
       case 'commits': {
         const commitsDir = join(dir, 'commits')
-        const patches = await readdir(commitsDir)
-        const sortedPatches = patches
-          .filter((f) => f.endsWith('.patch'))
-          .sort()
-          .map((f) => join(commitsDir, f))
+        const sortedPatches = (await exists(commitsDir))
+          ? (await readdir(commitsDir))
+              .filter((f) => f.endsWith('.patch'))
+              .sort()
+              .map((f) => join(commitsDir, f))
+          : []
+        if (sortedPatches.length === 0) {
+          // No committed history to replay (e.g. uncommitted-only work) — fall back
+          // to the full squashed diff, applied to the working tree.
+          await git.apply(targetRepoPath, join(dir, 'squashed.diff'))
+          break
+        }
         try {
           await git.am(targetRepoPath, sortedPatches)
         } catch (amErr) {
@@ -95,6 +102,10 @@ export async function applyHandoff(opts: {
           }
           throw amErr
         }
+        // The agent's uncommitted/untracked remainder rides on top as working-tree
+        // changes (no commit) so `--commits` loses nothing.
+        const remainderPath = join(dir, 'uncommitted.diff')
+        if (await exists(remainderPath)) await git.apply(targetRepoPath, remainderPath)
         break
       }
       case 'patch': {
@@ -140,31 +151,38 @@ export async function assembleHandoff(opts: {
   const repoDir = getAgentRepoDir(repoRoot, codeSource)
 
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
-  const hasCode = subjects.length > 0
+  // Full working-tree delta vs seed — committed + uncommitted + untracked, no commit made.
+  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed')
+  const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
-    throw new HandoffError(`Nothing to hand off from "${from}" — no commits since seed and no note`)
+    throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
   }
 
-  const head = hasCode ? await git.revParse(repoDir, 'HEAD') : hashNote(opts.note ?? '')
-  const name = opts.name ?? parcelName(from, head)
+  const name = opts.name ?? parcelName(from, contentDigest([squashedDiff, opts.note ?? '']))
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
   await ensureDir(dir)
 
   let commits: CommitMeta[] = []
   if (hasCode) {
-    const commitsDir = join(dir, 'commits')
-    await ensureDir(commitsDir)
-    const patchFiles = await git.formatPatch(repoDir, 'quimby/seed', commitsDir)
-    await writeText(join(dir, 'squashed.diff'), await git.diff(repoDir, 'quimby/seed'))
-    commits = parseCommits(
-      await git.log(repoDir, 'quimby/seed..HEAD'),
-      patchFiles.map((p) => p.split('/').pop() ?? ''),
-    )
+    await writeText(join(dir, 'squashed.diff'), squashedDiff)
+    if (subjects.length > 0) {
+      // Committed history (for `apply --commits`), plus the uncommitted remainder so
+      // that mode loses nothing of the working tree.
+      const commitsDir = join(dir, 'commits')
+      await ensureDir(commitsDir)
+      const patchFiles = await git.formatPatch(repoDir, 'quimby/seed', commitsDir)
+      commits = parseCommits(
+        await git.log(repoDir, 'quimby/seed..HEAD'),
+        patchFiles.map((p) => p.split('/').pop() ?? ''),
+      )
+      const remainder = await git.diffWorkingTree(repoDir, 'HEAD')
+      if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
+    }
   }
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
 
-  const meta = buildMeta({ ...opts, codeSource, name, subjects, hasCode, commits })
+  const meta = buildMeta({ ...opts, codeSource, name, subjects, commits })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
 }
@@ -194,14 +212,13 @@ export async function assembleHostHandoff(opts: {
     base = 'HEAD'
   }
 
-  const squashedDiff = await git.diff(repoRoot, base)
+  const squashedDiff = await git.diffWorkingTree(repoRoot, base)
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
   }
 
-  const head = await git.revParse(repoRoot, 'HEAD')
-  const name = opts.name ?? `${HOST_SENDER}-${head.slice(0, 8)}`
+  const name = opts.name ?? parcelName(HOST_SENDER, contentDigest([squashedDiff, opts.note ?? '']))
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
   await ensureDir(dir)
@@ -247,41 +264,41 @@ export async function assembleRemoteHandoff(opts: {
   )
     .split('\n')
     .filter(Boolean)
-  const hasCode = subjects.length > 0
+
+  const squashedDiff = await remoteWorkingTreeDiff(transport, rRepoDir, 'quimby/seed')
+  const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
-    throw new HandoffError(`Nothing to hand off from "${from}" — no commits since seed and no note`)
+    throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
   }
 
-  const head = hasCode
-    ? (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
-    : hashNote(opts.note ?? '')
-  const name = opts.name ?? parcelName(from, head)
+  const name = opts.name ?? parcelName(from, contentDigest([squashedDiff, opts.note ?? '']))
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
   await ensureDir(dir)
 
   let commits: CommitMeta[] = []
   if (hasCode) {
-    const commitsDir = join(dir, 'commits')
-    await ensureDir(commitsDir)
-    const rTmpDir = `/tmp/quimby-handoff-${name}`
-    await transport.exec(`mkdir -p ${rTmpDir}`, { cwd: rRepoDir })
-    await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, { cwd: rRepoDir })
-    await transport.rsyncFrom(rTmpDir, commitsDir)
-    await transport.exec(`rm -rf ${rTmpDir}`)
-    await writeText(
-      join(dir, 'squashed.diff'),
-      await transport.exec(`git diff quimby/seed`, { cwd: rRepoDir }),
-    )
-    const fullLog = await transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, {
-      cwd: rRepoDir,
-    })
-    const patchFiles = (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
-    commits = parseCommits(fullLog, patchFiles)
+    await writeText(join(dir, 'squashed.diff'), squashedDiff)
+    if (subjects.length > 0) {
+      const commitsDir = join(dir, 'commits')
+      await ensureDir(commitsDir)
+      const rTmpDir = `/tmp/quimby-handoff-${name}`
+      await transport.exec(`mkdir -p ${rTmpDir}`, { cwd: rRepoDir })
+      await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, { cwd: rRepoDir })
+      await transport.rsyncFrom(rTmpDir, commitsDir)
+      await transport.exec(`rm -rf ${rTmpDir}`)
+      const fullLog = await transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, {
+        cwd: rRepoDir,
+      })
+      const patchFiles = (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
+      commits = parseCommits(fullLog, patchFiles)
+      const remainder = await remoteWorkingTreeDiff(transport, rRepoDir, 'HEAD')
+      if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
+    }
   }
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
 
-  const meta = buildMeta({ ...opts, codeSource, name, subjects, hasCode, commits })
+  const meta = buildMeta({ ...opts, codeSource, name, subjects, commits })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
 }
@@ -377,15 +394,36 @@ export async function readOutboxRecipients(repoRoot: string, from: string): Prom
     .sort()
 }
 
-// A parcel's name is its origin and contents: <from>-<short-hash>. The hash is the
-// packed tip's sha when it carries code, else a hash of the note — content-derived,
-// so it needs no counter, dedupes identical sends, and reads back as "from whom".
+// A parcel's name is its origin and contents: <from>-<short-hash>, where the hash is
+// over the parcel's payload (diff + note). Content-derived, so it needs no counter,
+// dedupes identical sends, and reads back as "from whom".
 function parcelName(from: string, hash: string): string {
   return `${from}-${hash.slice(0, 8)}`
 }
 
-function hashNote(note: string): string {
-  return createHash('sha256').update(note).digest('hex')
+function contentDigest(parts: readonly string[]): string {
+  return createHash('sha256').update(parts.join('\0')).digest('hex')
+}
+
+// Capture a remote agent's full working tree (committed + uncommitted + untracked)
+// vs `base` without making a commit — the SSH twin of git.diffWorkingTree. The
+// GIT_INDEX_FILE prefix must stay on one &&-chained exec so it survives across the
+// read-tree/add/write-tree steps (a fresh ssh shell per exec would lose it).
+async function remoteWorkingTreeDiff(
+  transport: ReturnType<typeof getSSHTransport>,
+  rRepoDir: string,
+  base: string,
+): Promise<string> {
+  const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
+  const tree = (
+    await transport.exec(
+      `GIT_INDEX_FILE=${idx} git read-tree ${base} && GIT_INDEX_FILE=${idx} git add -A && GIT_INDEX_FILE=${idx} git write-tree`,
+      { cwd: rRepoDir },
+    )
+  ).trim()
+  const diff = await transport.exec(`git diff ${base} ${tree}`, { cwd: rRepoDir })
+  await transport.exec(`rm -f ${idx}`)
+  return diff
 }
 
 function parseCommits(fullLog: string, patchFiles: readonly string[]): CommitMeta[] {
@@ -415,17 +453,24 @@ function buildMeta(opts: {
   note?: string
   name: string
   subjects: readonly string[]
-  hasCode: boolean
   commits: CommitMeta[]
   description?: string
   suggestedMessage?: string
 }): HandoffMeta {
-  const { from, codeSource, subjects, hasCode, note } = opts
-  const firstLine = (note ?? '').split('\n').find(Boolean) ?? `Note from ${from}`
-  const description = opts.description ?? (hasCode ? subjects.join('; ') : firstLine)
+  const { from, codeSource, subjects, note } = opts
+  // Prefer the agent's own commit subjects; fall back to the note's first line; and
+  // finally a generated default so `apply` always has a message and never prompts.
+  const hasCommits = subjects.length > 0
+  const firstLine = (note ?? '').split('\n').find(Boolean)
+  const description =
+    opts.description ?? (hasCommits ? subjects.join('; ') : (firstLine ?? `Work from ${from}`))
   const suggestedMessage =
     opts.suggestedMessage ??
-    (hasCode ? (subjects.length === 1 ? subjects[0] : subjects[subjects.length - 1]) : firstLine)
+    (hasCommits
+      ? subjects.length === 1
+        ? subjects[0]
+        : subjects[subjects.length - 1]
+      : (firstLine ?? `Apply work from ${from}`))
   return {
     name: opts.name,
     from,

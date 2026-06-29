@@ -1,4 +1,4 @@
-import { advanceAgent } from '@quimbyhq/agent'
+import { syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { assembleHandoff, assembleRemoteHandoff } from '@quimbyhq/handoff'
@@ -12,12 +12,11 @@ import { execa } from 'execa'
 /**
  * Stage a parcel in the host loading dock from a code source's work and/or a note.
  *
- * Shared by `apply` (membrane) and `handoff` (peer delivery). The diff comes from the
- * `attach` agent if given, else `from`. `commitDirty` is for `apply`, which ships
- * everything across the membrane; `handoff` leaves it off and carries only committed
- * work, so a reviewer's incidental scratch never rides along with a note. The guard
- * runs only when the parcel actually carries code. The caller consumes the staged
- * parcel and is responsible for discarding it.
+ * Shared by `apply` (boundary) and `handoff` (peer delivery). The diff comes from the
+ * `attach` agent if given, else `from`, and is the full working tree — committed,
+ * uncommitted, and untracked — captured without ever making a commit in the source.
+ * The guard runs when there is any work to ship. The caller consumes the staged parcel
+ * and is responsible for discarding it.
  */
 export async function stageParcel(opts: {
   state: Readonly<QuimbyState>
@@ -27,7 +26,6 @@ export async function stageParcel(opts: {
   note?: string
   attach?: string
   message?: string
-  commitDirty?: boolean
   skipGuard?: boolean
   rebase?: boolean
   name?: string
@@ -47,21 +45,14 @@ export async function stageParcel(opts: {
     const transport = getSSHTransport(codeSource.location)
     const rRepoDir = remoteAgentRepoDir(state.id, codeSourceName, codeSource.location.base)
 
-    if (opts.commitDirty) {
-      const dirty = (await transport.exec(`git status --porcelain`, { cwd: rRepoDir })).trim()
-      if (dirty) {
-        const message = opts.message ?? `Work by ${codeSourceName}`
-        await transport.exec(`git add -A && git commit -m ${sq(message)}`, { cwd: rRepoDir })
-        logger.info(`Committed working tree on "${codeSourceName}"`)
-      }
-    }
-
     if (opts.rebase) await rebaseOntoHead(repoRoot, codeSourceName)
 
-    const hasCode =
+    const dirty =
+      (await transport.exec(`git status --porcelain`, { cwd: rRepoDir })).trim().length > 0
+    const committed =
       (await transport.exec(`git log quimby/seed..HEAD --format=%s`, { cwd: rRepoDir })).trim()
         .length > 0
-    if (hasCode && codeSource.guard && !opts.skipGuard) {
+    if ((dirty || committed) && codeSource.guard && !opts.skipGuard) {
       await runRemoteGuard(transport, rRepoDir, codeSourceName, codeSource.guard)
     }
 
@@ -80,17 +71,12 @@ export async function stageParcel(opts: {
 
   const repoDir = getAgentRepoDir(repoRoot, codeSourceName)
 
-  if (opts.commitDirty && !(await git.isClean(repoDir))) {
-    await git.addAll(repoDir)
-    await git.commit(repoDir, opts.message ?? `Work by ${codeSourceName}`)
-    logger.info(`Committed working tree on "${codeSourceName}"`)
-  }
-
   if (opts.rebase) await rebaseOntoHead(repoRoot, codeSourceName)
 
-  const hasCode =
+  const hasWork =
+    !(await git.isClean(repoDir)) ||
     (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean).length > 0
-  if (hasCode && codeSource.guard && !opts.skipGuard) {
+  if (hasWork && codeSource.guard && !opts.skipGuard) {
     logger.start(`Running guard on "${codeSourceName}": ${codeSource.guard}`)
     try {
       await execa(codeSource.guard, { cwd: repoDir, stdio: 'inherit', shell: true })
@@ -114,8 +100,8 @@ export async function stageParcel(opts: {
 }
 
 async function rebaseOntoHead(repoRoot: string, agentName: string): Promise<void> {
-  logger.start(`Rebasing "${agentName}" onto host HEAD`)
-  const result = await advanceAgent(repoRoot, agentName)
+  logger.start(`Syncing "${agentName}" onto its base`)
+  const result = await syncAgent(repoRoot, agentName)
   if (result.rebased) {
     logger.success(`Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`)
   } else {

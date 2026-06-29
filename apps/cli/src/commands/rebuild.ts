@@ -1,4 +1,4 @@
-import { resetAgent } from '@quimbyhq/agent'
+import { rebuildAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
 import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
@@ -6,8 +6,9 @@ import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
-    name: 'reset',
-    description: 'Reset an agent to current HEAD (destructive — all uncommitted work is lost)',
+    name: 'rebuild',
+    description:
+      'Recreate an agent from current source (destructive — discards its work and mailbox)',
   },
   args: {
     name: {
@@ -22,10 +23,10 @@ export default defineCommand({
       default: false,
     },
   },
-  run: runResetCommand,
+  run: runRebuildCommand,
 })
 
-export async function runResetCommand({ args }: { args: { name: string; force: boolean } }) {
+export async function runRebuildCommand({ args }: { args: { name: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (!state.agents[args.name]) {
@@ -34,15 +35,15 @@ export async function runResetCommand({ args }: { args: { name: string; force: b
 
   if (!args.force) {
     logger.warn(
-      `This will destroy all uncommitted work in "${args.name}". Pass --force (-f) to confirm.`,
+      `This recreates "${args.name}" from scratch, discarding its work, inbox, and outbox. Pass --force (-f) to confirm.`,
     )
     return
   }
 
-  await resetAgent(repoRoot, args.name)
+  await rebuildAgent(repoRoot, args.name)
 
   const newState = await loadState(repoRoot)
   const newSeed = newState.agents[args.name].seedCommit
 
-  logger.success(`Agent "${args.name}" reset (seed: ${newSeed.slice(0, 8)})`)
+  logger.success(`Agent "${args.name}" rebuilt (seed: ${newSeed.slice(0, 8)})`)
 }

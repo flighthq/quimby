@@ -10,15 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   addAgent,
-  advanceAgent,
+  rebuildAgent,
   removeAgent,
   renameAgent,
-  resetAgent,
   setAgentDefaults,
   setAgentGuard,
   setAgentLocation,
   setAgentSyncRef,
   setAgentTmux,
+  syncAgent,
 } from './agent'
 
 vi.mock('@quimbyhq/git', async (importOriginal) => {
@@ -98,11 +98,22 @@ describe('addAgent', () => {
   })
 })
 
-describe('advanceAgent', () => {
-  it('throws a clear error when the sync ref does not resolve', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentSyncRef(dir, 'alice', 'no-such-branch')
-    await expect(advanceAgent(dir, 'alice')).rejects.toThrow(/doesn't resolve/)
+describe('rebuildAgent', () => {
+  it('removes and re-clones the agent repo', async () => {
+    const agent = await addAgent(dir, 'alice')
+    const firstSeed = agent.seedCommit
+    // Rebuild should create a fresh clone
+    await rebuildAgent(dir, 'alice')
+    const state = await loadState(dir)
+    expect(state.agents.alice.seedCommit).toBeDefined()
+    expect(state.agents.alice.seedCommit).toHaveLength(40)
+    // The seedCommit may change or stay same depending on HEAD
+    expect(typeof state.agents.alice.seedCommit).toBe('string')
+    void firstSeed
+  })
+
+  it('throws QuimbyError if agent does not exist', async () => {
+    await expect(rebuildAgent(dir, 'nonexistent')).rejects.toThrow('not found')
   })
 })
 
@@ -150,25 +161,6 @@ describe('renameAgent', () => {
     await addAgent(dir, 'alice')
     await addAgent(dir, 'bob')
     await expect(renameAgent(dir, 'alice', 'bob')).rejects.toThrow('already exists')
-  })
-})
-
-describe('resetAgent', () => {
-  it('removes and re-clones the agent repo', async () => {
-    const agent = await addAgent(dir, 'alice')
-    const firstSeed = agent.seedCommit
-    // Reset should create a fresh clone
-    await resetAgent(dir, 'alice')
-    const state = await loadState(dir)
-    expect(state.agents.alice.seedCommit).toBeDefined()
-    expect(state.agents.alice.seedCommit).toHaveLength(40)
-    // The seedCommit may change or stay same depending on HEAD
-    expect(typeof state.agents.alice.seedCommit).toBe('string')
-    void firstSeed
-  })
-
-  it('throws QuimbyError if agent does not exist', async () => {
-    await expect(resetAgent(dir, 'nonexistent')).rejects.toThrow('not found')
   })
 })
 
@@ -227,5 +219,13 @@ describe('setAgentTmux', () => {
     await setAgentTmux(dir, 'alice', false)
     state = await loadState(dir)
     expect(state.agents.alice.tmux).toBeUndefined()
+  })
+})
+
+describe('syncAgent', () => {
+  it('throws a clear error when the sync ref does not resolve', async () => {
+    await addAgent(dir, 'alice')
+    await setAgentSyncRef(dir, 'alice', 'no-such-branch')
+    await expect(syncAgent(dir, 'alice')).rejects.toThrow(/doesn't resolve/)
   })
 })

@@ -1,3 +1,7 @@
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { GitError } from '@quimbyhq/errors'
 import { execa } from 'execa'
 
@@ -53,6 +57,36 @@ export async function formatPatch(
 
 export async function diff(cwd: string, baseRef: string): Promise<string> {
   return git(['diff', baseRef], cwd, { raw: true })
+}
+
+/**
+ * Diff `base` against the full current working tree — committed, uncommitted, and
+ * untracked (non-ignored) — without making a commit or touching the repo's real index.
+ *
+ * Stages everything into a throwaway index (`GIT_INDEX_FILE`), writes a tree from it,
+ * and diffs `base` against that tree. This is how work is captured for handoff/apply:
+ * the source's history and index are left untouched, so frequent use never litters it.
+ * `base` of `HEAD` yields exactly the uncommitted+untracked remainder.
+ */
+export async function diffWorkingTree(cwd: string, base: string): Promise<string> {
+  const indexFile = join(tmpdir(), `quimby-index-${crypto.randomUUID()}`)
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile }
+  try {
+    await execa('git', ['read-tree', base], { cwd, env })
+    await execa('git', ['add', '-A'], { cwd, env })
+    const { stdout: tree } = await execa('git', ['write-tree'], {
+      cwd,
+      env,
+      stripFinalNewline: true,
+    })
+    const { stdout } = await execa('git', ['diff', base, tree], { cwd, stripFinalNewline: false })
+    return stdout
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message?: string }
+    throw new GitError(`git working-tree capture failed: ${e.stderr ?? e.message}`, e.stderr)
+  } finally {
+    await rm(indexFile, { force: true })
+  }
 }
 
 export async function diffStaged(cwd: string, baseRef: string): Promise<string> {
@@ -209,7 +243,7 @@ export async function rebaseAbort(cwd: string): Promise<void> {
 
 export async function stash(cwd: string): Promise<boolean> {
   const before = await git(['stash', 'list'], cwd)
-  await git(['stash', 'push', '-m', 'ao-refresh'], cwd)
+  await git(['stash', 'push', '--include-untracked', '-m', 'quimby-sync'], cwd)
   const after = await git(['stash', 'list'], cwd)
   return before !== after
 }

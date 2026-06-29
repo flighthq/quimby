@@ -215,7 +215,7 @@ export async function renameAgent(
   await saveState(repoRoot, state)
 }
 
-export async function resetAgent(repoRoot: string, name: string): Promise<void> {
+export async function rebuildAgent(repoRoot: string, name: string): Promise<void> {
   const state = await loadState(repoRoot)
 
   if (!state.agents[name]) {
@@ -232,7 +232,7 @@ export async function resetAgent(repoRoot: string, name: string): Promise<void> 
     const rRepoDir = remoteAgentRepoDir(state.id, name, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
-    await transport.exec(`rm -rf ${rRepoDir}`)
+    await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/inbox ${rAgentDir}/outbox`)
     await transport.ensureDir(`${rAgentDir}/inbox/status`)
     await transport.ensureDir(`${rAgentDir}/outbox`)
     await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
@@ -263,13 +263,20 @@ export async function resetAgent(repoRoot: string, name: string): Promise<void> 
   state.agents[name].seedCommit = seedCommit
   await saveState(repoRoot, state)
 
+  // Clear the mailbox too — a rebuilt agent is a fresh start, so stale parcels and
+  // a prior task shouldn't carry over.
+  await rm(join(agentDir, 'inbox'), { recursive: true, force: true })
+  await ensureDir(join(agentDir, 'inbox', 'status'))
+  await rm(join(agentDir, 'outbox'), { recursive: true, force: true })
+  await ensureDir(join(agentDir, 'outbox'))
   await writeText(join(agentDir, 'assignment.md'), '')
   await writeText(join(agentDir, 'status.md'), 'idle')
 }
 
-export async function advanceAgent(
+export async function syncAgent(
   repoRoot: string,
   name: string,
+  opts?: { force?: boolean; base?: string },
 ): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
   const state = await loadState(repoRoot)
 
@@ -277,64 +284,80 @@ export async function advanceAgent(
     throw new QuimbyError(`Agent "${name}" not found`)
   }
 
+  // --base retargets the agent's recorded sync ref (persisted), then syncs onto it.
+  if (opts?.base) {
+    state.agents[name].syncRef = opts.base
+    await saveState(repoRoot, state)
+  }
+
   const agent = state.agents[name]
 
   if (isSSH(agent.location)) {
-    return advanceSSHAgent(repoRoot, name, agent, state)
+    return syncSSHAgent(repoRoot, name, agent, state, opts)
   }
 
   const repoDir = getAgentRepoDir(repoRoot, name)
-
-  if (!(await git.isClean(repoDir))) {
-    throw new QuimbyError(
-      `Agent "${name}" has uncommitted changes — commit them first so they can be rebased onto the new baseline`,
-    )
-  }
-
   const hostHead = await resolveSyncTarget(repoRoot, agent, state.sourceRef)
-
-  if (hostHead === agent.seedCommit) {
-    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
-  }
-
-  const logOutput = await git.log(repoDir, 'quimby/seed..HEAD', '%H')
-  const agentCommits = logOutput.split('\n').filter(Boolean)
-  const commitsReplayed = agentCommits.length
-
   await git.fetch(repoDir, 'origin')
 
-  if (commitsReplayed === 0) {
+  // Hard: snap the agent's repo to the base, discarding its commits and working
+  // changes. The agent (mailbox/assignment) is left alone — only the code resets.
+  if (opts?.force) {
     await git.resetHard(repoDir, hostHead)
-    await git.tagForce(repoDir, 'quimby/seed')
+    await git.tagForce(repoDir, 'quimby/seed', hostHead)
     state.agents[name].seedCommit = hostHead
     await saveState(repoRoot, state)
     return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
   }
 
-  try {
-    await git.rebase(repoDir, hostHead)
-  } catch {
-    await git.rebaseAbort(repoDir)
-    throw new QuimbyError(
-      `Agent "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — the rebase was aborted and the work is intact. ` +
-        `Resolve them in the agent, or pack without --rebase and "quimby apply <pack> --3way". ` +
-        `"quimby reset ${name} --force" starts fresh but discards the agent's work.`,
-    )
+  if (hostHead === agent.seedCommit) {
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
   }
 
-  // Tag the new base (hostHead), not the rebased HEAD
+  const commitsReplayed = (await git.log(repoDir, 'quimby/seed..HEAD', '%H'))
+    .split('\n')
+    .filter(Boolean).length
+
+  // Auto-stash uncommitted + untracked work so a dirty tree never blocks the sync.
+  const stashed = !(await git.isClean(repoDir)) ? await git.stash(repoDir) : false
+
+  if (commitsReplayed === 0) {
+    await git.resetHard(repoDir, hostHead)
+  } else {
+    try {
+      await git.rebase(repoDir, hostHead)
+    } catch {
+      await git.rebaseAbort(repoDir)
+      if (stashed) await git.stashPop(repoDir).catch(() => {})
+      throw new QuimbyError(
+        `Agent "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — aborted, work intact. ` +
+          `Resolve them on the agent, or "quimby sync ${name} -f" to force to the base (discards the agent's commits).`,
+      )
+    }
+  }
+
   await git.tagForce(repoDir, 'quimby/seed', hostHead)
+  if (stashed) {
+    try {
+      await git.stashPop(repoDir)
+    } catch {
+      throw new QuimbyError(
+        `Agent "${name}" synced onto ${hostHead.slice(0, 8)}, but restoring its uncommitted work hit conflicts — resolve them on the agent.`,
+      )
+    }
+  }
   state.agents[name].seedCommit = hostHead
   await saveState(repoRoot, state)
 
-  return { newSeed: hostHead, rebased: true, commitsReplayed }
+  return { newSeed: hostHead, rebased: commitsReplayed > 0, commitsReplayed }
 }
 
-async function advanceSSHAgent(
+async function syncSSHAgent(
   repoRoot: string,
   name: string,
   agent: AgentState,
   state: QuimbyState,
+  opts?: { force?: boolean; base?: string },
 ): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
   const location = agent.location as SSHLocation
   const transport = getSSHTransport(location)
@@ -344,50 +367,63 @@ async function advanceSSHAgent(
   await transport.syncProjectTo(repoRoot, rRoot)
 
   const hostHead = await resolveSyncTarget(repoRoot, agent, state.sourceRef)
-
-  if (hostHead === agent.seedCommit) {
-    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
-  }
-
-  const statusOutput = await transport.exec(`git status --porcelain`, { cwd: rRepoDir })
-  if (statusOutput.trim()) {
-    throw new QuimbyError(
-      `Agent "${name}" has uncommitted changes — commit them first so they can be rebased onto the new baseline`,
-    )
-  }
-
-  const logOutput = await transport.exec(`git log quimby/seed..HEAD --format=%H`, {
-    cwd: rRepoDir,
-  })
-  const agentCommits = logOutput.split('\n').filter(Boolean)
-  const commitsReplayed = agentCommits.length
-
   await transport.exec(`git fetch origin`, { cwd: rRepoDir })
 
-  if (commitsReplayed === 0) {
+  if (opts?.force) {
     await transport.exec(`git reset --hard ${hostHead}`, { cwd: rRepoDir })
-    await transport.exec(`git tag -f quimby/seed`, { cwd: rRepoDir })
+    await transport.exec(`git tag -f quimby/seed ${hostHead}`, { cwd: rRepoDir })
     state.agents[name].seedCommit = hostHead
     await saveState(repoRoot, state)
     return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
   }
 
-  try {
-    await transport.exec(`git rebase ${hostHead}`, { cwd: rRepoDir })
-  } catch {
-    await transport.exec(`git rebase --abort`, { cwd: rRepoDir }).catch(() => {})
-    throw new QuimbyError(
-      `Agent "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — the rebase was aborted and the work is intact. ` +
-        `Resolve them on the agent, or pack without --rebase and "quimby apply <pack> --3way". ` +
-        `"quimby reset ${name} --force" starts fresh but discards the agent's work.`,
-    )
+  if (hostHead === agent.seedCommit) {
+    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+  }
+
+  const commitsReplayed = (
+    await transport.exec(`git log quimby/seed..HEAD --format=%H`, {
+      cwd: rRepoDir,
+    })
+  )
+    .split('\n')
+    .filter(Boolean).length
+
+  const dirty =
+    (await transport.exec(`git status --porcelain`, { cwd: rRepoDir })).trim().length > 0
+  if (dirty) {
+    await transport.exec(`git stash push --include-untracked -m quimby-sync`, { cwd: rRepoDir })
+  }
+
+  if (commitsReplayed === 0) {
+    await transport.exec(`git reset --hard ${hostHead}`, { cwd: rRepoDir })
+  } else {
+    try {
+      await transport.exec(`git rebase ${hostHead}`, { cwd: rRepoDir })
+    } catch {
+      await transport.exec(`git rebase --abort`, { cwd: rRepoDir }).catch(() => {})
+      if (dirty) await transport.exec(`git stash pop`, { cwd: rRepoDir }).catch(() => {})
+      throw new QuimbyError(
+        `Agent "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — aborted, work intact. ` +
+          `Resolve them on the agent, or "quimby sync ${name} -f" to force to the base (discards the agent's commits).`,
+      )
+    }
   }
 
   await transport.exec(`git tag -f quimby/seed ${hostHead}`, { cwd: rRepoDir })
+  if (dirty) {
+    try {
+      await transport.exec(`git stash pop`, { cwd: rRepoDir })
+    } catch {
+      throw new QuimbyError(
+        `Agent "${name}" synced onto ${hostHead.slice(0, 8)}, but restoring its uncommitted work hit conflicts — resolve them on the agent.`,
+      )
+    }
+  }
   state.agents[name].seedCommit = hostHead
   await saveState(repoRoot, state)
 
-  return { newSeed: hostHead, rebased: true, commitsReplayed }
+  return { newSeed: hostHead, rebased: commitsReplayed > 0, commitsReplayed }
 }
 
 /**

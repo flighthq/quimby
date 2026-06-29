@@ -20,11 +20,11 @@ This is infrastructure for multi-agent orchestration, not a thin wrapper around 
 - a **diff** — the agent's code as `squashed.diff` plus `commits/` patches
 - any other **files** the sender chose to include
 
-A `meta.yaml` manifest (sender, recipient, `createdAt`, code source) is written **last**, which signals the parcel is complete. A handoff with code and no note, a note and no code, or both, are all the same kind of thing — "pack vs instruction" is not a type distinction, just different contents. A handoff is named `<from>-<contentHash>` (the packed tip's short sha when it carries code, otherwise a hash of its contents) — content-derived, so it needs no counter, dedupes identical sends, and reads back as "from whom, carrying what". The diff is also the wire format that lets work cross the membrane at all: an agent in a sandbox or over SSH is not a reachable git remote, so the host cannot `git fetch` it — Quimby carries the diff instead.
+A `meta.yaml` manifest (sender, recipient, `createdAt`, code source) is written **last**, which signals the parcel is complete. A handoff with code and no note, a note and no code, or both, are all the same kind of thing — "pack vs instruction" is not a type distinction, just different contents. A handoff is named `<from>-<contentHash>` (a hash of its payload — diff plus note) — content-derived, so it needs no counter, dedupes identical sends, and reads back as "from whom, carrying what". The diff is also the wire format that lets work cross the boundary at all: an agent in a sandbox or over SSH is not a reachable git remote, so the host cannot `git fetch` it — Quimby carries the diff instead.
 
-**Seed** — The `quimby/seed` git tag in each agent's repo marking the baseline. A handoff's diff is computed against this tag (`git diff quimby/seed`).
+**Seed** — The `quimby/seed` git tag in each agent's repo marking the baseline. A handoff's diff is the agent's working tree (committed + uncommitted + untracked) against this tag.
 
-**Membrane** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the membrane through explicit user action (`quimby apply`), landing in git — the durable side of the boundary.
+**Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby apply`), landing in git — the durable side of the boundary.
 
 **Server** — The host-side process that enables cross-agent visibility. Agents in sandboxes are isolated from each other — the server is the only entity that can see all agents. It polls for status changes and routes updates to subscribing agents.
 
@@ -157,10 +157,10 @@ The tmux session name is stable across renames because it is based on the agent'
 ### Explicit sync
 
 ```
-quimby sync researcher    # rsync project to remote without launching the agent
+quimby sync researcher    # rsync the project to the remote and bring the agent onto its base
 ```
 
-Useful to pre-stage the project before a run, or to push local commits without starting a session.
+For an SSH agent, `sync` rsyncs the project to the remote before fast-forwarding — useful to pre-stage the project (and push local commits) without launching the agent. See [Sync Targets](#sync-targets) for the full behavior (`-f`, `--base`, `--all`).
 
 ### Updating SSH config
 
@@ -184,14 +184,13 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 - **sideways**, agent → agent (direct), or host → agent: `handoff`
 - **outbox routing**, an agent's authored queue → its recipients: `dispatch`
-- **out**, agent → your repo (across the membrane): `apply`
+- **out**, agent → your repo (across the boundary): `apply`
 - **in**, you → an agent's task: `assign`
 
 ```
 quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync, guard)
 quimby run <agent> [-c <cmd>] [-r <runtime>]        Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
-quimby sync <agent>                                  Rsync project to SSH agent host
 quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-g <guard>] [-s <ref>]   Update agent config
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions
@@ -200,8 +199,9 @@ quimby assign <agent> -m "..." | @file               Set an agent's current task
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>]   Carry <from>'s work to <to>; with one arg, the host's work → that agent
 quimby dispatch <agent>                              Deliver the agent's queued outbox parcels to their recipients
-quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the membrane)
-quimby reset <agent> --force                         Nuclear reset agent to current HEAD
+quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the boundary)
+quimby sync <agent...> [--all] [-f] [--base <ref>]   Sync agent(s) to their base, keeping work (-f hard-resets; --base retargets)
+quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (--force: skip remote cleanup)
 quimby serve [-p <port>] [--poll <secs>]              Start the server
@@ -230,7 +230,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-b` / `--branch` (apply)
 - `-t` / `--target` (apply)
 - `-s` / `--sync` (add, set)
-- `-f` / `--force` (reset, remove)
+- `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
 - `--stat` (diff)
 - `--commits`, `--patch`, `--3way` (apply)
 - `--rebase` (handoff, dispatch, apply)
@@ -311,7 +311,7 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Direct carry (`quimby handoff`).** Quimby:
 
-1. Resolves the diff. For `handoff A B`, that is `git diff quimby/seed` from A (or the `--attach` source), with an optional `--rebase` onto host HEAD and the source's guard (`--skip-guard` / `--no-verify` opts out). For `handoff B` (host source), it is the host working tree vs B's seed, squashed, **no guard** — the host isn't a guarded agent, and the recipient guards its own work when it later hands off. Sender name is the reserved `host`.
+1. Resolves the diff. For `handoff A B`, that is A's working tree (committed + uncommitted + untracked) against `quimby/seed` — captured commit-free — or the `--attach` source's, with an optional `--rebase` (sync) first and the source's guard (`--skip-guard` / `--no-verify` opts out). For `handoff B` (host source), it is the host working tree vs B's seed, squashed, **no guard** — the host isn't a guarded agent, and the recipient guards its own work when it later hands off. Sender name is the reserved `host`.
 2. Validates the recipient against the agent roster. An unknown recipient (a typo) is reported and nothing is carried — it bounces, never silently dropped.
 3. Assembles the parcel — note, diff — writes `meta.yaml` **last**, delivers it to `<to>/inbox/<from>-<hash>/` (local copy or rsync), then discards the staging copy.
 
@@ -322,39 +322,38 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Consumption (the recipient).** Parcels sit in `inbox/` until the agent processes them and moves them to `inbox/.done/`. Identity is content-derived, so a re-carried identical parcel overwrites in place rather than piling up.
 
-**Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by an explicit step (a cleanup, or folded into `advance`/`reset`). GC is archiving-then-pruning, never silent deletion on carry.
+**Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by an explicit step (a cleanup, or folded into `sync`/`rebuild`). GC is archiving-then-pruning, never silent deletion on carry.
 
-## Apply (crossing the membrane)
+## Apply (crossing the boundary)
 
-`quimby apply <agent>` is the one verb that moves work **out** to the user's real repository. It assembles the agent's diff in the host loading dock (`.quimby/staging/`), applies it to the target repo, and discards the staging copy on success.
+`quimby apply <agent>` is the one verb that moves work **out** to the user's real repository. It assembles the agent's working-tree parcel in the host loading dock (`.quimby/staging/`), applies it to the target repo, and discards the staging copy on success. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
 
-- Squashed by default; `--commits` replays individual patches, `--patch` leaves working-tree changes uncommitted, `--3way` merges (leaving conflict markers) instead of aborting.
+- **Squashed by default** — one commit, message auto-filled from the parcel (`-m` overrides; it never prompts). `--patch` leaves the changes in your working tree uncommitted (curate your own commits). `--commits` replays the agent's individual commits and then applies any uncommitted remainder on top. `--3way` merges (leaving conflict markers) instead of aborting.
 - `-b` lands it on a fresh branch; `-t` targets a repo path other than the cwd.
 - On conflict the staged parcel is **kept** and its path reported, so the apply can be finished by hand.
 
 Persisting an agent's work is git's job, reached through apply: `quimby apply <agent> -b feature/x` lands it on a branch you keep. There is no separate "save this work" store.
 
-## Sync Targets (advance vs retarget)
+## Sync Targets
 
 An agent is a _synchronization relationship_, not a checkout. It records two things:
 
-- **`seedCommit`** (mirrored by the `quimby/seed` tag) — the base the agent's work is measured from. A handoff's diff is `git diff quimby/seed`.
+- **`seedCommit`** (mirrored by the `quimby/seed` tag) — the base the agent's work is measured from. A handoff's diff is the agent's working tree against this tag.
 - **`syncRef`** — the ref the agent synchronizes against (e.g. `main`, `refs/heads/release`). Defaults to the host branch at `quimby add` time; an explicit `--sync` wins.
 
-These map to two distinct, deliberately separated operations:
+`quimby sync <agent>` resolves `syncRef`'s tip _in the host repo_ (not the host's live `HEAD`, so syncing is deterministic) and brings the agent onto it, with three behaviors:
 
-- **Refresh** (`quimby advance <agent>`) — resolve the agent's recorded `syncRef` to its tip _in the host repo_, rebase the agent's commits onto it, and retag `quimby/seed`. Because the target is the recorded ref and not the host's live `HEAD`, advancing is deterministic: checking the host repo out to a different branch does not silently change what an agent syncs against.
-- **Retarget** (`quimby set <agent> --sync <ref>`) — change the agent's `syncRef`. This is the only way to move an agent onto a different branch. Keeping it explicit lets `advance` stay simple and predictable.
+- **default (safe)** — auto-stash the agent's uncommitted + untracked work, rebase its commits onto the new base, retag `quimby/seed`, then restore the stash. The agent's work is kept. A rebase or restore conflict aborts and reports, leaving the work intact.
+- **`-f` (hard)** — `reset --hard` to the base, discarding the agent's commits and working changes — but its **mailbox** (inbox/outbox/assignment/status) is untouched. For "my work shipped; snap me to the latest and keep me in the conversation."
+- **`--base <ref>`** — retarget `syncRef` to `<ref>` (persisted), then sync onto it. The way to move an agent to a different branch. (`set --sync` records the ref without syncing.)
 
-Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`.
+`--all` syncs every agent, skipping any with conflicts. Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`. The apply target is independent of `syncRef` — `quimby apply <agent> -t <branch>` lands work wherever you choose.
 
-The apply target is independent of `syncRef` — `quimby apply <agent> -t <branch>` lands the work wherever you choose, regardless of where its seed was derived from.
+## Rebuild
 
-## Reset
+`quimby rebuild <agent> --force` recreates the agent: it deletes the agent's repo, re-clones from the current source, **clears its mailbox** (inbox/outbox), and resets assignment/status to empty/idle. `--force` is required. This is for "this agent is done or broken — start a blank one." When you only want to reset the _code_ but keep the agent in the conversation, `sync -f` is the gentler tool (it leaves the mailbox alone).
 
-`quimby reset <agent> --force` is nuclear — deletes the agent's repo and re-clones from the source at current HEAD. `--force` is required to prevent accidental data loss. Assignment and status are reset to empty/idle. (There is no archive to preserve; apply or export anything worth keeping before resetting.)
-
-For SSH agents, reset: rsyncs the latest source to the remote, deletes and re-clones the remote repo, retags `quimby/seed`.
+For SSH agents, rebuild rsyncs the latest source to the remote, deletes and re-clones the remote repo, retags `quimby/seed`, and clears the remote mailbox.
 
 ## diff Semantics
 
@@ -366,15 +365,15 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 
 ## Key Design Decisions
 
-- **Quimby is a courier, not a post office**: It hand-carries parcels between agents and across the membrane; it does not run a mailroom. There is no standing archive of past work — a handoff is assembled, carried, and dropped. This deletes a whole class of maintenance overhead: no sequence counter, no orphaned artifacts outliving removed agents, no unbounded store to curate. Durable history is git's job.
+- **Quimby is a courier, not a post office**: It hand-carries parcels between agents and across the boundary; it does not run a mailroom. There is no standing archive of past work — a handoff is assembled, carried, and dropped. This deletes a whole class of maintenance overhead: no sequence counter, no orphaned artifacts outliving removed agents, no unbounded store to curate. Durable history is git's job.
 - **A handoff is one shape, carrying whichever halves exist**: Always a folder — note and/or diff and/or files, with a `meta.yaml` written last as the completion signal. "Pack vs instruction" is not a type distinction, just different contents, so there is one object and one set of verbs to learn.
 - **Content-derived names, time in the manifest**: A parcel is `<from>-<contentHash>` — no counter, dedupes identical carries, self-describing. `createdAt` lives in `meta.yaml`, not the name, so identical re-sends stay idempotent instead of piling up; chronology comes from the manifest and the `.sent/` ledger.
 - **Addressed outbox, content-named inbox**: The two staging areas answer different questions — "who is this for" when authoring, "what did I get and from whom" when receiving — so they name parcels differently on purpose.
 - **Non-destructive delivery**: Carry drains a draft only on success, and to a `.sent/` receipt rather than a delete; a bad address bounces and stays put. An agent never has to rewrite a parcel because a delivery failed.
-- **A verb per movement**: `handoff` moves sideways (agent → agent, or host → agent), `dispatch` enacts an agent's outbox queue, `apply` moves out (across the membrane), `assign` sets an agent's task. Handoffs land in the inbox and never clobber `assignment.md`. `handoff` and `dispatch` are separate verbs because the outbox is a distinct mechanism, and because keeping the host the only non-agent source avoids unfulfillable path sources.
+- **A verb per movement**: `handoff` moves sideways (agent → agent, or host → agent), `dispatch` enacts an agent's outbox queue, `apply` moves out (across the boundary), `assign` sets an agent's task. Handoffs land in the inbox and never clobber `assignment.md`. `handoff` and `dispatch` are separate verbs because the outbox is a distinct mechanism, and because keeping the host the only non-agent source avoids unfulfillable path sources.
 - **Directed handoff vs broadcast**: Directed work uses `handoff` (addressed, validated); "to whom it may concern" uses `status` + `subscribe` (pull, set once). Broadcast is deliberately not a handoff mode — it would copy into every inbox and make every agent filter, the token cost we are avoiding.
-- **The diff is the wire format across the membrane**: A sandboxed/SSH agent is not a reachable git remote, so the host cannot `git fetch` it. Carrying the diff is what makes cross-agent and agent→host movement possible at all.
-- **Squashed apply by default**: Agent commit history is useful context but shouldn't leak into the real repo. The membrane ensures the user curates what enters.
+- **The diff is the wire format across the boundary**: A sandboxed/SSH agent is not a reachable git remote, so the host cannot `git fetch` it. Carrying the diff is what makes cross-agent and agent→host movement possible at all.
+- **Squashed apply by default**: Agent commit history is useful context but shouldn't leak into the real repo. The boundary ensures the user curates what enters.
 - **Server is infrastructure, not convenience**: Agents in sandboxes can't see each other. The server is the only entity with cross-agent visibility. It's architecturally necessary, not a nice-to-have.
 - **Three interaction modes coexist**: Interactive (run), headless (start), and server (serve) are separate concerns. run/start manage individual agents; serve manages the connections between them.
 - **Stable IDs, not names**: `QuimbyState.id` and `AgentState.id` are UUIDs generated at creation and never change. tmux session names are derived from IDs, so renaming an agent doesn't orphan a running session.
@@ -382,6 +381,7 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 - **rsync as transport**: SSH agents sync the project source via rsync before each run. The remote clone is a local clone of the rsynced source tree — no direct git remote needed on the agent side.
 - **tmux for SSH persistence**: SSH agents run in named tmux sessions. Disconnecting from a session doesn't kill the agent. `quimby run` reattaches to an existing session if one exists. Local agents can opt into the same behavior via the `tmux` field on `AgentState` — `quimby run` then wraps the local agent in `tmux new-session -A` against the stable-ID session name.
 - **Transport abstraction**: All agent I/O goes through `LocalTransport` or `SSHTransport`. Commands don't need to know where an agent lives — they call `transport.exec`, `transport.writeFile`, `transport.rsyncTo`, etc.
-- **reset requires --force**: Nuclear operations require explicit opt-in. `quimby reset` without `--force` warns and exits.
+- **Transport never commits**: Work is captured from the agent's working tree (committed + uncommitted + untracked) via a throwaway index, so `handoff`/`dispatch`/`sync` never make a commit in an agent — frequent use never litters its history, and agents needn't use git at all. The only commit is the optional one at `apply`, the boundary.
+- **Three levels of "catch up"**: `sync` keeps the agent's work (rebases it); `sync -f` drops the work but keeps the agent (mailbox intact); `rebuild --force` recreates the agent (mailbox cleared). `sync -f` resets the code; `rebuild` resets the agent. Destructive levels require an explicit flag.
 - **remove --force for unreachable hosts**: When an SSH host is gone, `quimby remove --force` removes the local state entry without attempting remote cleanup.
 - **No artificial simplicity**: This is infrastructure for multi-agent orchestration. Networking, servers, persistent state, SSH transport, and subscription management are all in scope.

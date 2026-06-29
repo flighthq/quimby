@@ -6,19 +6,17 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
     state: { id: 'proj-id', agents: {}, subscriptions: {} },
     repoRoot: '/fake/root',
   })),
-  loadState: vi.fn(async () => ({ id: 'proj-id', agents: {}, subscriptions: {} })),
-  saveState: vi.fn(),
 }))
 
 describe('run', () => {
   it('is a function', async () => {
-    const { default: cmd } = await import('./reset')
+    const { default: cmd } = await import('./rebuild')
     expect(typeof cmd.run).toBe('function')
   })
 
-  it('throws when agent does not exist', async () => {
-    const { default: cmd } = await import('./reset')
-    await expect(cmd.run!({ args: { name: 'nonexistent', force: true } } as never)).rejects.toThrow(
+  it('throws when the agent does not exist', async () => {
+    const { default: cmd } = await import('./rebuild')
+    await expect(cmd.run!({ args: { name: 'ghost', force: true } } as never)).rejects.toThrow(
       'not found',
     )
   })

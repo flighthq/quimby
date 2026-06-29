@@ -41,7 +41,7 @@ export async function runListCommand() {
       const defaults = agent.defaults
 
       // "behind" is measured against the agent's sync target, not the host's
-      // live HEAD — that is the commit `quimby advance` would move it onto.
+      // live HEAD — that is the commit `quimby sync` would move it onto.
       const syncRef = agent.syncRef ?? state.sourceRef
       const target = await git.revParse(repoRoot, syncRef).catch(() => undefined)
 

@@ -6,7 +6,7 @@ export interface AgentState {
   seedCommit: string
   /**
    * Ref the agent synchronizes against (e.g. `main`, `refs/heads/release`).
-   * `quimby advance` resolves this ref's tip in the host repo as the new baseline —
+   * `quimby sync` resolves this ref's tip in the host repo as the new baseline —
    * it does NOT follow whatever the host happens to be checked out to. Retarget
    * explicitly with `quimby set <agent> --sync <ref>`.
    */
@@ -18,7 +18,7 @@ export interface AgentState {
     /** The command launched in the agent (overloaded to include args); a runtime adapter wraps it. */
     entrypoint?: string
   }
-  /** Shell command run in the agent repo before its work crosses the membrane (apply) or is handed off. */
+  /** Shell command run in the agent repo before its work crosses the boundary (apply) or is handed off. */
   guard?: string
   /**
    * Run the agent inside a named tmux session. SSH agents always use tmux for

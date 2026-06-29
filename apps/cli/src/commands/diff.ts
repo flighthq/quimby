@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process'
+
 import * as git from '@quimbyhq/git'
 import { getAgentRepoDir, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
@@ -51,7 +53,30 @@ async function getDiff(
     const { stdout } = await execa('git', ['diff', '--stat', 'quimby/seed'], { cwd: repoPath })
     return stdout
   }
-  return git.diff(repoPath, 'quimby/seed')
+  // Full working tree (committed + uncommitted + untracked) — the same view a
+  // handoff or apply would carry.
+  return git.diffWorkingTree(repoPath, 'quimby/seed')
+}
+
+// Page output through the user's pager when attached to a TTY, so a large diff
+// doesn't scroll off the terminal history. Falls back to printing when piped.
+async function page(text: string): Promise<void> {
+  if (!process.stdout.isTTY) {
+    console.log(text)
+    return
+  }
+  const pager = process.env.GIT_PAGER || process.env.PAGER || 'less -RFX'
+  await new Promise<void>((resolve) => {
+    const child = spawn(pager, { stdio: ['pipe', 'inherit', 'inherit'], shell: true })
+    child.on('error', () => {
+      console.log(text)
+      resolve()
+    })
+    child.on('close', () => resolve())
+    child.stdin.on('error', () => {}) // user quit the pager early — ignore EPIPE
+    child.stdin.write(text)
+    child.stdin.end()
+  })
 }
 
 export default defineCommand({
@@ -92,11 +117,11 @@ export async function runDiffCommand({
       getDiff(repoRoot, args.other, state, args.stat),
     ])
 
-    console.log(bold(`\n═══ ${args.name} ═══`))
-    console.log(diffA ? (args.stat ? diffA : colorizeDiff(diffA)) : '  (no changes)')
-
-    console.log(bold(`\n═══ ${args.other} ═══`))
-    console.log(diffB ? (args.stat ? diffB : colorizeDiff(diffB)) : '  (no changes)')
+    const render = (d: string) => (d ? (args.stat ? d : colorizeDiff(d)) : '  (no changes)')
+    await page(
+      `${bold(`═══ ${args.name} ═══`)}\n${render(diffA)}\n\n` +
+        `${bold(`═══ ${args.other} ═══`)}\n${render(diffB)}`,
+    )
     return
   }
 
@@ -107,5 +132,5 @@ export async function runDiffCommand({
     return
   }
 
-  console.log(args.stat ? diff : colorizeDiff(diff))
+  await page(args.stat ? diff : colorizeDiff(diff))
 }

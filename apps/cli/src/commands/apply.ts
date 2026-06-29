@@ -100,7 +100,7 @@ export async function runApplyCommand({
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
 
   // An agent name stages fresh work (committing the dirty tree — apply ships
-  // everything across the membrane); anything else is a parcel already staged
+  // everything across the boundary); anything else is a parcel already staged
   // in `.quimby/staging/` (e.g. one a prior conflict left behind).
   const isAgent = Boolean(state.agents[args.agent])
   const name = isAgent
@@ -110,7 +110,6 @@ export async function runApplyCommand({
           repoRoot,
           from: args.agent,
           message: args.message,
-          commitDirty: true,
           skipGuard: args['skip-guard'] || args['no-verify'],
           rebase: args.rebase,
         })
@@ -151,6 +150,6 @@ export async function runApplyCommand({
     logger.info(`Changes in working tree — no commit created. Suggested message:`)
     logger.info(`  ${meta.suggestedMessage}`)
   }
-  logger.info(`Resync other agents when ready: quimby advance --all`)
+  logger.info(`Resync other agents when ready: quimby sync --all`)
   logger.log(colors.dim(getQuimbySuccessQuip()))
 }

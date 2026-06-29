@@ -44,7 +44,7 @@ export default defineCommand({
     sync: {
       type: 'string',
       alias: 's',
-      description: 'Retarget the ref `quimby advance` syncs against (e.g. main, release)',
+      description: 'Retarget the ref `quimby sync` syncs against (e.g. main, release)',
     },
   },
   run: runSetCommand,
