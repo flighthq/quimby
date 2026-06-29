@@ -70,8 +70,8 @@ export default [
   },
 
   {
-    // Commands use console.log intentionally for clean formatted output
-    files: ['apps/cli/src/commands/**/*.ts'],
+    // Commands and dev scripts use console.log intentionally for output.
+    files: ['apps/cli/src/commands/**/*.ts', 'scripts/**/*.ts'],
     rules: {
       'no-console': 'off',
     },
