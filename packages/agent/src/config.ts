@@ -15,20 +15,6 @@ export async function setAgentDefaults(
   await saveState(repoRoot, state)
 }
 
-export async function setAgentGuard(repoRoot: string, name: string, guard: string): Promise<void> {
-  const state = await loadState(repoRoot)
-  if (!state.agents[name]) {
-    throw new QuimbyError(`Agent "${name}" not found`)
-  }
-  // An empty string clears the guard; any non-empty value sets it.
-  if (guard) {
-    state.agents[name].guard = guard
-  } else {
-    delete state.agents[name].guard
-  }
-  await saveState(repoRoot, state)
-}
-
 export async function setAgentLocation(
   repoRoot: string,
   name: string,

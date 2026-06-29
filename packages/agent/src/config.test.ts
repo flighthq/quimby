@@ -7,13 +7,7 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  setAgentDefaults,
-  setAgentGuard,
-  setAgentLocation,
-  setAgentSyncRef,
-  setAgentTmux,
-} from './config'
+import { setAgentDefaults, setAgentLocation, setAgentSyncRef, setAgentTmux } from './config'
 import { addAgent } from './lifecycle'
 
 vi.mock('@quimbyhq/git', async (importOriginal) => {
@@ -62,19 +56,6 @@ describe('setAgentDefaults', () => {
     const state = await loadState(dir)
     expect(state.agents.alice.defaults?.runtime).toBe('sbx')
     expect(state.agents.alice.defaults?.entrypoint).toBe('codex')
-  })
-})
-
-describe('setAgentGuard', () => {
-  it('sets and clears the agent guard command', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentGuard(dir, 'alice', 'npm run ci')
-    let state = await loadState(dir)
-    expect(state.agents.alice.guard).toBe('npm run ci')
-
-    await setAgentGuard(dir, 'alice', '')
-    state = await loadState(dir)
-    expect(state.agents.alice.guard).toBeUndefined()
   })
 })
 

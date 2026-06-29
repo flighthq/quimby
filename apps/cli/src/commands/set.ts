@@ -1,4 +1,4 @@
-import { setAgentDefaults, setAgentGuard, setAgentLocation, setAgentSyncRef } from '@quimbyhq/agent'
+import { setAgentDefaults, setAgentLocation, setAgentSyncRef } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import type { RuntimeType } from '@quimbyhq/types'
@@ -36,11 +36,6 @@ export default defineCommand({
       type: 'string',
       description: 'Update SSH port',
     },
-    guard: {
-      type: 'string',
-      alias: 'g',
-      description: 'Guard command run before apply/handoff (empty string clears it)',
-    },
     sync: {
       type: 'string',
       alias: 's',
@@ -59,7 +54,6 @@ export async function runSetCommand({
     cmd?: string
     host?: string
     port?: string
-    guard?: string
     sync?: string
   }
 }) {
@@ -69,17 +63,8 @@ export async function runSetCommand({
     throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  if (
-    !args.runtime &&
-    !args.cmd &&
-    !args.host &&
-    !args.port &&
-    args.guard === undefined &&
-    args.sync === undefined
-  ) {
-    throw new QuimbyError(
-      'Specify at least one of --runtime, --cmd, --host, --port, --guard, or --sync',
-    )
+  if (!args.runtime && !args.cmd && !args.host && !args.port && args.sync === undefined) {
+    throw new QuimbyError('Specify at least one of --runtime, --cmd, --host, --port, or --sync')
   }
 
   if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
@@ -93,10 +78,6 @@ export async function runSetCommand({
     if (args.runtime) updates.runtime = args.runtime
     if (args.cmd) updates.entrypoint = args.cmd
     await setAgentDefaults(repoRoot, args.name, updates)
-  }
-
-  if (args.guard !== undefined) {
-    await setAgentGuard(repoRoot, args.name, args.guard)
   }
 
   if (args.sync !== undefined) {

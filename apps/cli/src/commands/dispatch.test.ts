@@ -18,7 +18,7 @@ describe('run', () => {
     const { default: cmd } = await import('./dispatch')
     await expect(
       cmd.run!({
-        args: { agent: 'ghost', rebase: false, 'skip-guard': false, verify: true },
+        args: { agent: 'ghost', rebase: false },
       } as never),
     ).rejects.toThrow('not found')
   })

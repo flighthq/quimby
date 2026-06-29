@@ -7,7 +7,6 @@ export interface AgentConfig {
   entrypoint: string
   location?: SSHLocation
   syncRef?: string
-  guard?: string
   tmux?: boolean
 }
 
@@ -16,7 +15,6 @@ export interface WalkthroughSeed {
   entrypoint?: string
   location?: AgentLocation
   syncRef?: string
-  guard?: string
   tmux?: boolean
 }
 
@@ -121,15 +119,6 @@ export async function runAgentWalkthrough(
   )
   if (syncRef === null) return cancelled()
 
-  const guard = await prompt(
-    text({
-      message: 'Guard command (run before apply/handoff)',
-      placeholder: 'e.g. npm test',
-      initialValue: seed.guard ?? '',
-    }),
-  )
-  if (guard === null) return cancelled()
-
   outro(`Agent "${name}" configured`)
 
   return {
@@ -137,7 +126,6 @@ export async function runAgentWalkthrough(
     entrypoint: entrypoint.trim() || 'claude',
     location,
     ...(syncRef.trim() ? { syncRef: syncRef.trim() } : {}),
-    ...(guard.trim() ? { guard: guard.trim() } : {}),
     ...(tmux ? { tmux: true } : {}),
   }
 }

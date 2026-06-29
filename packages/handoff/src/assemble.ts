@@ -73,8 +73,7 @@ export async function assembleHandoff(opts: {
  * Assemble a parcel from the host's own working tree, for a host → agent handoff.
  * The diff is the host tree against the recipient's seed (what the recipient is
  * missing relative to its baseline), squashed — host commit history is not grafted
- * into an agent. Sender is the reserved name `host`. No guard runs: the host is not
- * a guarded agent, and the recipient guards its own work when it later hands off.
+ * into an agent. Sender is the reserved name `host`.
  */
 export async function assembleHostHandoff(opts: {
   repoRoot: string

@@ -27,7 +27,7 @@ An npm-workspace monorepo. The domain is split into one package per capability s
   - `src/cli.ts` — entry point (citty root command, flat subcommands; intercepts `help`/`-h`/`--help`)
   - `src/index.ts` — public API (type re-exports)
   - `src/commands/` — one file per command (add, config, run, list, status, assign, diff, handoff, dispatch, apply, sync, rebuild, rename, remove, set, serve, subscribe, unsubscribe)
-  - `src/courier.ts` — shared `stageParcel` (optional rebase → guard → assemble a commit-free working-tree parcel), reused by apply and handoff
+  - `src/courier.ts` — shared `stageParcel` (optional rebase → assemble a commit-free working-tree parcel), reused by apply and handoff
   - `src/banner.ts` — colored wordmark on root help; `src/help.ts` — grouped root-help renderer; `src/walkthrough.ts` — interactive agent config (`@clack/prompts`)
 - `packages/types/` — `@quimbyhq/types` — shared types, **one PascalCase file per interface** (`QuimbyState.ts`, `AgentState.ts`, `HandoffMeta.ts`, `CommitMeta.ts`, `AgentLocation.ts`, `LocalLocation.ts`, `SSHLocation.ts`, `RuntimeAdapter.ts`, `RuntimeContext.ts`, `RunSpec.ts`, `RuntimeType.ts`); `index.ts` is the barrel
 - `packages/errors/` — `@quimbyhq/errors` — error taxonomy (QuimbyError, GitError, AgentError, HandoffError, ConflictError)
@@ -71,17 +71,17 @@ npm run exports:check   # describe-per-exported-function coverage (informational
 
 ```
 quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]  # create an agent; with no config flags, runs the interactive walkthrough (flags skip it and stay scriptable)
-quimby config <agent>                               # interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync, guard)
+quimby config <agent>                               # interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
 quimby run <agent> [-c <cmd>] [-r <runtime>]       # launch the agent interactively (local tmux agents attach to a named session)
-quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-g <guard>] [-s <ref>]  # update agent config (-c sets the entrypoint command, -g sets the guard, -s retargets the sync ref)
+quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]  # update agent config (-c sets the entrypoint command, -s retargets the sync ref)
 quimby list                                          # show agents and subscriptions
 quimby help [command]                                # root help (grouped + banner), or usage for one command
 quimby status [agent]                               # show agent-written status
 quimby assign <agent> -m "..."                      # set an agent's current task (assignment.md)
 quimby diff <agent> [agent2]                        # show an agent's live diff against its seed
-quimby handoff <from> <to> | <to> [-m <note>] [--attach <w>] [--rebase] [--skip-guard|--no-verify]  # carry <from>'s work to <to>; with one arg, the host's work → that agent (sender "host", no guard)
-quimby dispatch <agent> [--rebase] [--skip-guard|--no-verify]  # deliver the agent's queued outbox parcels to their recipients (bounces unknown recipients; drains to outbox/.sent on success)
-quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t] [--rebase] [--skip-guard|--no-verify]  # package the agent's work and apply it (auto-commits dirty tree, runs the agent's guard; --3way merges conflicts; keeps the parcel on conflict)
+quimby handoff <from> <to> | <to> [-m <note>] [--attach <w>] [--rebase]  # carry <from>'s work to <to>; with one arg, the host's work → that agent (sender "host")
+quimby dispatch <agent> [--rebase]  # deliver the agent's queued outbox parcels to their recipients (bounces unknown recipients; drains to outbox/.sent on success)
+quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t] [--rebase]  # package the agent's work and apply it (auto-commits dirty tree; --3way merges conflicts; keeps the parcel on conflict)
 quimby sync <agent...> [--all] [-f] [--base <ref>]  # sync agent(s) to their syncRef tip, keeping work (auto-stash/rebase/pop); -f hard-resets (drops work, keeps mailbox); --base retargets; rsyncs SSH agents
 quimby rebuild <agent> --force                       # recreate agent from current source (requires --force; discards work + clears inbox/outbox/assignment/status)
 quimby rename <agent> <new-name>                    # rename agent
@@ -95,7 +95,7 @@ quimby unsubscribe <agent> <target>                 # remove subscription
 
 - Agents are isolated clones in `.quimby/agents/<name>/repo/`
 - Handoffs are ephemeral parcels (folders: optional `README.md` note + optional `squashed.diff`/`commits/` + `meta.yaml`) named `<from>-<contentHash>`, staged transiently in `.quimby/staging/<name>/` then discarded once consumed (kept only on apply conflict) — not an archive; durable work lives in git. Delivered parcels land in `inbox/<from>-<hash>/`
-- `handoff` is direct transport: `handoff A B` (agent→agent) or `handoff B` (host→B, sender `host`, diff = host worktree vs B's seed, no guard). `dispatch <agent>` enacts the agent's outbox: drafts are addressed by recipient (`outbox/<recipient>/`, optional `attach:` frontmatter), delivered, drained to `outbox/.sent/` only on success, with unknown recipients bounced (left in the outbox). `host` is a reserved agent name
+- `handoff` is direct transport: `handoff A B` (agent→agent) or `handoff B` (host→B, sender `host`, diff = host worktree vs B's seed). `dispatch <agent>` enacts the agent's outbox: drafts are addressed by recipient (`outbox/<recipient>/`, optional `attach:` frontmatter), delivered, drained to `outbox/.sent/` only on success, with unknown recipients bounced (left in the outbox). `host` is a reserved agent name
 - Seed ref is `quimby/seed` tag in agent repos
 - Each agent records a `syncRef` (default: host branch at `add` time); `quimby sync` resolves that ref's tip in the host repo as the new baseline — it does not follow the host's live HEAD. Retarget with `quimby sync <agent> --base <ref>` (or record-only via `quimby set <agent> --sync <ref>`)
 - Subscriptions stored in `state.yaml`, routed by server
@@ -105,7 +105,7 @@ quimby unsubscribe <agent> <target>                 # remove subscription
 - Parcel meta.yaml is always written last (signals completion); `deliverHandoff` only routes a fully-staged parcel
 - No config file required — `quimby add` initializes everything
 - CLI grammar: `verb target [qualifiers]`
-- Flags: `-x` short + `--xxx` long (e.g., `-m`/`--message`, `-c`/`--cmd`, `-g`/`--guard`); `--no-verify` is accepted as a git-style alias for `--skip-guard`
+- Flags: `-x` short + `--xxx` long (e.g., `-m`/`--message`, `-c`/`--cmd`, `-s`/`--sync`)
 - `QuimbyState.id` and `AgentState.id` are stable UUIDs; existing state is migrated on load
 - SSH agents are initialized lazily on first `quimby run` (no SSH required at `quimby add`)
 - SSH agents use tmux sessions named `qb-<projectId[:8]>-<agentId[:8]>` for stable identity; local agents can opt into the same tmux session via the `tmux` field on `AgentState`

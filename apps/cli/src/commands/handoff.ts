@@ -36,19 +36,6 @@ export default defineCommand({
       description: 'Rebase the code source onto host HEAD before packaging',
       default: false,
     },
-    'skip-guard': {
-      type: 'boolean',
-      description: "Skip the source agent's guard command",
-      default: false,
-    },
-    // citty maps `--no-verify` onto this `verify` flag (its built-in `--no-`
-    // negation) — a literal `no-verify` arg would never flip, so the alias
-    // lives here as the git-muscle-memory way to skip the guard.
-    verify: {
-      type: 'boolean',
-      description: 'Run the guard before packaging (--no-verify or --skip-guard to skip)',
-      default: true,
-    },
   },
   run: runHandoffCommand,
 })
@@ -62,8 +49,6 @@ export async function runHandoffCommand({
     message?: string
     attach?: string
     rebase: boolean
-    'skip-guard': boolean
-    verify: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -102,7 +87,6 @@ export async function runHandoffCommand({
     throw new QuimbyError(`Agent "${source}" not found`)
   }
 
-  const skipGuard = args['skip-guard'] || !args.verify
   const meta = await stageParcel({
     state,
     repoRoot,
@@ -110,7 +94,6 @@ export async function runHandoffCommand({
     to: recipient,
     note: args.message,
     attach: args.attach,
-    skipGuard,
     rebase: args.rebase,
   })
   await deliverHandoff({

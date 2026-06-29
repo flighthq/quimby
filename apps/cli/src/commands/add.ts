@@ -1,4 +1,4 @@
-import { addAgent, setAgentGuard } from '@quimbyhq/agent'
+import { addAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { runtimeTypes } from '@quimbyhq/runtimes'
@@ -71,7 +71,6 @@ export async function runAddCommand({
   let defaults: { runtime?: string; entrypoint?: string } | undefined
   let location: SSHLocation | undefined
   let syncRef: string | undefined
-  let guard: string | undefined
   let tmux: boolean | undefined
 
   if (hasFlags) {
@@ -92,7 +91,6 @@ export async function runAddCommand({
     defaults = { runtime: config.runtime, entrypoint: config.entrypoint }
     location = config.location
     syncRef = config.syncRef
-    guard = config.guard
     tmux = config.tmux
   }
 
@@ -102,9 +100,6 @@ export async function runAddCommand({
     ...(syncRef ? { syncRef } : {}),
     ...(tmux ? { tmux: true } : {}),
   })
-  if (guard) {
-    await setAgentGuard(repoRoot, args.name, guard)
-  }
 
   const locationHint = location ? ` [ssh: ${location.host}]` : ''
   const defaultsHint = defaults

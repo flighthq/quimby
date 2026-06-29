@@ -189,9 +189,9 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 ```
 quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
-quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync, guard)
+quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
 quimby run <agent> [-c <cmd>] [-r <runtime>]        Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
-quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-g <guard>] [-s <ref>]   Update agent config
+quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Update agent config
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions
 quimby status [agent]                                Show agent-written status
@@ -216,6 +216,12 @@ quimby start <agent>                       Launch agent headless
 quimby assign <agent> --status <agent>    Embed another agent's status in assignment
 ```
 
+#### Deferred: a verification guard
+
+An earlier version let each agent carry a `guard` command (e.g. `npm run ci`) that quimby ran before `handoff`/`apply`. It was **removed** because it could not be made honest: quimby is a host-side courier that runs _outside_ the agent's sandbox, while the agent installs its dependencies _inside_ it. So the guard ran in the wrong environment every time — wrong architecture, wrong permissions, missing version-manager PATH — failing on the environment rather than the work. Moving it host-side doesn't help either: the host has no copy of the agent's deps (and a worktree sharing the host's `node_modules` breaks the moment the agent adds a dependency), so the only correct host-side check is a full clean install per apply.
+
+The only place a build is verifiable is where the deps were installed — inside the agent's sandbox. So a guard can return **only** once runtimes expose **headless command execution in the sandbox** (`RuntimeAdapter.execSpec`), letting quimby run the check in the agent's own environment, or once agents **attest** their own result (write the outcome into the parcel `meta.yaml`) for quimby to display rather than re-run. Until then there is no guard: `apply` lands work on a branch (the real boundary) and the user verifies in their normal dev loop, where a dependency change is just a natural `npm install`.
+
 ### Flag conventions
 
 All flags support `-x` short and `--xxx` long forms:
@@ -226,7 +232,6 @@ All flags support `-x` short and `--xxx` long forms:
 - `-c` / `--cmd` (run, set, add — the agent's entrypoint command)
 - `-r` / `--runtime` (run, set)
 - `-H` / `--host` (add, set)
-- `-g` / `--guard` (set — verification command run before apply/handoff)
 - `-b` / `--branch` (apply)
 - `-t` / `--target` (apply)
 - `-s` / `--sync` (add, set)
@@ -234,7 +239,6 @@ All flags support `-x` short and `--xxx` long forms:
 - `--stat` (diff)
 - `--commits`, `--patch`, `--3way` (apply)
 - `--rebase` (handoff, dispatch, apply)
-- `--skip-guard` / `--no-verify` (handoff, dispatch, apply — `--no-verify` is the git-muscle-memory alias)
 - `--poll` (serve)
 
 ## No Config File (For Now)
@@ -243,7 +247,7 @@ Quimby works without a config file. `quimby add <name>` implicitly creates `.qui
 
 ### Configuration is per-agent
 
-There are deliberately **no workspace-level defaults**. An agent's configuration (runtime, entrypoint, location, tmux, sync ref, guard) lives only on that agent's entry in `state.yaml` — a single source of truth, avoiding a second "defaults vs per-agent" config to reconcile.
+There are deliberately **no workspace-level defaults**. An agent's configuration (runtime, entrypoint, location, tmux, sync ref) lives only on that agent's entry in `state.yaml` — a single source of truth, avoiding a second "defaults vs per-agent" config to reconcile.
 
 `quimby config <agent>` is an interactive walkthrough (arrow-key selects via `@clack/prompts`) over exactly those fields — effectively an interactive `set`. A flag-less `quimby add <agent>` runs the same walkthrough to configure the new agent; passing config flags skips the prompts so `add` stays scriptable for unattended use. See build-and-tooling.md for the implementation.
 
@@ -311,7 +315,7 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Direct carry (`quimby handoff`).** Quimby:
 
-1. Resolves the diff. For `handoff A B`, that is A's working tree (committed + uncommitted + untracked) against `quimby/seed` — captured commit-free — or the `--attach` source's, with an optional `--rebase` (sync) first and the source's guard (`--skip-guard` / `--no-verify` opts out). For `handoff B` (host source), it is the host working tree vs B's seed, squashed, **no guard** — the host isn't a guarded agent, and the recipient guards its own work when it later hands off. Sender name is the reserved `host`.
+1. Resolves the diff. For `handoff A B`, that is A's working tree (committed + uncommitted + untracked) against `quimby/seed` — captured commit-free — or the `--attach` source's, with an optional `--rebase` (sync) first. For `handoff B` (host source), it is the host working tree vs B's seed, squashed. Sender name is the reserved `host`.
 2. Validates the recipient against the agent roster. An unknown recipient (a typo) is reported and nothing is carried — it bounces, never silently dropped.
 3. Assembles the parcel — note, diff — writes `meta.yaml` **last**, delivers it to `<to>/inbox/<from>-<hash>/` (local copy or rsync), then discards the staging copy.
 

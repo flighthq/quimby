@@ -42,26 +42,25 @@ describe('runAgentWalkthrough', () => {
   })
 
   it('collects a local agent configuration', async () => {
-    // runtime, entrypoint, where, tmux, syncRef, guard
-    h.queue.push('local', 'claude', 'local', false, '', 'npm test')
+    // runtime, entrypoint, where, tmux, syncRef
+    h.queue.push('local', 'claude', 'local', false, '')
     const config = await runAgentWalkthrough('backend')
     expect(config).toEqual({
       runtime: 'local',
       entrypoint: 'claude',
       location: undefined,
-      guard: 'npm test',
     })
   })
 
   it('opts a local agent into tmux when confirmed', async () => {
-    h.queue.push('local', 'claude', 'local', true, '', '')
+    h.queue.push('local', 'claude', 'local', true, '')
     const config = await runAgentWalkthrough('backend')
     expect(config?.tmux).toBe(true)
   })
 
   it('collects a remote agent configuration with host and port', async () => {
-    // runtime, agent, where, host, port, syncRef, check (no tmux prompt for SSH)
-    h.queue.push('local', 'claude', 'ssh', 'me@box:/srv', '2222', 'main', '')
+    // runtime, entrypoint, where, host, port, syncRef (no tmux prompt for SSH)
+    h.queue.push('local', 'claude', 'ssh', 'me@box:/srv', '2222', 'main')
     const config = await runAgentWalkthrough('researcher')
     expect(config?.location).toEqual({ type: 'ssh', host: 'me@box', base: '/srv', port: 2222 })
     expect(config?.syncRef).toBe('main')

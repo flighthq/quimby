@@ -18,8 +18,6 @@ export interface AgentState {
     /** The command launched in the agent (overloaded to include args); a runtime adapter wraps it. */
     entrypoint?: string
   }
-  /** Shell command run in the agent repo before its work crosses the boundary (apply) or is handed off. */
-  guard?: string
   /**
    * Run the agent inside a named tmux session. SSH agents always use tmux for
    * persistence; this opts a local agent into the same behavior.

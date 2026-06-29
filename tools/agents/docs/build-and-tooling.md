@@ -60,7 +60,7 @@ Adding a package? `packages:check` will tell you exactly what is missing (`tscon
 
 ## Interactive config & the walkthrough
 
-`quimby config <agent>` and a flag-less `quimby add <agent>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects an agent's full configuration: runtime, entrypoint, local vs SSH (host/port/base), tmux, sync ref, guard.
+`quimby config <agent>` and a flag-less `quimby add <agent>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects an agent's full configuration: runtime, entrypoint, local vs SSH (host/port/base), tmux, sync ref.
 
 - Config is **per-agent** — there are **no** stored workspace-level defaults, so there is a single source of truth (the agent's own state). This is why `config` is effectively an interactive `set`, and why `add` walks through rather than applying saved defaults.
 - `quimby add` honors flags when given (skips the walkthrough) so it stays scriptable for unattended use; it only prompts when no config flags are passed.

@@ -1,10 +1,4 @@
-import {
-  setAgentDefaults,
-  setAgentGuard,
-  setAgentLocation,
-  setAgentSyncRef,
-  setAgentTmux,
-} from '@quimbyhq/agent'
+import { setAgentDefaults, setAgentLocation, setAgentSyncRef, setAgentTmux } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
@@ -40,7 +34,6 @@ export async function runConfigCommand({ args }: { args: { name: string } }) {
     entrypoint: agent.defaults?.entrypoint,
     location: agent.location,
     syncRef: agent.syncRef,
-    guard: agent.guard,
   })
   if (!config) return
 
@@ -49,7 +42,6 @@ export async function runConfigCommand({ args }: { args: { name: string } }) {
     entrypoint: config.entrypoint,
   })
   await setAgentLocation(repoRoot, args.name, config.location ?? { type: 'local' })
-  await setAgentGuard(repoRoot, args.name, config.guard ?? '')
   await setAgentTmux(repoRoot, args.name, config.tmux ?? false)
   if (config.syncRef) {
     await setAgentSyncRef(repoRoot, args.name, config.syncRef)

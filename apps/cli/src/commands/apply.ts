@@ -57,19 +57,6 @@ export default defineCommand({
       description: 'Rebase the agent onto host HEAD before applying',
       default: false,
     },
-    'skip-guard': {
-      type: 'boolean',
-      description: "Skip the agent's configured guard command",
-      default: false,
-    },
-    // citty maps `--no-verify` onto this `verify` flag (its built-in `--no-`
-    // negation) — a literal `no-verify` arg would never flip, so the alias
-    // lives here as the git-muscle-memory way to skip the guard.
-    verify: {
-      type: 'boolean',
-      description: 'Run the guard before applying (--no-verify or --skip-guard to skip)',
-      default: true,
-    },
   },
   run: runApplyCommand,
 })
@@ -86,8 +73,6 @@ export async function runApplyCommand({
     target?: string
     message?: string
     rebase: boolean
-    'skip-guard': boolean
-    verify: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -113,7 +98,6 @@ export async function runApplyCommand({
           repoRoot,
           from: args.agent,
           message: args.message,
-          skipGuard: args['skip-guard'] || !args.verify,
           rebase: args.rebase,
         })
       ).name
