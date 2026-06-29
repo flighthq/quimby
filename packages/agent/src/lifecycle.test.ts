@@ -8,18 +8,7 @@ import { ensureWorkspace, loadState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  addAgent,
-  rebuildAgent,
-  removeAgent,
-  renameAgent,
-  setAgentDefaults,
-  setAgentGuard,
-  setAgentLocation,
-  setAgentSyncRef,
-  setAgentTmux,
-  syncAgent,
-} from './agent'
+import { addAgent, rebuildAgent, removeAgent, renameAgent } from './lifecycle'
 
 vi.mock('@quimbyhq/git', async (importOriginal) => {
   const actual = await importOriginal()
@@ -50,7 +39,7 @@ async function setupGitRepo(repoDir: string) {
 }
 
 beforeEach(async () => {
-  dir = join(tmpdir(), `quimby-agent-${crypto.randomUUID()}`)
+  dir = join(tmpdir(), `quimby-lifecycle-${crypto.randomUUID()}`)
   await setupGitRepo(dir)
   await ensureWorkspace(dir)
 })
@@ -79,9 +68,9 @@ describe('addAgent', () => {
     expect(await exists(join(agentDir, 'status.md'))).toBe(true)
   })
 
-  it('throws QuimbyError if an agent with that name already exists', async () => {
-    await addAgent(dir, 'charlie')
-    await expect(addAgent(dir, 'charlie')).rejects.toThrow('already exists')
+  it('honors an explicit syncRef', async () => {
+    const agent = await addAgent(dir, 'erin', { syncRef: 'release' })
+    expect(agent.syncRef).toBe('release')
   })
 
   it('records syncRef defaulting to the host branch', async () => {
@@ -92,9 +81,9 @@ describe('addAgent', () => {
     expect(agent.syncRef).toBe(branch.trim())
   })
 
-  it('honors an explicit syncRef', async () => {
-    const agent = await addAgent(dir, 'erin', { syncRef: 'release' })
-    expect(agent.syncRef).toBe('release')
+  it('throws QuimbyError if an agent with that name already exists', async () => {
+    await addAgent(dir, 'charlie')
+    await expect(addAgent(dir, 'charlie')).rejects.toThrow('already exists')
   })
 })
 
@@ -102,12 +91,10 @@ describe('rebuildAgent', () => {
   it('removes and re-clones the agent repo', async () => {
     const agent = await addAgent(dir, 'alice')
     const firstSeed = agent.seedCommit
-    // Rebuild should create a fresh clone
     await rebuildAgent(dir, 'alice')
     const state = await loadState(dir)
     expect(state.agents.alice.seedCommit).toBeDefined()
     expect(state.agents.alice.seedCommit).toHaveLength(40)
-    // The seedCommit may change or stay same depending on HEAD
     expect(typeof state.agents.alice.seedCommit).toBe('string')
     void firstSeed
   })
@@ -118,18 +105,18 @@ describe('rebuildAgent', () => {
 })
 
 describe('removeAgent', () => {
-  it('removes the agent from state', async () => {
-    await addAgent(dir, 'alice')
-    await removeAgent(dir, 'alice')
-    const state = await loadState(dir)
-    expect(state.agents.alice).toBeUndefined()
-  })
-
   it('deletes the agent directory', async () => {
     await addAgent(dir, 'alice')
     const agentDir = getAgentDir(dir, 'alice')
     await removeAgent(dir, 'alice')
     expect(await exists(agentDir)).toBe(false)
+  })
+
+  it('removes the agent from state', async () => {
+    await addAgent(dir, 'alice')
+    await removeAgent(dir, 'alice')
+    const state = await loadState(dir)
+    expect(state.agents.alice).toBeUndefined()
   })
 
   it('throws QuimbyError if agent does not exist', async () => {
@@ -138,14 +125,6 @@ describe('removeAgent', () => {
 })
 
 describe('renameAgent', () => {
-  it('updates the agent name in state', async () => {
-    await addAgent(dir, 'alice')
-    await renameAgent(dir, 'alice', 'bob')
-    const state = await loadState(dir)
-    expect(state.agents.bob).toBeDefined()
-    expect(state.agents.alice).toBeUndefined()
-  })
-
   it('renames the agent directory', async () => {
     await addAgent(dir, 'alice')
     await renameAgent(dir, 'alice', 'bob')
@@ -162,70 +141,12 @@ describe('renameAgent', () => {
     await addAgent(dir, 'bob')
     await expect(renameAgent(dir, 'alice', 'bob')).rejects.toThrow('already exists')
   })
-})
 
-describe('setAgentDefaults', () => {
-  it('updates runtime and entrypoint on the agent state', async () => {
+  it('updates the agent name in state', async () => {
     await addAgent(dir, 'alice')
-    await setAgentDefaults(dir, 'alice', { runtime: 'sbx', entrypoint: 'codex' })
+    await renameAgent(dir, 'alice', 'bob')
     const state = await loadState(dir)
-    expect(state.agents.alice.defaults?.runtime).toBe('sbx')
-    expect(state.agents.alice.defaults?.entrypoint).toBe('codex')
-  })
-})
-
-describe('setAgentGuard', () => {
-  it('sets and clears the agent guard command', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentGuard(dir, 'alice', 'npm run ci')
-    let state = await loadState(dir)
-    expect(state.agents.alice.guard).toBe('npm run ci')
-
-    await setAgentGuard(dir, 'alice', '')
-    state = await loadState(dir)
-    expect(state.agents.alice.guard).toBeUndefined()
-  })
-})
-
-describe('setAgentLocation', () => {
-  it('updates the location on the agent state', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentLocation(dir, 'alice', { type: 'local' })
-    const state = await loadState(dir)
-    expect(state.agents.alice.location).toEqual({ type: 'local' })
-  })
-})
-
-describe('setAgentSyncRef', () => {
-  it('retargets the ref the agent syncs against', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentSyncRef(dir, 'alice', 'release')
-    const state = await loadState(dir)
-    expect(state.agents.alice.syncRef).toBe('release')
-  })
-
-  it('throws QuimbyError when the agent does not exist', async () => {
-    await expect(setAgentSyncRef(dir, 'ghost', 'main')).rejects.toThrow('not found')
-  })
-})
-
-describe('setAgentTmux', () => {
-  it('opts the agent into tmux and clears the flag', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentTmux(dir, 'alice', true)
-    let state = await loadState(dir)
-    expect(state.agents.alice.tmux).toBe(true)
-
-    await setAgentTmux(dir, 'alice', false)
-    state = await loadState(dir)
-    expect(state.agents.alice.tmux).toBeUndefined()
-  })
-})
-
-describe('syncAgent', () => {
-  it('throws a clear error when the sync ref does not resolve', async () => {
-    await addAgent(dir, 'alice')
-    await setAgentSyncRef(dir, 'alice', 'no-such-branch')
-    await expect(syncAgent(dir, 'alice')).rejects.toThrow(/doesn't resolve/)
+    expect(state.agents.bob).toBeDefined()
+    expect(state.agents.alice).toBeUndefined()
   })
 })

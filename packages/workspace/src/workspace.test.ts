@@ -7,7 +7,7 @@ import { ensureDir, exists, writeYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { ensureWorkspace, loadState, resolveWorkspace, saveState } from './workspace'
+import { ensureWorkspace, resolveWorkspace } from './workspace'
 
 let dir: string
 let originalCwd: string
@@ -34,41 +34,6 @@ afterEach(async () => {
 })
 
 describe('ensureWorkspace', () => {
-  it('creates state.yaml and .gitignore on first call', async () => {
-    await ensureWorkspace(dir)
-    expect(await exists(getStatePath(dir))).toBe(true)
-    expect(await exists(join(dir, '.gitignore'))).toBe(true)
-  })
-
-  it('is idempotent — does not overwrite existing state', async () => {
-    const first = await ensureWorkspace(dir)
-    const second = await ensureWorkspace(dir)
-    expect(second.id).toBe(first.id)
-    expect(second.createdAt).toBe(first.createdAt)
-  })
-
-  it('migrates state missing id fields by adding stable UUIDs', async () => {
-    // Write state without id
-    await ensureDir(join(dir, '.quimby'))
-    await writeYaml(getStatePath(dir), {
-      sourceRepo: dir,
-      sourceRef: 'main',
-      snapshot: 'abc123',
-      createdAt: '2024-01-01T00:00:00.000Z',
-      agents: {
-        alice: {
-          name: 'alice',
-          seedCommit: 'abc123',
-          createdAt: '2024-01-01T00:00:00.000Z',
-        },
-      },
-    })
-    process.chdir(dir)
-    const { state } = await resolveWorkspace()
-    expect(state.id).toBeDefined()
-    expect(state.agents.alice.id).toBeDefined()
-  })
-
   it('backfills a missing agent syncRef from the workspace sourceRef', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
@@ -90,15 +55,39 @@ describe('ensureWorkspace', () => {
     const { state } = await resolveWorkspace()
     expect(state.agents.alice.syncRef).toBe('main')
   })
-})
 
-describe('loadState', () => {
-  it('reads state.yaml and returns a QuimbyState', async () => {
+  it('creates state.yaml and .gitignore on first call', async () => {
     await ensureWorkspace(dir)
-    const state = await loadState(dir)
+    expect(await exists(getStatePath(dir))).toBe(true)
+    expect(await exists(join(dir, '.gitignore'))).toBe(true)
+  })
+
+  it('is idempotent — does not overwrite existing state', async () => {
+    const first = await ensureWorkspace(dir)
+    const second = await ensureWorkspace(dir)
+    expect(second.id).toBe(first.id)
+    expect(second.createdAt).toBe(first.createdAt)
+  })
+
+  it('migrates state missing id fields by adding stable UUIDs', async () => {
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      sourceRepo: dir,
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {
+        alice: {
+          name: 'alice',
+          seedCommit: 'abc123',
+          createdAt: '2024-01-01T00:00:00.000Z',
+        },
+      },
+    })
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
     expect(state.id).toBeDefined()
-    expect(state.agents).toBeDefined()
-    expect(state.sourceRepo).toBeDefined()
+    expect(state.agents.alice.id).toBeDefined()
   })
 })
 
@@ -160,22 +149,5 @@ describe('resolveWorkspace', () => {
   it('throws when no state.yaml exists', async () => {
     process.chdir(dir)
     await expect(resolveWorkspace()).rejects.toThrow('No quimby workspace found')
-  })
-})
-
-describe('saveState', () => {
-  it('writes state.yaml with the correct content', async () => {
-    const state = await ensureWorkspace(dir)
-    state.agents['test-agent'] = {
-      id: 'agent-uuid',
-      name: 'test-agent',
-      seedCommit: 'abc123',
-      createdAt: new Date().toISOString(),
-    }
-    await saveState(dir, state)
-
-    const loaded = await loadState(dir)
-    expect(loaded.agents['test-agent']).toBeDefined()
-    expect(loaded.agents['test-agent'].id).toBe('agent-uuid')
   })
 })

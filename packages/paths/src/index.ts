@@ -1,1 +1,2 @@
-export * from './paths'
+export * from './localPaths'
+export * from './remotePaths'

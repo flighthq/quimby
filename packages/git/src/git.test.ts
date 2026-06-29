@@ -8,19 +8,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addAll,
   addRemote,
-  am,
-  apply,
   branchExists,
   checkout,
   commit,
   createBranch,
   deleteBranch,
-  diff,
-  diffStaged,
-  diffWorkingTree,
   findRoot,
-  formatPatch,
-  getConflicts,
   getCurrentRef,
   getRemoteUrl,
   hasCommitsSince,
@@ -78,54 +71,17 @@ describe('addRemote', () => {
   })
 })
 
-describe('am', () => {
-  it('applies patch files via git am', async () => {
-    await makeCommit(dir, 'base.txt', 'base\n', 'base commit')
-    await tag(dir, 'quimby/seed')
-    await makeCommit(dir, 'feature.txt', 'feature\n', 'add feature')
-
-    const patchDir = join(dir, 'patches')
-    await mkdir(patchDir, { recursive: true })
-    const patchFiles = await formatPatch(dir, 'quimby/seed', patchDir)
-
-    await resetHard(dir, 'quimby/seed')
-
-    await am(dir, patchFiles)
-
-    const content = await readFile(join(dir, 'feature.txt'), 'utf-8')
-    expect(content).toBe('feature\n')
-  })
-})
-
-describe('apply', () => {
-  it('applies a patch to a repo', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await tag(dir, 'quimby/seed')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-
-    const patchContent = await diff(dir, 'HEAD')
-    await execa('git', ['checkout', '--', 'file.txt'], { cwd: dir })
-
-    const patchFile = join(dir, 'changes.patch')
-    await writeFile(patchFile, patchContent)
-    await apply(dir, patchFile)
-
-    const content = await readFile(join(dir, 'file.txt'), 'utf-8')
-    expect(content).toBe('modified\n')
-  })
-})
-
 describe('branchExists', () => {
+  it('returns false for a missing branch', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    expect(await branchExists(dir, 'nonexistent-branch')).toBe(false)
+  })
+
   it('returns true for an existing branch', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir })
     const defaultBranch = stdout.trim()
     expect(await branchExists(dir, defaultBranch)).toBe(true)
-  })
-
-  it('returns false for a missing branch', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    expect(await branchExists(dir, 'nonexistent-branch')).toBe(false)
   })
 })
 
@@ -160,67 +116,12 @@ describe('createBranch', () => {
 describe('deleteBranch', () => {
   it('removes a branch', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
-    // Get current branch name before switching
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir })
     const defaultBranch = stdout.trim()
     await createBranch(dir, 'to-delete')
     await checkout(dir, defaultBranch)
     await deleteBranch(dir, 'to-delete')
     expect(await branchExists(dir, 'to-delete')).toBe(false)
-  })
-})
-
-describe('diff', () => {
-  it('returns diff text for uncommitted changes vs a ref', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await tag(dir, 'quimby/seed')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-
-    const output = await diff(dir, 'quimby/seed')
-    expect(output).toContain('modified')
-    expect(output).toContain('original')
-  })
-})
-
-describe('diffStaged', () => {
-  it('returns diff text for staged changes vs a ref', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await tag(dir, 'quimby/seed')
-    await writeFile(join(dir, 'file.txt'), 'staged change\n')
-    await execa('git', ['add', '-A'], { cwd: dir })
-
-    const output = await diffStaged(dir, 'quimby/seed')
-    expect(output).toContain('staged change')
-    expect(output).toContain('original')
-  })
-})
-
-describe('diffWorkingTree', () => {
-  it('captures committed, uncommitted, and untracked changes without a commit', async () => {
-    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
-    await tag(dir, 'quimby/seed')
-    await makeCommit(dir, 'committed.txt', 'committed\n', 'a commit since seed')
-    await writeFile(join(dir, 'base.txt'), 'modified\n') // uncommitted tracked edit
-    await writeFile(join(dir, 'untracked.txt'), 'new file\n') // untracked
-
-    const output = await diffWorkingTree(dir, 'quimby/seed')
-    expect(output).toContain('committed.txt')
-    expect(output).toContain('modified')
-    expect(output).toContain('untracked.txt')
-
-    // The real index/HEAD are untouched — nothing was committed or staged.
-    const { stdout: head } = await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })
-    const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: dir })
-    expect(head.trim()).toBe(await revParse(dir, 'HEAD'))
-    expect(status).toContain('?? untracked.txt') // still untracked, not staged
-  })
-
-  it('yields only the uncommitted remainder against HEAD', async () => {
-    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
-    await writeFile(join(dir, 'wip.txt'), 'wip\n')
-
-    const output = await diffWorkingTree(dir, 'HEAD')
-    expect(output).toContain('wip.txt')
   })
 })
 
@@ -245,40 +146,6 @@ describe('findRoot', () => {
   })
 })
 
-describe('formatPatch', () => {
-  it('returns patch files for commits since a ref', async () => {
-    await makeCommit(dir, 'base.txt', 'base', 'base commit')
-    await tag(dir, 'quimby/seed')
-    await makeCommit(dir, 'feature.txt', 'feature', 'add feature')
-
-    const patchDir = join(dir, 'patches')
-    await mkdir(patchDir, { recursive: true })
-    const patches = await formatPatch(dir, 'quimby/seed', patchDir)
-
-    expect(patches).toHaveLength(1)
-    expect(patches[0]).toContain('.patch')
-  })
-})
-
-describe('getConflicts', () => {
-  it('returns empty when the working tree has no conflicts', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    expect(await getConflicts(dir)).toEqual([])
-  })
-
-  it('lists files with unresolved merge conflicts', async () => {
-    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
-    const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir })
-    const main = stdout.trim()
-    await createBranch(dir, 'other')
-    await makeCommit(dir, 'file.txt', 'other change\n', 'other')
-    await checkout(dir, main)
-    await makeCommit(dir, 'file.txt', 'main change\n', 'main')
-    await execa('git', ['merge', 'other'], { cwd: dir }).catch(() => {})
-    expect(await getConflicts(dir)).toContain('file.txt')
-  })
-})
-
 describe('getCurrentRef', () => {
   it('returns current HEAD SHA', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
@@ -289,32 +156,32 @@ describe('getCurrentRef', () => {
 })
 
 describe('getRemoteUrl', () => {
-  it('returns undefined for a repo with no remotes', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    const url = await getRemoteUrl(dir)
-    expect(url).toBeUndefined()
-  })
-
   it('returns the remote URL when origin exists', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await addRemote(dir, 'origin', 'https://example.com/repo.git')
     const url = await getRemoteUrl(dir)
     expect(url).toBe('https://example.com/repo.git')
   })
+
+  it('returns undefined for a repo with no remotes', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    const url = await getRemoteUrl(dir)
+    expect(url).toBeUndefined()
+  })
 })
 
 describe('hasCommitsSince', () => {
+  it('returns false when no commits since base ref', async () => {
+    await makeCommit(dir, 'base.txt', 'base', 'base commit')
+    await tag(dir, 'quimby/seed')
+    expect(await hasCommitsSince(dir, 'quimby/seed')).toBe(false)
+  })
+
   it('returns true when commits exist above the base ref', async () => {
     await makeCommit(dir, 'base.txt', 'base', 'base commit')
     await tag(dir, 'quimby/seed')
     await makeCommit(dir, 'feature.txt', 'feature', 'feature commit')
     expect(await hasCommitsSince(dir, 'quimby/seed')).toBe(true)
-  })
-
-  it('returns false when no commits since base ref', async () => {
-    await makeCommit(dir, 'base.txt', 'base', 'base commit')
-    await tag(dir, 'quimby/seed')
-    expect(await hasCommitsSince(dir, 'quimby/seed')).toBe(false)
   })
 })
 
@@ -346,15 +213,15 @@ describe('init', () => {
 })
 
 describe('isClean', () => {
-  it('returns true when working tree is clean', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    expect(await isClean(dir)).toBe(true)
-  })
-
   it('returns false when working tree is dirty', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await writeFile(join(dir, 'file.txt'), 'modified')
     expect(await isClean(dir)).toBe(false)
+  })
+
+  it('returns true when working tree is clean', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    expect(await isClean(dir)).toBe(true)
   })
 })
 
@@ -393,6 +260,12 @@ describe('revParse', () => {
 })
 
 describe('stash', () => {
+  it('returns false when there is nothing to stash', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    const result = await stash(dir)
+    expect(result).toBe(false)
+  })
+
   it('stashes dirty changes and returns true', async () => {
     await makeCommit(dir, 'file.txt', 'original\n', 'initial')
     await writeFile(join(dir, 'file.txt'), 'modified\n')
@@ -400,12 +273,6 @@ describe('stash', () => {
     expect(result).toBe(true)
     const content = await readFile(join(dir, 'file.txt'), 'utf-8')
     expect(content).toBe('original\n')
-  })
-
-  it('returns false when there is nothing to stash', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    const result = await stash(dir)
-    expect(result).toBe(false)
   })
 })
 

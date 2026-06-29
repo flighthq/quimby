@@ -1,135 +1,17 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile, rename, rm } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 
-import { ConflictError, HandoffError, QuimbyError } from '@quimbyhq/errors'
+import { HandoffError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import {
-  getAgentDir,
-  getAgentInboxParcelDir,
-  getAgentOutboxDir,
-  getAgentOutboxDraftDir,
-  getAgentOutboxSentDir,
-  getAgentOutboxSentDraftDir,
-  getAgentRepoDir,
-  getStagingHandoffDir,
-  remoteAgentDir,
-  remoteAgentRepoDir,
-} from '@quimbyhq/paths'
+import { getAgentRepoDir, getStagingHandoffDir, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentLocation, CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
-import { isSSH } from '@quimbyhq/types'
-import { cp, ensureDir, exists, readYaml, writeText, writeYaml } from '@quimbyhq/utils'
+import type { CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
+import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
-
-export type ApplyMode = 'squashed' | 'commits' | 'patch'
 
 /** Reserved sender name for a host → agent handoff (the host is not an agent). */
 export const HOST_SENDER = 'host'
-
-export async function applyHandoff(opts: {
-  repoRoot: string
-  name: string
-  targetRepoPath: string
-  mode: ApplyMode
-  branch?: boolean | string
-  threeWay?: boolean
-}): Promise<void> {
-  const { repoRoot, name, targetRepoPath, mode, branch, threeWay } = opts
-  const dir = getStagingHandoffDir(repoRoot, name)
-  const { meta } = await readHandoff(repoRoot, name)
-
-  if (!(await git.isClean(targetRepoPath))) {
-    throw new QuimbyError('Target repo has uncommitted changes. Commit or stash first.')
-  }
-
-  const previousRef = await git.getCurrentRef(targetRepoPath)
-  let branchName: string | undefined
-
-  if (branch !== undefined && branch !== false) {
-    branchName = typeof branch === 'string' ? branch : `quimby/${meta.name}`
-    if (await git.branchExists(targetRepoPath, branchName)) {
-      await git.deleteBranch(targetRepoPath, branchName)
-    }
-    await git.createBranch(targetRepoPath, branchName)
-  }
-
-  try {
-    switch (mode) {
-      case 'squashed': {
-        const diffPath = join(dir, 'squashed.diff')
-        if (threeWay) {
-          const conflicts = await git.applyThreeWay(targetRepoPath, diffPath)
-          if (conflicts.length > 0) {
-            throw new ConflictError(
-              `Handoff "${name}" applied with ${conflicts.length} conflict(s) — resolve then commit`,
-              conflicts,
-            )
-          }
-        } else {
-          await git.apply(targetRepoPath, diffPath, { check: true })
-          await git.apply(targetRepoPath, diffPath)
-        }
-        await git.addAll(targetRepoPath)
-        await git.commit(targetRepoPath, meta.suggestedMessage)
-        break
-      }
-      case 'commits': {
-        const commitsDir = join(dir, 'commits')
-        const sortedPatches = (await exists(commitsDir))
-          ? (await readdir(commitsDir))
-              .filter((f) => f.endsWith('.patch'))
-              .sort()
-              .map((f) => join(commitsDir, f))
-          : []
-        if (sortedPatches.length === 0) {
-          // No committed history to replay (e.g. uncommitted-only work) — fall back
-          // to the full squashed diff, applied to the working tree.
-          await git.apply(targetRepoPath, join(dir, 'squashed.diff'))
-          break
-        }
-        try {
-          await git.am(targetRepoPath, sortedPatches)
-        } catch (amErr) {
-          // git am --3way stops at the first conflicting patch and leaves the am
-          // session in progress. Surface the conflicts so the user can resolve
-          // them and `git am --continue`, rather than aborting their work.
-          const conflicts = await git.getConflicts(targetRepoPath)
-          if (conflicts.length > 0) {
-            throw new ConflictError(
-              `Handoff "${name}" stopped with ${conflicts.length} conflict(s) — resolve then "git am --continue"`,
-              conflicts,
-            )
-          }
-          throw amErr
-        }
-        // The agent's uncommitted/untracked remainder rides on top as working-tree
-        // changes (no commit) so `--commits` loses nothing.
-        const remainderPath = join(dir, 'uncommitted.diff')
-        if (await exists(remainderPath)) await git.apply(targetRepoPath, remainderPath)
-        break
-      }
-      case 'patch': {
-        const diffPath = join(dir, 'squashed.diff')
-        await git.apply(targetRepoPath, diffPath)
-        break
-      }
-    }
-  } catch (err) {
-    if (err instanceof ConflictError) throw err
-    try {
-      await git.amAbort(targetRepoPath)
-    } catch {}
-    if (branchName) {
-      await git.checkout(targetRepoPath, previousRef)
-      try {
-        await git.deleteBranch(targetRepoPath, branchName)
-      } catch {}
-    }
-    throw new QuimbyError(
-      `Failed to apply handoff "${name}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
-    )
-  }
-}
 
 /**
  * Assemble a parcel in the host staging area from a local code source's diff and/or a
@@ -303,97 +185,6 @@ export async function assembleRemoteHandoff(opts: {
   return meta
 }
 
-/** Carry a staged parcel into a recipient agent's inbox (local copy or rsync). */
-export async function deliverHandoff(opts: {
-  repoRoot: string
-  name: string
-  to: string
-  toLocation: Readonly<AgentLocation> | undefined
-  projectId: string
-}): Promise<void> {
-  const { repoRoot, name, to, toLocation, projectId } = opts
-
-  const stagingDir = getStagingHandoffDir(repoRoot, name)
-  if (!(await exists(stagingDir))) {
-    throw new HandoffError(`Handoff "${name}" not found`, name)
-  }
-
-  if (isSSH(toLocation)) {
-    const transport = getSSHTransport(toLocation)
-    const rInboxDir = `${remoteAgentDir(projectId, to, toLocation.base)}/inbox/${name}`
-    await transport.ensureDir(rInboxDir)
-    await transport.rsyncTo(stagingDir, rInboxDir)
-    return
-  }
-
-  if (!(await exists(getAgentDir(repoRoot, to)))) {
-    throw new QuimbyError(`Agent "${to}" not found`)
-  }
-  const inboxDir = getAgentInboxParcelDir(repoRoot, to, name)
-  await ensureDir(inboxDir)
-  await cp(stagingDir, inboxDir, { recursive: true })
-}
-
-/** Remove a staged parcel once it has been consumed (applied, delivered, exported). */
-export async function discardHandoff(repoRoot: string, name: string): Promise<void> {
-  await rm(getStagingHandoffDir(repoRoot, name), { recursive: true, force: true })
-}
-
-/** Move a delivered outbox draft into the `.sent/` ledger (the progress record). */
-export async function markHandoffSent(
-  repoRoot: string,
-  from: string,
-  recipient: string,
-): Promise<void> {
-  const draft = getAgentOutboxDraftDir(repoRoot, from, recipient)
-  if (!(await exists(draft))) return
-  await ensureDir(getAgentOutboxSentDir(repoRoot, from))
-  const sent = getAgentOutboxSentDraftDir(repoRoot, from, recipient)
-  await rm(sent, { recursive: true, force: true })
-  await rename(draft, sent)
-}
-
-export async function readHandoff(
-  repoRoot: string,
-  name: string,
-): Promise<{ meta: HandoffMeta; squashedDiff: string; note: string }> {
-  const dir = getStagingHandoffDir(repoRoot, name)
-  const metaPath = join(dir, 'meta.yaml')
-  if (!(await exists(metaPath))) {
-    throw new HandoffError(`Handoff "${name}" not found`, name)
-  }
-  const meta = await readYaml<HandoffMeta>(metaPath)
-  const squashedDiff = (await exists(join(dir, 'squashed.diff')))
-    ? await readFile(join(dir, 'squashed.diff'), 'utf-8')
-    : ''
-  const note = (await exists(join(dir, 'README.md')))
-    ? await readFile(join(dir, 'README.md'), 'utf-8')
-    : ''
-  return { meta, squashedDiff, note }
-}
-
-/** Read a recipient's queued outbox draft: its note and optional `attach:` code source. */
-export async function readOutboxDraft(
-  repoRoot: string,
-  from: string,
-  recipient: string,
-): Promise<{ note: string; attach?: string }> {
-  const readmePath = join(getAgentOutboxDraftDir(repoRoot, from, recipient), 'README.md')
-  if (!(await exists(readmePath))) return { note: '' }
-  return parseDraft(await readFile(readmePath, 'utf-8'))
-}
-
-/** List recipients with a queued outbox draft (local agents; ignores the `.sent/` ledger). */
-export async function readOutboxRecipients(repoRoot: string, from: string): Promise<string[]> {
-  const outboxDir = getAgentOutboxDir(repoRoot, from)
-  if (!(await exists(outboxDir))) return []
-  const entries = await readdir(outboxDir, { withFileTypes: true })
-  return entries
-    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-    .map((e) => e.name)
-    .sort()
-}
-
 // A parcel's name is its origin and contents: <from>-<short-hash>, where the hash is
 // over the parcel's payload (diff + note). Content-derived, so it needs no counter,
 // dedupes identical sends, and reads back as "from whom".
@@ -434,16 +225,6 @@ function parseCommits(fullLog: string, patchFiles: readonly string[]): CommitMet
       const [hash, message, author, date] = line.split('|')
       return { hash, message, author, date, patchFile: patchFiles[i] ?? '' }
     })
-}
-
-function parseDraft(content: string): { note: string; attach?: string } {
-  if (!content.startsWith('---')) return { note: content }
-  const end = content.indexOf('\n---', 3)
-  if (end === -1) return { note: content }
-  const frontmatter = content.slice(3, end)
-  const note = content.slice(end + 4).replace(/^\r?\n/, '')
-  const match = frontmatter.match(/^\s*attach:\s*(\S+)\s*$/m)
-  return match ? { note, attach: match[1] } : { note }
 }
 
 function buildMeta(opts: {

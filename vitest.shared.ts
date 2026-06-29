@@ -16,8 +16,8 @@ const PACKAGES = [
   'transport',
   'runtimes',
   'workspace',
-  'worker',
-  'pack',
+  'agent',
+  'handoff',
   'server',
 ]
 
