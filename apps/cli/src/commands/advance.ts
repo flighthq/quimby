@@ -1,7 +1,7 @@
-import { advanceWorker } from '@quimbyhq/core'
-import { resolveWorkspace } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { logger } from '@quimbyhq/utils'
+import { advanceWorker } from '@quimbyhq/worker'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

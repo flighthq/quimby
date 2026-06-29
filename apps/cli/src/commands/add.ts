@@ -1,10 +1,10 @@
-import { addWorker } from '@quimbyhq/core'
-import { runtimeTypes } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { git } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import * as git from '@quimbyhq/git'
+import { runtimeTypes } from '@quimbyhq/runtimes'
 import type { SSHLocation } from '@quimbyhq/types'
 import type { RuntimeType } from '@quimbyhq/types'
+import { logger } from '@quimbyhq/utils'
+import { addWorker } from '@quimbyhq/worker'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -37,6 +37,11 @@ export default defineCommand({
       type: 'string',
       description: 'SSH port for remote worker (default: 22)',
     },
+    sync: {
+      type: 'string',
+      alias: 's',
+      description: 'Ref to sync against (default: current host branch)',
+    },
   },
   run,
 })
@@ -44,7 +49,14 @@ export default defineCommand({
 async function run({
   args,
 }: {
-  args: { name: string; runtime?: string; agent?: string; host?: string; port?: string }
+  args: {
+    name: string
+    runtime?: string
+    agent?: string
+    host?: string
+    port?: string
+    sync?: string
+  }
 }) {
   const repoRoot = await git.findRoot(process.cwd())
   if (!repoRoot) {
@@ -75,7 +87,11 @@ async function run({
     }
   }
 
-  const workerState = await addWorker(repoRoot, args.name, { defaults, location })
+  const workerState = await addWorker(repoRoot, args.name, {
+    defaults,
+    location,
+    ...(args.sync ? { syncRef: args.sync } : {}),
+  })
 
   const locationHint = location ? ` [ssh: ${location.host}]` : ''
   const defaultsHint = defaults

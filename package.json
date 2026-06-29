@@ -9,7 +9,7 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "vitest run",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint . --cache --max-warnings=0",
     "lint:fix": "eslint . --fix --max-warnings=0",
@@ -18,7 +18,9 @@
     "fix": "npm run lint:fix && npm run format",
     "ci": "npm run build && npm run typecheck && npm run test",
     "precommit": "lint-staged",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "lint-staged": {
     "**/*.ts": [

@@ -1,13 +1,13 @@
 import { readdir } from 'node:fs/promises'
 
-import { getServerInfo } from '@quimbyhq/core'
-import { listPacks } from '@quimbyhq/core'
-import { resolveWorkspace } from '@quimbyhq/core'
-import { exists } from '@quimbyhq/core'
-import { git } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
-import { getWorkerOutboxDir, tmuxSessionName } from '@quimbyhq/core'
+import * as git from '@quimbyhq/git'
+import { listPacks } from '@quimbyhq/pack'
+import { getWorkerOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
+import { getServerInfo } from '@quimbyhq/server'
 import { isSSH } from '@quimbyhq/types'
+import { exists } from '@quimbyhq/utils'
+import { logger } from '@quimbyhq/utils'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
@@ -36,21 +36,26 @@ async function run() {
     return
   }
 
-  const hostHead = await git.getCurrentRef(repoRoot)
-
   if (workerNames.length > 0) {
     console.log(bold('Workers'))
     for (const name of workerNames) {
       const worker = state.workers[name]
       const defaults = worker.defaults
 
+      // "behind" is measured against the worker's sync target, not the host's
+      // live HEAD — that is the commit `quimby advance` would move it onto.
+      const syncRef = worker.syncRef ?? state.sourceRef
+      const target = await git.revParse(repoRoot, syncRef).catch(() => undefined)
+
       let behindStr = ''
-      if (worker.seedCommit && worker.seedCommit !== hostHead) {
-        const behind = await git.countCommits(repoRoot, `${worker.seedCommit}..${hostHead}`)
+      if (target && worker.seedCommit && worker.seedCommit !== target) {
+        const behind = await git.countCommits(repoRoot, `${worker.seedCommit}..${target}`)
         if (behind > 0) {
           behindStr = `  ${yellow(`${behind} behind`)}`
         }
       }
+
+      const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
 
       let locationStr = ''
       if (isSSH(worker.location)) {
@@ -72,7 +77,7 @@ async function run() {
       }
 
       console.log(
-        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${outboxStr}${behindStr}`,
+        `  ${name}  ${dim(worker.seedCommit.slice(0, 8))}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
       )
     }
   }

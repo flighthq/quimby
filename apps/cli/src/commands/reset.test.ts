@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@quimbyhq/core', async (importOriginal) => ({
+vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => ({
     state: { id: 'proj-id', workers: {}, subscriptions: {} },

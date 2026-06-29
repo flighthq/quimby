@@ -4,7 +4,7 @@ CLI tool for orchestrating multiple AI agents working on a single project in iso
 
 ## Design References
 
-@docs/design-v2.md @docs/user-workflow.md
+@tools/agents/docs/design-v2.md @tools/agents/docs/user-workflow.md
 
 ## Tech Stack
 
@@ -17,30 +17,26 @@ CLI tool for orchestrating multiple AI agents working on a single project in iso
 
 ## Project Structure
 
-- `src/cli.ts` — CLI entry point (citty root command, flat subcommands)
-- `src/index.ts` — public API (type exports)
-- `src/commands/` — CLI command implementations (one file per command)
-  - `add.ts`, `run.ts`, `list.ts`, `status.ts`, `assign.ts`
-  - `diff.ts`, `pack.ts`, `apply.ts`, `send.ts`, `sync.ts`
-  - `reset.ts`, `rename.ts`, `remove.ts`, `set.ts`
-  - `serve.ts`, `subscribe.ts`, `unsubscribe.ts`
-- `src/core/` — business logic
-  - `workspace.ts` — resolve .quimby/ from git root, load/save state
-  - `worker.ts` — add, remove, rename, reset workers
-  - `pack.ts` — create, list, read, apply, send packs
-  - `server.ts` — HTTP server + status poller for cross-worker routing
-  - `client.ts` — CLI → server communication (check if running, API calls)
-  - `template.ts` — generate CLAUDE.md for workers
-  - `transport.ts` — LocalTransport / SSHTransport abstraction
-- `src/runtimes/` — runtime adapters (local, sbx, openshell)
-  - `index.ts` — registry + buildContext
-  - `local.ts`, `sbx.ts`, `openshell.ts`
-- `src/types/` — type definitions
-  - `workspace.ts` — QuimbyState, WorkerState
-  - `pack.ts` — PackMeta, CommitMeta
-  - `location.ts` — WorkerLocation, LocalLocation, SSHLocation
-  - `runtime.ts` — RuntimeAdapter, RuntimeContext, RunSpec
-- `src/utils/` — utilities (git, fs, paths, yaml, logger, errors)
+An npm-workspace monorepo. The domain is split into one package per capability so each can mature independently; `apps/cli` is a thin command layer over them. No catch-all `core` package — name packages by capability (see Conventions).
+
+- `apps/cli/` — the `quimby` binary; commands only
+  - `src/cli.ts` — entry point (citty root command, flat subcommands)
+  - `src/index.ts` — public API (type re-exports)
+  - `src/commands/` — one file per command (add, run, list, status, assign, diff, pack, apply, send, sync, advance, reset, rename, remove, set, serve, subscribe, unsubscribe, flush)
+- `packages/types/` — `@quimbyhq/types` — shared types, **one PascalCase file per interface** (`QuimbyState.ts`, `WorkerState.ts`, `PackMeta.ts`, `CommitMeta.ts`, `WorkerLocation.ts`, `LocalLocation.ts`, `SSHLocation.ts`, `RuntimeAdapter.ts`, `RuntimeContext.ts`, `RunSpec.ts`, `RuntimeType.ts`); `index.ts` is the barrel
+- `packages/errors/` — `@quimbyhq/errors` — error taxonomy (QuimbyError, GitError, WorkerError, PackError, ConflictError)
+- `packages/utils/` — `@quimbyhq/utils` — tiny generic helpers only: fs, yaml, logger
+- `packages/paths/` — `@quimbyhq/paths` — quimby on-disk + remote layout (getWorkerDir, remote\*, tmuxSessionName)
+- `packages/template/` — `@quimbyhq/template` — worker CLAUDE.md / instruction generation
+- `packages/git/` — `@quimbyhq/git` — typed wrapper over the git CLI
+- `packages/transport/` — `@quimbyhq/transport` — LocalTransport / SSHTransport abstraction (`sq`, getTransport, getSSHTransport)
+- `packages/runtimes/` — `@quimbyhq/runtimes` — execution adapters (local, sbx, openshell) + registry + buildContext
+- `packages/workspace/` — `@quimbyhq/workspace` — `.quimby/` state lifecycle (resolve/ensure/load/save, migrations)
+- `packages/worker/` — `@quimbyhq/worker` — worker lifecycle (add, remove, rename, reset, advance, sync targets)
+- `packages/pack/` — `@quimbyhq/pack` — pack lifecycle + apply, the membrane (create, list, read, apply, send)
+- `packages/server/` — `@quimbyhq/server` — HTTP server + status poller + client (CLI → server API)
+
+Dependency flow is a DAG: leaves (types, errors, utils, paths, template) → git/transport/runtimes → workspace → worker/pack → server → apps/cli.
 
 ## Development
 
@@ -60,10 +56,10 @@ npm run ci            # build + check + test (full gate)
 ## CLI Commands
 
 ```
-quimby add <worker> [-H <host>] [--port <n>]        # create a worker (--host for SSH)
+quimby add <worker> [-H <host>] [--port <n>] [-s <ref>]  # create a worker (--host for SSH, --sync sets the advance target)
 quimby run <worker> [-a <agent>] [-r <runtime>]     # launch agent interactively
 quimby sync <worker>                                 # rsync project to SSH worker host
-quimby set <worker> [-r <rt>] [-a <agent>] [-H <host>] [--port <n>] [-c <cmd>]  # update worker config (-c sets verification command)
+quimby set <worker> [-r <rt>] [-a <agent>] [-H <host>] [--port <n>] [-c <cmd>] [-s <ref>]  # update worker config (-c sets verification command, -s retargets the advance ref)
 quimby list                                          # show workers, packs, subscriptions
 quimby status [worker]                               # show agent-written status
 quimby assign <worker> -m "..." [-p <pack>]          # push assignment
@@ -71,7 +67,7 @@ quimby diff <worker|pack> [other]                    # show changes
 quimby pack <worker> [-n <name>] [-m <msg>] [--rebase] [--skip-check]  # package worker's work (auto-commits dirty tree; --rebase rebases onto host HEAD first; runs the worker's check)
 quimby apply <pack> [--commits|--patch] [--3way]     # apply pack to host repo (--3way: merge conflicts instead of aborting)
 quimby send <worker> <pack>                          # route pack to worker
-quimby advance <worker...> [--all]                   # fast-forward worker(s) to host HEAD (preserves assignment/status/inbox); --all skips busy workers
+quimby advance <worker...> [--all]                   # fast-forward worker(s) to their recorded syncRef tip (preserves assignment/status/inbox); --all skips busy workers
 quimby reset <worker> --force                        # nuclear reset worker (requires --force; wipes assignment/status)
 quimby rename <worker> <new-name>                    # rename worker
 quimby remove <worker> [--force]                     # remove worker (--force skips remote cleanup)
@@ -85,6 +81,7 @@ quimby unsubscribe <worker> <target>                 # remove subscription
 - Workers are isolated clones in `.quimby/workers/<name>/repo/`
 - Packs are flat in `.quimby/packs/<name>/` — decoupled from workers
 - Seed ref is `quimby/seed` tag in worker repos
+- Each worker records a `syncRef` (default: host branch at `add` time); `quimby advance` resolves that ref's tip in the host repo as the new baseline — it does not follow the host's live HEAD. Retarget explicitly with `quimby set <worker> --sync <ref>`
 - Subscriptions stored in `state.yaml`, routed by server
 - Server writes `.quimby/server.json` pidfile when running
 - All file paths use pathe for cross-platform consistency
@@ -100,6 +97,9 @@ quimby unsubscribe <worker> <target>                 # remove subscription
 - `sq()` in transport.ts: POSIX single-quote escaping for safe SSH command arguments
 - Each command exports a named `run` function at module level (not inline in defineCommand)
 - No `.js` extensions in imports — `moduleResolution: "bundler"` handles resolution
+- Split by domain: every package names one capability with a clean dependency boundary. No catch-all `core`/`utils` drawers — `utils` is only for genuinely tiny, generic, domain-less helpers (fs/yaml/logger). Anything with a domain (paths, errors, git, …) gets its own package. New domains get their own package even when small, so they have room to grow
+- `@quimbyhq/types` holds one PascalCase file per interface; the `types/` listing is meant to read as the API surface
+- Cross-package references go through the package name (`@quimbyhq/<pkg>`), never a deep relative path; a package's own modules use relative imports
 
 ## Coding Style
 

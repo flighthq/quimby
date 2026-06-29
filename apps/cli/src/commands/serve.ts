@@ -1,7 +1,7 @@
-import { getServerInfo } from '@quimbyhq/core'
-import { startServer } from '@quimbyhq/core'
-import { resolveWorkspace } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { getServerInfo } from '@quimbyhq/server'
+import { startServer } from '@quimbyhq/server'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

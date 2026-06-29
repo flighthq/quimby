@@ -28,8 +28,18 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@quimbyhq/core": "*",
+    "@quimbyhq/errors": "*",
+    "@quimbyhq/git": "*",
+    "@quimbyhq/pack": "*",
+    "@quimbyhq/paths": "*",
+    "@quimbyhq/runtimes": "*",
+    "@quimbyhq/server": "*",
+    "@quimbyhq/template": "*",
+    "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
+    "@quimbyhq/utils": "*",
+    "@quimbyhq/worker": "*",
+    "@quimbyhq/workspace": "*",
     "citty": "^0.1.6",
     "execa": "^9.6.1",
     "pathe": "^2.0.3"

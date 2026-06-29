@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import cmd from './add'
 
-vi.mock('@quimbyhq/core', async (importOriginal) => {
+vi.mock('@quimbyhq/git', async (importOriginal) => {
   const actual = (await importOriginal()) as any
-  return { ...actual, git: { ...actual.git, findRoot: vi.fn(async () => undefined) } }
+  return { ...actual, findRoot: vi.fn(async () => undefined) }
 })
 
 describe('run', () => {

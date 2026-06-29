@@ -1,6 +1,6 @@
-import { resolveWorkspace, saveState } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { logger } from '@quimbyhq/utils'
+import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

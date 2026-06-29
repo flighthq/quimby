@@ -4,7 +4,17 @@
     "outDir": "dist",
     "paths": {
       "@quimbyhq/types": ["../../packages/types/src/index.ts"],
-      "@quimbyhq/core": ["../../packages/core/src/index.ts"]
+      "@quimbyhq/errors": ["../../packages/errors/src/index.ts"],
+      "@quimbyhq/utils": ["../../packages/utils/src/index.ts"],
+      "@quimbyhq/paths": ["../../packages/paths/src/index.ts"],
+      "@quimbyhq/template": ["../../packages/template/src/index.ts"],
+      "@quimbyhq/git": ["../../packages/git/src/index.ts"],
+      "@quimbyhq/transport": ["../../packages/transport/src/index.ts"],
+      "@quimbyhq/runtimes": ["../../packages/runtimes/src/index.ts"],
+      "@quimbyhq/workspace": ["../../packages/workspace/src/index.ts"],
+      "@quimbyhq/worker": ["../../packages/worker/src/index.ts"],
+      "@quimbyhq/pack": ["../../packages/pack/src/index.ts"],
+      "@quimbyhq/server": ["../../packages/server/src/index.ts"]
     }
   },
   "include": ["src"]

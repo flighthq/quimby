@@ -1,9 +1,9 @@
-import { getSSHTransport } from '@quimbyhq/core'
-import { resolveWorkspace } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
-import { remoteProjectRoot } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { remoteProjectRoot } from '@quimbyhq/paths'
+import { getSSHTransport } from '@quimbyhq/transport'
 import { isSSH } from '@quimbyhq/types'
+import { logger } from '@quimbyhq/utils'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

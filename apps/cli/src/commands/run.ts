@@ -1,18 +1,18 @@
-import { renderWorkerClaudeMd } from '@quimbyhq/core'
-import { getSSHTransport, sq } from '@quimbyhq/core'
-import { configureRemoteWorkerIdentity } from '@quimbyhq/core'
-import { resolveWorkspace, saveState } from '@quimbyhq/core'
-import { buildContext, getRuntime, runtimeTypes } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
 import {
   remoteProjectRoot,
   remoteWorkerDir,
   remoteWorkerRepoDir,
   tmuxSessionName,
-} from '@quimbyhq/core'
+} from '@quimbyhq/paths'
+import { buildContext, getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
+import { renderWorkerClaudeMd } from '@quimbyhq/template'
+import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { RuntimeType } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
+import { logger } from '@quimbyhq/utils'
+import { configureRemoteWorkerIdentity } from '@quimbyhq/worker'
+import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 

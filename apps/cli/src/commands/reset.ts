@@ -1,7 +1,7 @@
-import { resetWorker } from '@quimbyhq/core'
-import { loadState, resolveWorkspace } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { logger } from '@quimbyhq/utils'
+import { resetWorker } from '@quimbyhq/worker'
+import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({

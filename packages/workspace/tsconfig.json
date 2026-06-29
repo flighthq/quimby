@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "paths": {
+      "@quimbyhq/types": ["../types/src/index.ts"],
+      "@quimbyhq/errors": ["../errors/src/index.ts"],
+      "@quimbyhq/utils": ["../utils/src/index.ts"],
+      "@quimbyhq/paths": ["../paths/src/index.ts"],
+      "@quimbyhq/template": ["../template/src/index.ts"],
+      "@quimbyhq/git": ["../git/src/index.ts"],
+      "@quimbyhq/transport": ["../transport/src/index.ts"],
+      "@quimbyhq/runtimes": ["../runtimes/src/index.ts"],
+      "@quimbyhq/workspace": ["../workspace/src/index.ts"],
+      "@quimbyhq/worker": ["../worker/src/index.ts"],
+      "@quimbyhq/pack": ["../pack/src/index.ts"],
+      "@quimbyhq/server": ["../server/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

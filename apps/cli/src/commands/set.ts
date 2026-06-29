@@ -1,9 +1,14 @@
-import { setWorkerCheck, setWorkerDefaults, setWorkerLocation } from '@quimbyhq/core'
-import { resolveWorkspace } from '@quimbyhq/core'
-import { runtimeTypes } from '@quimbyhq/core'
-import { QuimbyError } from '@quimbyhq/core'
-import { logger } from '@quimbyhq/core'
+import { QuimbyError } from '@quimbyhq/errors'
+import { runtimeTypes } from '@quimbyhq/runtimes'
 import type { RuntimeType } from '@quimbyhq/types'
+import { logger } from '@quimbyhq/utils'
+import {
+  setWorkerCheck,
+  setWorkerDefaults,
+  setWorkerLocation,
+  setWorkerSyncRef,
+} from '@quimbyhq/worker'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -41,6 +46,11 @@ export default defineCommand({
       alias: 'c',
       description: 'Verification command run by `quimby pack` (empty string clears it)',
     },
+    sync: {
+      type: 'string',
+      alias: 's',
+      description: 'Retarget the ref `quimby advance` syncs against (e.g. main, release)',
+    },
   },
   run,
 })
@@ -55,6 +65,7 @@ async function run({
     host?: string
     port?: string
     check?: string
+    sync?: string
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -63,8 +74,17 @@ async function run({
     throw new QuimbyError(`Worker "${args.name}" not found`)
   }
 
-  if (!args.runtime && !args.agent && !args.host && !args.port && args.check === undefined) {
-    throw new QuimbyError('Specify at least one of --runtime, --agent, --host, --port, or --check')
+  if (
+    !args.runtime &&
+    !args.agent &&
+    !args.host &&
+    !args.port &&
+    args.check === undefined &&
+    args.sync === undefined
+  ) {
+    throw new QuimbyError(
+      'Specify at least one of --runtime, --agent, --host, --port, --check, or --sync',
+    )
   }
 
   if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
@@ -82,6 +102,13 @@ async function run({
 
   if (args.check !== undefined) {
     await setWorkerCheck(repoRoot, args.name, args.check)
+  }
+
+  if (args.sync !== undefined) {
+    if (!args.sync) {
+      throw new QuimbyError('--sync requires a ref (e.g. main, release)')
+    }
+    await setWorkerSyncRef(repoRoot, args.name, args.sync)
   }
 
   if (args.host || args.port) {
