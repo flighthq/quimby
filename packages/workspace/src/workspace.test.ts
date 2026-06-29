@@ -111,6 +111,41 @@ describe('resolveWorkspace', () => {
     expect(state.agents).toBeDefined()
   })
 
+  it('migrates legacy schema keys (workers, defaults.agent, check)', async () => {
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      id: 'ws-id',
+      sourceRepo: dir,
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      workers: {
+        alice: {
+          id: 'alice-id',
+          name: 'alice',
+          seedCommit: 'abc123',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          defaults: { runtime: 'sbx', agent: 'claude' },
+          check: 'npm run ci',
+        },
+      },
+    })
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
+    expect((state as unknown as Record<string, unknown>).workers).toBeUndefined()
+    expect(state.agents.alice.defaults?.entrypoint).toBe('claude')
+    expect(
+      (state.agents.alice.defaults as unknown as Record<string, unknown>).agent,
+    ).toBeUndefined()
+    expect(state.agents.alice.guard).toBe('npm run ci')
+    expect((state.agents.alice as unknown as Record<string, unknown>).check).toBeUndefined()
+
+    // Persisted: a fresh load sees the migrated shape with no further changes.
+    const reloaded = await loadState(dir)
+    expect(reloaded.agents.alice.defaults?.entrypoint).toBe('claude')
+    expect(reloaded.agents.alice.guard).toBe('npm run ci')
+  })
+
   it('throws when called outside a git repo', async () => {
     const notARepo = join(tmpdir(), `not-repo-${crypto.randomUUID()}`)
     await mkdir(notARepo, { recursive: true })

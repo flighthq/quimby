@@ -13,11 +13,9 @@ interface CommandGroup {
 // Curated grouping for the root help. Grouping is the only thing curated here;
 // each command's one-liner is read from its own meta, so descriptions never drift.
 const COMMAND_GROUPS: readonly CommandGroup[] = [
-  {
-    title: 'Agents',
-    names: ['add', 'config', 'run', 'list', 'status', 'set', 'sync', 'rebuild', 'rename', 'remove'],
-  },
-  { title: 'Work & assignments', names: ['assign', 'diff', 'handoff', 'dispatch', 'apply'] },
+  { title: 'Manage Agents', names: ['add', 'config', 'set', 'rename', 'remove', 'rebuild'] },
+  { title: 'Run & Inspect', names: ['run', 'list', 'status', 'diff', 'sync'] },
+  { title: 'Move Work', names: ['assign', 'handoff', 'dispatch', 'apply'] },
   { title: 'Server', names: ['serve', 'subscribe', 'unsubscribe'] },
   { title: 'Help', names: ['help'] },
 ]
@@ -43,7 +41,6 @@ export async function renderRootHelp(
     }
   }
 
-  const width = Math.max(...[...descriptions.keys()].map((name) => name.length))
   const lines: string[] = [
     getQuimbyBanner(),
     '',
@@ -52,11 +49,13 @@ export async function renderRootHelp(
   ]
 
   for (const { title, names } of COMMAND_GROUPS) {
-    lines.push(colors.bold(title))
+    // Pad to the group's own longest name, not the global maximum, so a long
+    // outlier (`unsubscribe`) only widens its own group instead of every row.
+    const width = Math.max(...names.map((name) => name.length))
+    lines.push(colors.bold(colors.cyan(title)))
+    lines.push('')
     for (const name of names) {
-      lines.push(
-        `  ${colors.cyan(name.padEnd(width))}  ${colors.dim(descriptions.get(name) ?? '')}`,
-      )
+      lines.push(`  ${colors.bold(name.padEnd(width))}  ${descriptions.get(name) ?? ''}`)
     }
     lines.push('')
   }

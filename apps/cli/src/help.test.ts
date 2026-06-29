@@ -12,8 +12,9 @@ const subCommands = {
 describe('renderRootHelp', () => {
   it('renders curated group titles', async () => {
     const help = await renderRootHelp('desc', '9.9.9', subCommands)
-    expect(help).toContain('Agents')
-    expect(help).toContain('Work & assignments')
+    expect(help).toContain('Manage Agents')
+    expect(help).toContain('Run & Inspect')
+    expect(help).toContain('Move Work')
     expect(help).toContain('Server')
   })
 
