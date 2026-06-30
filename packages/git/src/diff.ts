@@ -63,6 +63,36 @@ export async function applyThreeWay(cwd: string, patchPath: string): Promise<str
   }
 }
 
+export type DiffApplicationStatus = 'settled' | 'fresh' | 'drifted'
+
+/**
+ * Classify each file in a unified diff by how it would land in `cwd`'s current tree:
+ * - `fresh` — forward-applies cleanly: genuinely new work
+ * - `settled` — reverse-applies cleanly: the file already matches the patch's
+ *   post-image, so re-applying is a no-op (shipped work an agent keeps re-sending
+ *   against a stale seed)
+ * - `drifted` — neither: the target overlaps or diverged from the patch (a real
+ *   conflict needing resolution)
+ *
+ * This is what makes a re-apply legible — it separates "you forgot to sync; this is
+ * already shipped" from "two agents touched the same lines", which `git apply`'s raw
+ * failure conflates.
+ */
+export async function classifyDiffApplication(
+  cwd: string,
+  diffText: string,
+): Promise<Record<DiffApplicationStatus, string[]>> {
+  const result: Record<DiffApplicationStatus, string[]> = { settled: [], fresh: [], drifted: [] }
+  for (const { path, patch } of splitDiffByFile(diffText)) {
+    // Order matters: a no-op file forward-applies *and* reverse-applies (an empty
+    // change is clean both ways), so test "already present" first.
+    if (await canApply(cwd, patch, ['--reverse'])) result.settled.push(path)
+    else if (await canApply(cwd, patch, [])) result.fresh.push(path)
+    else result.drifted.push(path)
+  }
+  return result
+}
+
 export async function diff(cwd: string, baseRef: string): Promise<string> {
   return runGit(['diff', baseRef], cwd, { raw: true })
 }
@@ -117,4 +147,42 @@ export async function getConflicts(cwd: string): Promise<string[]> {
     .split('\n')
     .filter((l) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(l))
     .map((l) => l.slice(3).trim())
+}
+
+/** True if `patch` applies to `cwd` without error under `--check` (with `extraArgs`). */
+async function canApply(cwd: string, patch: string, extraArgs: string[]): Promise<boolean> {
+  try {
+    await execa('git', ['apply', '--check', ...extraArgs, '-'], { cwd, input: patch })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Split a `git diff` into one self-contained patch per file, keyed by the file's
+ * post-image path. Splits on `diff --git` headers; the path comes from that header's
+ * `b/` side (its pre-image `a/` side for a deletion, where `b/` is `/dev/null`).
+ */
+function splitDiffByFile(diffText: string): Array<{ path: string; patch: string }> {
+  if (!diffText.trim()) return []
+  const chunks: string[][] = []
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git ') || chunks.length === 0) chunks.push([])
+    chunks[chunks.length - 1].push(line)
+  }
+  return chunks
+    .filter((lines) => lines[0]?.startsWith('diff --git '))
+    .map((lines) => {
+      const patch = lines.join('\n')
+      return { path: filePathOfDiff(lines[0]), patch: patch.endsWith('\n') ? patch : `${patch}\n` }
+    })
+}
+
+/** Extract a readable file path from a `diff --git a/<x> b/<y>` header line. */
+function filePathOfDiff(header: string): string {
+  const match = header.match(/^diff --git a\/(.+) b\/(.+)$/)
+  if (!match) return header
+  const [, a, b] = match
+  return b === 'dev/null' ? a : b
 }

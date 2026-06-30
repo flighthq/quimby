@@ -5,7 +5,16 @@ import { join } from 'node:path'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { am, apply, diff, diffStaged, diffWorkingTree, formatPatch, getConflicts } from './diff'
+import {
+  am,
+  apply,
+  classifyDiffApplication,
+  diff,
+  diffStaged,
+  diffWorkingTree,
+  formatPatch,
+  getConflicts,
+} from './diff'
 import {
   addAll,
   branchExists,
@@ -76,6 +85,62 @@ describe('apply', () => {
 
     const content = await readFile(join(dir, 'file.txt'), 'utf-8')
     expect(content).toBe('modified\n')
+  })
+})
+
+describe('classifyDiffApplication', () => {
+  it('marks a clean forward-applying change as fresh', async () => {
+    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
+    await writeFile(join(dir, 'file.txt'), 'modified\n')
+    const patch = await diff(dir, 'HEAD')
+    await execa('git', ['checkout', '--', 'file.txt'], { cwd: dir })
+
+    const result = await classifyDiffApplication(dir, patch)
+    expect(result.fresh).toEqual(['file.txt'])
+    expect(result.settled).toEqual([])
+    expect(result.drifted).toEqual([])
+  })
+
+  it('marks an already-present change as settled', async () => {
+    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
+    await writeFile(join(dir, 'file.txt'), 'modified\n')
+    const patch = await diff(dir, 'HEAD')
+    // Leave the change in place — the target already matches the patch's post-image.
+
+    const result = await classifyDiffApplication(dir, patch)
+    expect(result.settled).toEqual(['file.txt'])
+    expect(result.fresh).toEqual([])
+  })
+
+  it('marks a diverged file as drifted', async () => {
+    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
+    await writeFile(join(dir, 'file.txt'), 'modified\n')
+    const patch = await diff(dir, 'HEAD')
+    await writeFile(join(dir, 'file.txt'), 'something else entirely\n')
+
+    const result = await classifyDiffApplication(dir, patch)
+    expect(result.drifted).toEqual(['file.txt'])
+  })
+
+  it('classifies a multi-file diff per file', async () => {
+    await makeCommit(dir, 'a.txt', 'a-original\n', 'initial')
+    await writeFile(join(dir, 'a.txt'), 'a-modified\n')
+    await writeFile(join(dir, 'b.txt'), 'b-new\n')
+    const patch = await diffWorkingTree(dir, 'HEAD')
+    // a.txt: revert so its change is fresh. b.txt: leave it, so it is already present.
+    await execa('git', ['checkout', '--', 'a.txt'], { cwd: dir })
+
+    const result = await classifyDiffApplication(dir, patch)
+    expect(result.fresh).toEqual(['a.txt'])
+    expect(result.settled).toEqual(['b.txt'])
+  })
+
+  it('returns empty buckets for an empty diff', async () => {
+    expect(await classifyDiffApplication(dir, '')).toEqual({
+      settled: [],
+      fresh: [],
+      drifted: [],
+    })
   })
 })
 

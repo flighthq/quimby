@@ -9,7 +9,7 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { applyHandoff } from './apply'
+import { applyHandoff, classifyParcelApplication } from './apply'
 import { assembleHandoff } from './assemble'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
@@ -101,4 +101,32 @@ describe('applyHandoff', () => {
       }
     })
   }
+})
+
+describe('classifyParcelApplication', () => {
+  it('reports fresh files as new and re-sent files as settled', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+
+    const targetDir = await setupTargetRepo()
+    try {
+      const beforeApply = await classifyParcelApplication(dir, meta.name, targetDir)
+      expect(beforeApply.fresh).toEqual(['feature.txt'])
+      expect(beforeApply.settled).toEqual([])
+
+      // Land the work, then re-classify: the same parcel is now already present.
+      await writeFile(join(targetDir, 'feature.txt'), 'new feature\n')
+      await execa('git', ['add', '-A'], { cwd: targetDir })
+      await execa('git', ['commit', '-m', 'ship feature'], { cwd: targetDir })
+
+      const afterApply = await classifyParcelApplication(dir, meta.name, targetDir)
+      expect(afterApply.settled).toEqual(['feature.txt'])
+      expect(afterApply.fresh).toEqual([])
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+    }
+  })
 })

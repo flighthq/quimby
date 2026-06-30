@@ -1,5 +1,11 @@
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
-import { applyHandoff, type ApplyMode, discardHandoff, readHandoff } from '@quimbyhq/handoff'
+import {
+  applyHandoff,
+  type ApplyMode,
+  classifyParcelApplication,
+  discardHandoff,
+  readHandoff,
+} from '@quimbyhq/handoff'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
@@ -104,6 +110,37 @@ export async function runApplyCommand({
     : args.agent
 
   const { meta } = await readHandoff(repoRoot, name)
+
+  // Classify the parcel against the target before touching git, so a re-send is
+  // legible: "already shipped, go sync" vs "real overlap, resolve it" — instead of
+  // git's raw conflict, which conflates the two.
+  const { fresh, settled, drifted } = await classifyParcelApplication(
+    repoRoot,
+    name,
+    targetRepoPath,
+  )
+  const total = fresh.length + settled.length + drifted.length
+  if (total > 0) {
+    logger.info(
+      `${name}: ${total} file(s) — ${fresh.length} new, ${settled.length} already present, ${drifted.length} drifted`,
+    )
+  }
+  // Everything already in your repo: the agent is re-sending shipped work against
+  // its old seed. Don't replay a no-op into a confusing conflict — say so and stop.
+  if (total > 0 && fresh.length === 0 && drifted.length === 0) {
+    logger.success(`Nothing to apply — all ${settled.length} file(s) already match your repo.`)
+    if (isAgent) {
+      logger.info(`"${args.agent}" still measures its diff against its old seed. Advance it:`)
+      logger.info(`  quimby sync ${args.agent} -f   # snap it to the latest, drop the shipped work`)
+      await discardHandoff(repoRoot, name)
+    }
+    return
+  }
+  if (drifted.length > 0) {
+    logger.info(
+      colors.dim(`  drifted: ${drifted.join(', ')} — real overlap; ${mode} may need --3way`),
+    )
+  }
 
   logger.start(`Applying "${name}" (${mode} mode${threeWay ? ', 3-way merge' : ''})`)
 

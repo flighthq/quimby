@@ -10,6 +10,29 @@ import { readHandoff } from './parcel'
 
 export type ApplyMode = 'squashed' | 'commits' | 'patch'
 
+export interface ParcelClassification {
+  /** Files that apply cleanly forward — genuinely new work. */
+  fresh: string[]
+  /** Files already present unchanged — shipped work re-sent against a stale seed. */
+  settled: string[]
+  /** Files the target diverged from — a real conflict needing resolution. */
+  drifted: string[]
+}
+
+/**
+ * Classify how a staged parcel's files would land in the target repo, so `apply` can
+ * tell a forgot-to-sync re-send (all `settled`) apart from genuine overlap (`drifted`)
+ * before it runs git and surfaces a conflict the user can't interpret.
+ */
+export async function classifyParcelApplication(
+  repoRoot: string,
+  name: string,
+  targetRepoPath: string,
+): Promise<ParcelClassification> {
+  const { squashedDiff } = await readHandoff(repoRoot, name)
+  return git.classifyDiffApplication(targetRepoPath, squashedDiff)
+}
+
 export async function applyHandoff(opts: {
   repoRoot: string
   name: string
