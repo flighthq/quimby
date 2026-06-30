@@ -63,21 +63,6 @@ export async function runAssignCommand({
     throw new QuimbyError('Provide a message with -m (use `quimby handoff` to deliver work)')
   }
 
-  if (args.sync) {
-    const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
-    if (behind > 0) {
-      logger.start(`"${args.name}" is ${behind} commit(s) behind — syncing`)
-      const result = await syncAgent(repoRoot, args.name)
-      if (result.rebased) {
-        logger.success(
-          `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
-        )
-      } else {
-        logger.success(`Synced to ${result.newSeed.slice(0, 8)}`)
-      }
-    }
-  }
-
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
     const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
@@ -89,7 +74,30 @@ export async function runAssignCommand({
 
   logger.success(`Assignment set for "${args.name}"`)
 
-  if (args.nudge) {
+  let syncFailed = false
+  if (args.sync) {
+    const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
+    if (behind > 0) {
+      logger.start(`"${args.name}" is ${behind} commit(s) behind — syncing`)
+      try {
+        const result = await syncAgent(repoRoot, args.name)
+        if (result.rebased) {
+          logger.success(
+            `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
+          )
+        } else {
+          logger.success(`Synced to ${result.newSeed.slice(0, 8)}`)
+        }
+      } catch (err) {
+        syncFailed = true
+        const message = err instanceof Error ? err.message : String(err)
+        logger.warn(`Sync failed — ${message}`)
+        logger.warn('Assignment written, but the agent is stale. Resolve and run `quimby sync`.')
+      }
+    }
+  }
+
+  if (args.nudge && !syncFailed) {
     await nudgeAgentSession({
       agent,
       displayName: args.name,
