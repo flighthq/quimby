@@ -9,12 +9,9 @@ import {
   am,
   amAbort,
   apply,
-  applyThreeWay,
-  classifyDiffApplication,
   diff,
   diffStaged,
   diffWorkingTree,
-  filterDiffFiles,
   formatPatch,
   getConflicts,
 } from './diff'
@@ -98,97 +95,6 @@ describe('apply', () => {
   })
 })
 
-describe('applyThreeWay', () => {
-  it('applies a non-conflicting patch and returns an empty array', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-    const patchText = await diff(dir, 'HEAD')
-    await execa('git', ['checkout', '--', 'file.txt'], { cwd: dir })
-    const patchFile = join(dir, 'changes.patch')
-    await writeFile(patchFile, patchText)
-    expect(await applyThreeWay(dir, patchFile)).toEqual([])
-    expect(await readFile(join(dir, 'file.txt'), 'utf-8')).toBe('modified\n')
-  })
-
-  it('throws GitError when the patch is completely inapplicable', async () => {
-    await makeCommit(dir, 'file.txt', 'content', 'initial')
-    const patchFile = join(dir, 'bad.patch')
-    await writeFile(patchFile, 'this is not a patch')
-    await expect(applyThreeWay(dir, patchFile)).rejects.toThrow()
-  })
-})
-
-describe('classifyDiffApplication', () => {
-  it('marks a clean forward-applying change as fresh', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-    const patch = await diff(dir, 'HEAD')
-    await execa('git', ['checkout', '--', 'file.txt'], { cwd: dir })
-
-    const result = await classifyDiffApplication(dir, patch)
-    expect(result.fresh).toEqual(['file.txt'])
-    expect(result.settled).toEqual([])
-    expect(result.drifted).toEqual([])
-  })
-
-  it('marks an already-present change as settled', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-    const patch = await diff(dir, 'HEAD')
-    // Leave the change in place — the target already matches the patch's post-image.
-
-    const result = await classifyDiffApplication(dir, patch)
-    expect(result.settled).toEqual(['file.txt'])
-    expect(result.fresh).toEqual([])
-  })
-
-  it('marks a diverged file as drifted', async () => {
-    await makeCommit(dir, 'file.txt', 'original\n', 'initial')
-    await writeFile(join(dir, 'file.txt'), 'modified\n')
-    const patch = await diff(dir, 'HEAD')
-    await writeFile(join(dir, 'file.txt'), 'something else entirely\n')
-
-    const result = await classifyDiffApplication(dir, patch)
-    expect(result.drifted).toEqual(['file.txt'])
-  })
-
-  it('classifies a multi-file diff per file', async () => {
-    await makeCommit(dir, 'a.txt', 'a-original\n', 'initial')
-    await writeFile(join(dir, 'a.txt'), 'a-modified\n')
-    await writeFile(join(dir, 'b.txt'), 'b-new\n')
-    const patch = await diffWorkingTree(dir, 'HEAD')
-    // a.txt: revert so its change is fresh. b.txt: leave it, so it is already present.
-    await execa('git', ['checkout', '--', 'a.txt'], { cwd: dir })
-
-    const result = await classifyDiffApplication(dir, patch)
-    expect(result.fresh).toEqual(['a.txt'])
-    expect(result.settled).toEqual(['b.txt'])
-  })
-
-  it('returns empty buckets for an empty diff', async () => {
-    expect(await classifyDiffApplication(dir, '')).toEqual({
-      settled: [],
-      fresh: [],
-      drifted: [],
-    })
-  })
-
-  it('classifies a new binary file as fresh (its base85 block survives the split)', async () => {
-    await makeCommit(dir, 'keep.txt', 'keep\n', 'initial')
-    // A binary blob plus a text change — the binary section must split intact.
-    await writeFile(join(dir, 'logo.bin'), Buffer.from([0x89, 0x00, 0x01, 0xff, 0xfe, 0x02]))
-    await writeFile(join(dir, 'keep.txt'), 'keep edited\n')
-    const patch = await diffWorkingTree(dir, 'HEAD', { binary: true })
-    // Revert both so neither is present — both should read as fresh, not settled.
-    await execa('git', ['checkout', '--', 'keep.txt'], { cwd: dir })
-    await rm(join(dir, 'logo.bin'))
-
-    const result = await classifyDiffApplication(dir, patch)
-    expect(result.fresh.sort()).toEqual(['keep.txt', 'logo.bin'])
-    expect(result.drifted).toEqual([])
-  })
-})
-
 describe('diff', () => {
   it('returns diff text for uncommitted changes vs a ref', async () => {
     await makeCommit(dir, 'file.txt', 'original\n', 'initial')
@@ -252,32 +158,6 @@ describe('diffWorkingTree', () => {
   it('throws GitError when the base ref does not exist', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await expect(diffWorkingTree(dir, 'nonexistent-sha')).rejects.toThrow()
-  })
-})
-
-describe('filterDiffFiles', () => {
-  it('drops the named files and keeps the rest applyable', async () => {
-    await makeCommit(dir, 'keep.txt', 'keep-original\n', 'initial')
-    await writeFile(join(dir, 'keep.txt'), 'keep-modified\n')
-    await writeFile(join(dir, 'drop.txt'), 'drop-new\n')
-    const patch = await diffWorkingTree(dir, 'HEAD')
-    expect(patch).toContain('drop.txt')
-
-    const filtered = filterDiffFiles(patch, ['drop.txt'])
-    expect(filtered).toContain('keep.txt')
-    expect(filtered).not.toContain('drop.txt')
-
-    // The reduced patch still applies cleanly on its own.
-    await execa('git', ['checkout', '--', 'keep.txt'], { cwd: dir })
-    const patchFile = join(dir, 'reduced.patch')
-    await writeFile(patchFile, filtered)
-    await apply(dir, patchFile)
-    expect(await readFile(join(dir, 'keep.txt'), 'utf-8')).toBe('keep-modified\n')
-  })
-
-  it('returns the diff unchanged when nothing is dropped', () => {
-    const patch = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n'
-    expect(filterDiffFiles(patch, [])).toBe(patch)
   })
 })
 

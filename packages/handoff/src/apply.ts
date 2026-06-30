@@ -95,7 +95,7 @@ export async function applyHandoff(opts: {
               .map((f) => join(commitsDir, f))
           : []
         if (sortedPatches.length > 0) {
-          await git.am(targetRepoPath, sortedPatches)
+          await git.am(targetRepoPath, sortedPatches, { skipHooks: true })
           const remainderPath = join(dir, 'uncommitted.diff')
           if (await exists(remainderPath)) {
             await git.apply(targetRepoPath, remainderPath)

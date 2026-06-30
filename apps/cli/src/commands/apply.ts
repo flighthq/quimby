@@ -127,7 +127,6 @@ export async function runApplyCommand({
       logger.info(`Changes in working tree — no commit created. Suggested message:`)
       logger.info(`  ${meta.suggestedMessage}`)
     }
-    logger.info(`Resync other agents when ready: quimby sync --all`)
     logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
   } catch (err) {
     if (err instanceof ConflictError) {
