@@ -178,5 +178,5 @@ export async function runApplyCommand({
     logger.info(`  ${meta.suggestedMessage}`)
   }
   logger.info(`Resync other agents when ready: quimby sync --all`)
-  logger.log(colors.dim(getQuimbySuccessQuip()))
+  logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
 }
