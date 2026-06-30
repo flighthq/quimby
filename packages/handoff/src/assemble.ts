@@ -36,7 +36,7 @@ export async function assembleHandoff(opts: {
 
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
   // Full working-tree delta vs seed — committed + uncommitted + untracked, no commit made.
-  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed')
+  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed', { binary: true })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
@@ -60,7 +60,7 @@ export async function assembleHandoff(opts: {
         await git.log(repoDir, 'quimby/seed..HEAD'),
         patchFiles.map((p) => p.split('/').pop() ?? ''),
       )
-      const remainder = await git.diffWorkingTree(repoDir, 'HEAD')
+      const remainder = await git.diffWorkingTree(repoDir, 'HEAD', { binary: true })
       if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
     }
   }
@@ -95,7 +95,7 @@ export async function assembleHostHandoff(opts: {
     base = 'HEAD'
   }
 
-  const squashedDiff = await git.diffWorkingTree(repoRoot, base)
+  const squashedDiff = await git.diffWorkingTree(repoRoot, base, { binary: true })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
@@ -215,7 +215,7 @@ async function remoteWorkingTreeDiff(
       { cwd: rRepoDir },
     )
   ).trim()
-  const diff = await transport.exec(`git diff ${base} ${tree}`, { cwd: rRepoDir })
+  const diff = await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
   await transport.exec(`rm -f ${idx}`)
   return diff
 }

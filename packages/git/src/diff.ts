@@ -110,7 +110,11 @@ export async function diffStaged(cwd: string, baseRef: string): Promise<string> 
  * the source's history and index are left untouched, so frequent use never litters it.
  * `base` of `HEAD` yields exactly the uncommitted+untracked remainder.
  */
-export async function diffWorkingTree(cwd: string, base: string): Promise<string> {
+export async function diffWorkingTree(
+  cwd: string,
+  base: string,
+  opts?: { binary?: boolean },
+): Promise<string> {
   const indexFile = join(tmpdir(), `quimby-index-${crypto.randomUUID()}`)
   const env = { ...process.env, GIT_INDEX_FILE: indexFile }
   try {
@@ -121,7 +125,10 @@ export async function diffWorkingTree(cwd: string, base: string): Promise<string
       env,
       stripFinalNewline: true,
     })
-    const { stdout } = await execa('git', ['diff', base, tree], { cwd, stripFinalNewline: false })
+    // `--binary` for capture (so a carried/applied diff can recreate binary files);
+    // omitted for display, where it would spew base85 instead of "Binary files differ".
+    const args = ['diff', ...(opts?.binary ? ['--binary'] : []), base, tree]
+    const { stdout } = await execa('git', args, { cwd, stripFinalNewline: false })
     return stdout
   } catch (err: unknown) {
     const e = err as { stderr?: string; message?: string }
@@ -150,7 +157,8 @@ export async function formatPatch(
   baseRef: string,
   outputDir: string,
 ): Promise<string[]> {
-  const stdout = await runGit(['format-patch', baseRef, '-o', outputDir], cwd)
+  // `--binary` so replayed commits (git am) can recreate binary files, not just text.
+  const stdout = await runGit(['format-patch', '--binary', baseRef, '-o', outputDir], cwd)
   return stdout.split('\n').filter(Boolean)
 }
 
@@ -180,16 +188,19 @@ async function canApply(cwd: string, patch: string, extraArgs: string[]): Promis
  */
 function splitDiffByFile(diffText: string): Array<{ path: string; patch: string }> {
   if (!diffText.trim()) return []
-  const chunks: string[][] = []
-  for (const line of diffText.split('\n')) {
-    if (line.startsWith('diff --git ') || chunks.length === 0) chunks.push([])
-    chunks[chunks.length - 1].push(line)
-  }
-  return chunks
-    .filter((lines) => lines[0]?.startsWith('diff --git '))
-    .map((lines) => {
-      const patch = lines.join('\n')
-      return { path: filePathOfDiff(lines[0]), patch: patch.endsWith('\n') ? patch : `${patch}\n` }
+  // Lookahead split keeps each file's section byte-for-byte. Splitting into lines and
+  // rejoining would drop the trailing blank line that terminates a binary patch's
+  // base85 block, leaving a malformed chunk that won't apply.
+  return diffText
+    .split(/(?=^diff --git )/m)
+    .filter((section) => section.startsWith('diff --git '))
+    .map((section) => {
+      const nl = section.indexOf('\n')
+      const header = nl === -1 ? section : section.slice(0, nl)
+      return {
+        path: filePathOfDiff(header),
+        patch: section.endsWith('\n') ? section : `${section}\n`,
+      }
     })
 }
 

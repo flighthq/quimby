@@ -143,6 +143,21 @@ describe('classifyDiffApplication', () => {
       drifted: [],
     })
   })
+
+  it('classifies a new binary file as fresh (its base85 block survives the split)', async () => {
+    await makeCommit(dir, 'keep.txt', 'keep\n', 'initial')
+    // A binary blob plus a text change — the binary section must split intact.
+    await writeFile(join(dir, 'logo.bin'), Buffer.from([0x89, 0x00, 0x01, 0xff, 0xfe, 0x02]))
+    await writeFile(join(dir, 'keep.txt'), 'keep edited\n')
+    const patch = await diffWorkingTree(dir, 'HEAD', { binary: true })
+    // Revert both so neither is present — both should read as fresh, not settled.
+    await execa('git', ['checkout', '--', 'keep.txt'], { cwd: dir })
+    await rm(join(dir, 'logo.bin'))
+
+    const result = await classifyDiffApplication(dir, patch)
+    expect(result.fresh.sort()).toEqual(['keep.txt', 'logo.bin'])
+    expect(result.drifted).toEqual([])
+  })
 })
 
 describe('diff', () => {
@@ -195,6 +210,14 @@ describe('diffWorkingTree', () => {
 
     const output = await diffWorkingTree(dir, 'HEAD')
     expect(output).toContain('wip.txt')
+  })
+
+  it('emits an applyable binary patch with { binary: true }, concise notation without', async () => {
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await writeFile(join(dir, 'logo.bin'), Buffer.from([0x89, 0x00, 0xff, 0xfe]))
+
+    expect(await diffWorkingTree(dir, 'HEAD')).toContain('Binary files')
+    expect(await diffWorkingTree(dir, 'HEAD', { binary: true })).toContain('GIT binary patch')
   })
 })
 
