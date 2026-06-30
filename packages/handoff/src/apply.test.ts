@@ -1,7 +1,8 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { ConflictError } from '@quimbyhq/errors'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
 import { exists } from '@quimbyhq/utils'
@@ -9,7 +10,7 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { applyHandoff, classifyParcelApplication } from './apply'
+import { applyHandoff } from './apply'
 import { assembleHandoff } from './assemble'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
@@ -49,29 +50,40 @@ async function setupRepoRoot(): Promise<string> {
   return repoRoot
 }
 
-async function setupAgentRepo(repoRoot: string, agentName: string): Promise<string> {
+/**
+ * Create the "source" repo that both the agent clone and the target clone derive from.
+ * This ensures they share commit history, so the agent's seed commit exists in the target.
+ */
+async function setupSourceRepo(): Promise<string> {
+  const sourceDir = join(tmpdir(), `quimby-source-${crypto.randomUUID()}`)
+  await mkdir(sourceDir, { recursive: true })
+  await execa('git', ['init'], { cwd: sourceDir })
+  await configureGit(sourceDir)
+  await writeFile(join(sourceDir, 'base.txt'), 'base content\n')
+  await execa('git', ['add', '-A'], { cwd: sourceDir })
+  await execa('git', ['commit', '-m', 'base commit'], { cwd: sourceDir })
+  return sourceDir
+}
+
+async function setupAgentRepo(
+  repoRoot: string,
+  agentName: string,
+  sourceDir: string,
+): Promise<string> {
   const agentRepoDir = getAgentRepoDir(repoRoot, agentName)
   const agentDir = getAgentDir(repoRoot, agentName)
   await mkdir(join(agentDir, 'inbox', 'status'), { recursive: true })
   await mkdir(join(agentDir, 'outbox'), { recursive: true })
-  await mkdir(agentRepoDir, { recursive: true })
-  await init(agentRepoDir)
+  await execa('git', ['clone', sourceDir, agentRepoDir])
   await configureGit(agentRepoDir)
-  await writeFile(join(agentRepoDir, 'base.txt'), 'base content\n')
-  await addAll(agentRepoDir)
-  await commit(agentRepoDir, 'base commit')
   await tag(agentRepoDir, 'quimby/seed')
   return agentRepoDir
 }
 
-async function setupTargetRepo(): Promise<string> {
+async function setupTargetRepo(sourceDir: string): Promise<string> {
   const targetDir = join(tmpdir(), `quimby-target-${crypto.randomUUID()}`)
-  await mkdir(targetDir, { recursive: true })
-  await execa('git', ['init'], { cwd: targetDir })
+  await execa('git', ['clone', sourceDir, targetDir])
   await configureGit(targetDir)
-  await writeFile(join(targetDir, 'base.txt'), 'base content\n')
-  await execa('git', ['add', '-A'], { cwd: targetDir })
-  await execa('git', ['commit', '-m', 'base commit'], { cwd: targetDir })
   return targetDir
 }
 
@@ -87,49 +99,53 @@ afterEach(async () => {
 describe('applyHandoff', () => {
   for (const mode of ['squashed', 'commits', 'patch'] as const) {
     it(`applies a code parcel to the host repo (${mode} mode)`, async () => {
-      const agentRepoDir = await setupAgentRepo(dir, 'alice')
+      const sourceDir = await setupSourceRepo()
+      const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
       await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
       await addAll(agentRepoDir)
       await commit(agentRepoDir, 'add feature')
       const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
-      const targetDir = await setupTargetRepo()
+      const targetDir = await setupTargetRepo(sourceDir)
       try {
         await applyHandoff({ repoRoot: dir, name: meta.name, targetRepoPath: targetDir, mode })
         expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
       } finally {
         await rm(targetDir, { recursive: true, force: true })
+        await rm(sourceDir, { recursive: true, force: true })
       }
     })
   }
 
-  it('applies cleanly in patch+threeWay mode leaving changes in the working tree', async () => {
-    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+  it('applies cleanly in patch mode leaving changes in the working tree', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
     await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
     await addAll(agentRepoDir)
     await commit(agentRepoDir, 'add feature')
     const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
-    const targetDir = await setupTargetRepo()
+    const targetDir = await setupTargetRepo(sourceDir)
     try {
       await applyHandoff({
         repoRoot: dir,
         name: meta.name,
         targetRepoPath: targetDir,
         mode: 'patch',
-        threeWay: true,
       })
       expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
     } finally {
       await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
     }
   })
 
-  it('throws ConflictError in patch+threeWay mode when files conflict', async () => {
-    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+  it('throws ConflictError when the merge conflicts', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
     await writeFile(join(agentRepoDir, 'base.txt'), 'modified by agent\n')
     await addAll(agentRepoDir)
     await commit(agentRepoDir, 'modify base')
     const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
-    const targetDir = await setupTargetRepo()
+    const targetDir = await setupTargetRepo(sourceDir)
     try {
       await writeFile(join(targetDir, 'base.txt'), 'modified by target\n')
       await execa('git', ['add', '-A'], { cwd: targetDir })
@@ -139,101 +155,41 @@ describe('applyHandoff', () => {
           repoRoot: dir,
           name: meta.name,
           targetRepoPath: targetDir,
-          mode: 'patch',
-          threeWay: true,
-        }),
-      ).rejects.toThrow('conflict')
-    } finally {
-      await rm(targetDir, { recursive: true, force: true })
-    }
-  })
-
-  it('throws QuimbyError wrapping a non-conflict apply failure', async () => {
-    const agentRepoDir = await setupAgentRepo(dir, 'alice')
-    await writeFile(join(agentRepoDir, 'base.txt'), 'modified by agent\n')
-    await addAll(agentRepoDir)
-    await commit(agentRepoDir, 'modify base')
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
-    const targetDir = await setupTargetRepo()
-    try {
-      await writeFile(join(targetDir, 'base.txt'), 'modified by target — diverged\n')
-      await execa('git', ['add', '-A'], { cwd: targetDir })
-      await execa('git', ['commit', '-m', 'diverge'], { cwd: targetDir })
-      await expect(
-        applyHandoff({
-          repoRoot: dir,
-          name: meta.name,
-          targetRepoPath: targetDir,
           mode: 'squashed',
         }),
-      ).rejects.toThrow('Failed to apply')
+      ).rejects.toThrow(ConflictError)
     } finally {
       await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
     }
   })
-})
 
-describe('applyHandoff skipFiles', () => {
-  it('lands only the new file when settled files are skipped', async () => {
-    const agentRepoDir = await setupAgentRepo(dir, 'alice')
-    // Two files: one already in the target (settled), one genuinely new.
+  it('merges settled files cleanly when agent is behind', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
     await writeFile(join(agentRepoDir, 'shipped.txt'), 'already shipped\n')
     await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
     await addAll(agentRepoDir)
     await commit(agentRepoDir, 'work')
     const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
 
-    const targetDir = await setupTargetRepo()
+    const targetDir = await setupTargetRepo(sourceDir)
     try {
-      // Pre-place the settled file so its patch can't forward-apply.
       await writeFile(join(targetDir, 'shipped.txt'), 'already shipped\n')
       await execa('git', ['add', '-A'], { cwd: targetDir })
       await execa('git', ['commit', '-m', 'ship'], { cwd: targetDir })
 
-      const { settled, fresh } = await classifyParcelApplication(dir, meta.name, targetDir)
-      expect(settled).toEqual(['shipped.txt'])
-      expect(fresh).toEqual(['feature.txt'])
-
-      // Without skipping, the whole-diff apply would abort on shipped.txt; skipping
-      // it lets feature.txt land.
       await applyHandoff({
         repoRoot: dir,
         name: meta.name,
         targetRepoPath: targetDir,
-        mode: 'patch',
-        skipFiles: settled,
+        mode: 'squashed',
       })
       expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
+      expect(await readFile(join(targetDir, 'shipped.txt'), 'utf-8')).toBe('already shipped\n')
     } finally {
       await rm(targetDir, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('classifyParcelApplication', () => {
-  it('reports fresh files as new and re-sent files as settled', async () => {
-    const agentRepoDir = await setupAgentRepo(dir, 'alice')
-    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
-    await addAll(agentRepoDir)
-    await commit(agentRepoDir, 'add feature')
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
-
-    const targetDir = await setupTargetRepo()
-    try {
-      const beforeApply = await classifyParcelApplication(dir, meta.name, targetDir)
-      expect(beforeApply.fresh).toEqual(['feature.txt'])
-      expect(beforeApply.settled).toEqual([])
-
-      // Land the work, then re-classify: the same parcel is now already present.
-      await writeFile(join(targetDir, 'feature.txt'), 'new feature\n')
-      await execa('git', ['add', '-A'], { cwd: targetDir })
-      await execa('git', ['commit', '-m', 'ship feature'], { cwd: targetDir })
-
-      const afterApply = await classifyParcelApplication(dir, meta.name, targetDir)
-      expect(afterApply.settled).toEqual(['feature.txt'])
-      expect(afterApply.fresh).toEqual([])
-    } finally {
-      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
     }
   })
 })

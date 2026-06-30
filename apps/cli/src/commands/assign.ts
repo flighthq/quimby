@@ -1,3 +1,4 @@
+import { getAgentSyncStatus, syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
@@ -9,9 +10,6 @@ import { join } from 'pathe'
 
 import { nudgeAgentSession } from '../nudge'
 
-// Typed into a live agent's tmux session to wake it: an @-reference to the assignment
-// file (which sits in the agent's cwd) rather than retyping the whole task. The agent
-// reads the file and proceeds.
 const NUDGE_TEXT = "Here's your assignment: @assignment.md"
 
 export default defineCommand({
@@ -36,6 +34,11 @@ export default defineCommand({
         'Wake a running agent by injecting the assignment notice + Return into its tmux session (on by default; --no-nudge to skip)',
       default: true,
     },
+    sync: {
+      type: 'boolean',
+      description: 'Sync the agent to its base before assigning (on by default; --no-sync to skip)',
+      default: true,
+    },
   },
   run: runAssignCommand,
 })
@@ -43,7 +46,7 @@ export default defineCommand({
 export async function runAssignCommand({
   args,
 }: {
-  args: { name: string; message?: string; nudge: boolean }
+  args: { name: string; message?: string; nudge: boolean; sync: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -58,6 +61,21 @@ export async function runAssignCommand({
   }
   if (!taskContent) {
     throw new QuimbyError('Provide a message with -m (use `quimby handoff` to deliver work)')
+  }
+
+  if (args.sync) {
+    const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
+    if (behind > 0) {
+      logger.start(`"${args.name}" is ${behind} commit(s) behind — syncing`)
+      const result = await syncAgent(repoRoot, args.name)
+      if (result.rebased) {
+        logger.success(
+          `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
+        )
+      } else {
+        logger.success(`Synced to ${result.newSeed.slice(0, 8)}`)
+      }
+    }
   }
 
   if (isSSH(agent.location)) {

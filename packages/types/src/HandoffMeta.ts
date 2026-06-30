@@ -8,6 +8,8 @@ export interface HandoffMeta {
   to?: string
   /** The agent whose diff this parcel carries, when it differs from `from`. */
   codeSource?: string
+  /** The commit the diff was generated against (the agent's seed at assemble time). */
+  seedCommit?: string
   /** The parcel's note (README.md), when it carries one. */
   note?: string
   description: string

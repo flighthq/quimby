@@ -6,6 +6,19 @@ import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { loadState, saveState } from '@quimbyhq/workspace'
 
+export async function getAgentSyncStatus(
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+  fallback: string,
+): Promise<{ behind: number; targetCommit: string }> {
+  const targetCommit = await resolveSyncTarget(repoRoot, agent, fallback)
+  if (!agent.seedCommit || agent.seedCommit === targetCommit) {
+    return { behind: 0, targetCommit }
+  }
+  const behind = await git.countCommits(repoRoot, `${agent.seedCommit}..${targetCommit}`)
+  return { behind, targetCommit }
+}
+
 export async function syncAgent(
   repoRoot: string,
   name: string,

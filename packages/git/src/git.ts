@@ -65,8 +65,10 @@ export async function countCommits(cwd: string, range: string): Promise<number> 
   }
 }
 
-export async function createBranch(cwd: string, name: string): Promise<void> {
-  await git(['checkout', '-b', name], cwd)
+export async function createBranch(cwd: string, name: string, startPoint?: string): Promise<void> {
+  const args = ['checkout', '-b', name]
+  if (startPoint) args.push(startPoint)
+  await git(args, cwd)
 }
 
 export async function deleteBranch(cwd: string, name: string): Promise<void> {
@@ -134,6 +136,24 @@ export async function hasRemote(cwd: string, name: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+export async function merge(
+  cwd: string,
+  ref: string,
+  opts?: { squash?: boolean; noCommit?: boolean; noFf?: boolean; message?: string },
+): Promise<void> {
+  const args = ['merge']
+  if (opts?.squash) args.push('--squash')
+  if (opts?.noCommit) args.push('--no-commit')
+  if (opts?.noFf) args.push('--no-ff')
+  if (opts?.message) args.push('-m', opts.message)
+  args.push(ref)
+  await git(args, cwd)
+}
+
+export async function mergeAbort(cwd: string): Promise<void> {
+  await git(['merge', '--abort'], cwd)
 }
 
 export async function init(cwd: string): Promise<void> {

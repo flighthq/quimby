@@ -1,5 +1,4 @@
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readdir } from 'node:fs/promises'
 
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -11,29 +10,24 @@ import { readHandoff } from './parcel'
 
 export type ApplyMode = 'squashed' | 'commits' | 'patch'
 
-export interface ParcelClassification {
-  /** Files that apply cleanly forward — genuinely new work. */
-  fresh: string[]
-  /** Files already present unchanged — shipped work re-sent against a stale seed. */
-  settled: string[]
-  /** Files the target diverged from — a real conflict needing resolution. */
-  drifted: string[]
+export interface ApplyResult {
+  /** The mode that was applied. */
+  mode: ApplyMode
+  /** The temp branch name (useful if the user needs to clean up after a conflict). */
+  tempBranch: string
+  /** Conflicted file paths, empty when the merge was clean. */
+  conflicts: string[]
 }
 
 /**
- * Classify how a staged parcel's files would land in the target repo, so `apply` can
- * tell a forgot-to-sync re-send (all `settled`) apart from genuine overlap (`drifted`)
- * before it runs git and surfaces a conflict the user can't interpret.
+ * Apply a staged parcel to the target repo using a merge-based strategy.
+ *
+ * Instead of patching the diff directly onto the target's working tree (which fails
+ * when the target has moved past the agent's seed), this reconstructs the agent's work
+ * on a temporary branch rooted at the seed commit — where the diff applies cleanly by
+ * definition — then merges that branch into the target. Conflicts surface as standard
+ * git merge conflicts on the host, resolvable with normal git tooling.
  */
-export async function classifyParcelApplication(
-  repoRoot: string,
-  name: string,
-  targetRepoPath: string,
-): Promise<ParcelClassification> {
-  const { squashedDiff } = await readHandoff(repoRoot, name)
-  return git.classifyDiffApplication(targetRepoPath, squashedDiff)
-}
-
 export async function applyHandoff(opts: {
   repoRoot: string
   name: string
@@ -41,15 +35,8 @@ export async function applyHandoff(opts: {
   mode: ApplyMode
   branch?: boolean | string
   threeWay?: boolean
-  /**
-   * Files to omit from the applied diff — already-present (settled) work the caller
-   * has classified, so a re-send lands only what's new instead of `git apply` failing
-   * wholesale on files the target already has. Applies to `squashed`/`patch` modes.
-   */
-  skipFiles?: readonly string[]
-}): Promise<void> {
-  const { repoRoot, name, targetRepoPath, mode, branch, threeWay } = opts
-  const skipFiles = opts.skipFiles ?? []
+}): Promise<ApplyResult> {
+  const { repoRoot, name, targetRepoPath, mode } = opts
   const dir = getStagingHandoffDir(repoRoot, name)
   const { meta } = await readHandoff(repoRoot, name)
 
@@ -57,55 +44,46 @@ export async function applyHandoff(opts: {
     throw new QuimbyError('Target repo has uncommitted changes. Commit or stash first.')
   }
 
-  const previousRef = await git.getCurrentRef(targetRepoPath)
-  let branchName: string | undefined
-
-  if (branch !== undefined && branch !== false) {
-    branchName = typeof branch === 'string' ? branch : `quimby/${meta.name}`
-    if (await git.branchExists(targetRepoPath, branchName)) {
-      await git.deleteBranch(targetRepoPath, branchName)
-    }
-    await git.createBranch(targetRepoPath, branchName)
+  if (!meta.seedCommit) {
+    throw new QuimbyError(
+      `Parcel "${name}" has no seed commit recorded — it was assembled before the merge-based ` +
+        `apply was available. Re-stage it with "quimby apply ${meta.from}".`,
+    )
   }
 
-  // Declared out here so `finally` cleans the temp patch up however the apply exits.
-  let reducedDiffPath: string | undefined
+  const previousRef = await git.getCurrentRef(targetRepoPath)
+  const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit.slice(0, 8)}`
+
+  // If a landing branch was requested, create it from the current position before we
+  // start — so the merge lands on that branch, not wherever the user was.
+  let landingBranch: string | undefined
+  if (opts.branch !== undefined && opts.branch !== false) {
+    landingBranch = typeof opts.branch === 'string' ? opts.branch : `quimby/${meta.name}`
+    if (await git.branchExists(targetRepoPath, landingBranch)) {
+      await git.deleteBranch(targetRepoPath, landingBranch)
+    }
+    await git.createBranch(targetRepoPath, landingBranch)
+  }
+
+  // Clean up any leftover temp branch from a previous attempt.
+  if (await git.branchExists(targetRepoPath, tempBranch)) {
+    await git.deleteBranch(targetRepoPath, tempBranch)
+  }
 
   try {
-    // For diff-based modes, drop settled files so a re-send applies only its unsettled
-    // remainder instead of `git apply` failing wholesale on files already present.
-    let squashedPath = join(dir, 'squashed.diff')
-    let reducedIsEmpty = false
-    if (skipFiles.length > 0 && (mode === 'squashed' || mode === 'patch')) {
-      const reduced = git.filterDiffFiles(await readFile(squashedPath, 'utf-8'), skipFiles)
-      if (reduced.trim() === '') {
-        reducedIsEmpty = true
-      } else {
-        reducedDiffPath = join(tmpdir(), `quimby-apply-${crypto.randomUUID()}.diff`)
-        await writeFile(reducedDiffPath, reduced)
-        squashedPath = reducedDiffPath
-      }
-    }
+    // Step 1: Create temp branch from the seed commit and apply the diff there.
+    // The diff was generated against this exact commit, so application is guaranteed clean.
+    await git.createBranch(targetRepoPath, tempBranch, meta.seedCommit)
 
     switch (mode) {
-      case 'squashed': {
-        // Everything was settled — nothing left to commit. (The CLI short-circuits
-        // this earlier; guard here so a direct caller doesn't hit "nothing to commit".)
-        if (reducedIsEmpty) break
-        if (threeWay) {
-          const conflicts = await git.applyThreeWay(targetRepoPath, squashedPath)
-          if (conflicts.length > 0) {
-            throw new ConflictError(
-              `Handoff "${name}" applied with ${conflicts.length} conflict(s) — resolve then commit`,
-              conflicts,
-            )
-          }
-        } else {
-          await git.apply(targetRepoPath, squashedPath, { check: true })
+      case 'squashed':
+      case 'patch': {
+        const squashedPath = join(dir, 'squashed.diff')
+        if (await exists(squashedPath)) {
           await git.apply(targetRepoPath, squashedPath)
+          await git.addAll(targetRepoPath)
+          await git.commit(targetRepoPath, meta.suggestedMessage)
         }
-        await git.addAll(targetRepoPath)
-        await git.commit(targetRepoPath, meta.suggestedMessage)
         break
       }
       case 'commits': {
@@ -116,66 +94,67 @@ export async function applyHandoff(opts: {
               .sort()
               .map((f) => join(commitsDir, f))
           : []
-        if (sortedPatches.length === 0) {
-          // No committed history to replay (e.g. uncommitted-only work) — fall back
-          // to the full squashed diff, applied to the working tree.
-          await git.apply(targetRepoPath, join(dir, 'squashed.diff'))
-          break
-        }
-        try {
+        if (sortedPatches.length > 0) {
           await git.am(targetRepoPath, sortedPatches)
-        } catch (amErr) {
-          // git am --3way stops at the first conflicting patch and leaves the am
-          // session in progress. Surface the conflicts so the user can resolve
-          // them and `git am --continue`, rather than aborting their work.
-          const conflicts = await git.getConflicts(targetRepoPath)
-          if (conflicts.length > 0) {
-            throw new ConflictError(
-              `Handoff "${name}" stopped with ${conflicts.length} conflict(s) — resolve then "git am --continue"`,
-              conflicts,
-            )
-          }
-          throw amErr
-        }
-        // The agent's uncommitted/untracked remainder rides on top as working-tree
-        // changes (no commit) so `--commits` loses nothing.
-        const remainderPath = join(dir, 'uncommitted.diff')
-        if (await exists(remainderPath)) await git.apply(targetRepoPath, remainderPath)
-        break
-      }
-      case 'patch': {
-        if (reducedIsEmpty) break
-        if (threeWay) {
-          // Leave the merge result (and any conflict markers) in the working tree,
-          // uncommitted — patch mode never commits, so the user curates from there.
-          const conflicts = await git.applyThreeWay(targetRepoPath, squashedPath)
-          if (conflicts.length > 0) {
-            throw new ConflictError(
-              `Handoff "${name}" applied with ${conflicts.length} conflict(s) — resolve the markers (left uncommitted)`,
-              conflicts,
-            )
+          const remainderPath = join(dir, 'uncommitted.diff')
+          if (await exists(remainderPath)) {
+            await git.apply(targetRepoPath, remainderPath)
+            await git.addAll(targetRepoPath)
+            await git.commit(targetRepoPath, `Uncommitted work from ${meta.from}`)
           }
         } else {
-          await git.apply(targetRepoPath, squashedPath)
+          const squashedPath = join(dir, 'squashed.diff')
+          if (await exists(squashedPath)) {
+            await git.apply(targetRepoPath, squashedPath)
+            await git.addAll(targetRepoPath)
+            await git.commit(targetRepoPath, meta.suggestedMessage)
+          }
         }
         break
       }
     }
+
+    // Step 2: Switch back to the original branch (or the landing branch).
+    const mergeTarget = landingBranch ?? previousRef
+    await git.checkout(targetRepoPath, mergeTarget)
+
+    // Step 3: Merge the temp branch in.
+    const mergeMessage = `Apply ${meta.from}: ${meta.suggestedMessage}`
+    try {
+      if (mode === 'patch') {
+        await git.merge(targetRepoPath, tempBranch, { squash: true, noCommit: true })
+      } else {
+        await git.merge(targetRepoPath, tempBranch, { noFf: true, message: mergeMessage })
+      }
+    } catch {
+      // Merge conflicted — this is a normal git merge conflict, not a patch failure.
+      const conflicts = await git.getConflicts(targetRepoPath)
+      if (conflicts.length > 0) {
+        throw new ConflictError(
+          `Merge has ${conflicts.length} conflict(s) — resolve then "git merge --continue"`,
+          conflicts,
+        )
+      }
+      // Not a conflict — some other merge failure; re-throw after cleanup.
+      await git.mergeAbort(targetRepoPath).catch(() => {})
+      await git.checkout(targetRepoPath, previousRef).catch(() => {})
+      if (landingBranch) await git.deleteBranch(targetRepoPath, landingBranch).catch(() => {})
+      throw new QuimbyError(`Failed to merge "${name}" into the target repo`)
+    }
+
+    // Step 4: Clean up the temp branch.
+    await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
+
+    return { mode, tempBranch, conflicts: [] }
   } catch (err) {
     if (err instanceof ConflictError) throw err
-    try {
-      await git.amAbort(targetRepoPath)
-    } catch {}
-    if (branchName) {
-      await git.checkout(targetRepoPath, previousRef)
-      try {
-        await git.deleteBranch(targetRepoPath, branchName)
-      } catch {}
-    }
+    // On unexpected failure, try to restore the user to where they were.
+    await git.checkout(targetRepoPath, previousRef).catch(() => {})
+    if (landingBranch) await git.deleteBranch(targetRepoPath, landingBranch).catch(() => {})
+    await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
+    if (err instanceof QuimbyError) throw err
     throw new QuimbyError(
       `Failed to apply handoff "${name}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
     )
-  } finally {
-    if (reducedDiffPath) await rm(reducedDiffPath, { force: true })
   }
 }

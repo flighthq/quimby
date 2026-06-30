@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises'
 
-import * as git from '@quimbyhq/git'
+import { getAgentSyncStatus } from '@quimbyhq/agent'
 import { getAgentOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { isSSH } from '@quimbyhq/types'
@@ -40,19 +40,11 @@ export async function runListCommand() {
       const agent = state.agents[name]
       const defaults = agent.defaults
 
-      // "behind" is measured against the agent's sync target, not the host's
-      // live HEAD — that is the commit `quimby sync` would move it onto.
       const syncRef = agent.syncRef ?? state.sourceRef
-      const target = await git.revParse(repoRoot, syncRef).catch(() => undefined)
-
-      let behindStr = ''
-      if (target && agent.seedCommit && agent.seedCommit !== target) {
-        const behind = await git.countCommits(repoRoot, `${agent.seedCommit}..${target}`)
-        if (behind > 0) {
-          behindStr = `  ${yellow(`${behind} behind`)}`
-        }
-      }
-
+      const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => ({
+        behind: 0,
+      }))
+      const behindStr = behind > 0 ? `  ${yellow(`${behind} behind`)}` : ''
       const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
 
       let locationStr = ''

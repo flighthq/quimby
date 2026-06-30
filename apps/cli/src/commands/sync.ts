@@ -55,7 +55,9 @@ export async function runSyncCommand({
 }): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const explicit = [args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))
+  const explicit = [
+    ...new Set([args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))),
+  ]
 
   if (!args.all && explicit.length === 0) {
     throw new QuimbyError('Specify one or more agent names, or use --all')

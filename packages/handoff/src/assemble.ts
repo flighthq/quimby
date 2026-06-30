@@ -34,8 +34,8 @@ export async function assembleHandoff(opts: {
   const codeSource = opts.codeSource ?? from
   const repoDir = getAgentRepoDir(repoRoot, opts.codeSourceId)
 
+  const seedCommit = await git.revParse(repoDir, 'quimby/seed')
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
-  // Full working-tree delta vs seed — committed + uncommitted + untracked, no commit made.
   const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed', { binary: true })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
@@ -66,7 +66,7 @@ export async function assembleHandoff(opts: {
   }
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
 
-  const meta = buildMeta({ ...opts, codeSource, name, subjects, commits })
+  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
 }
@@ -144,6 +144,7 @@ export async function assembleRemoteHandoff(opts: {
   const transport = getSSHTransport(codeSourceLocation)
   const rRepoDir = remoteAgentRepoDir(projectId, opts.codeSourceId, codeSourceLocation.base)
 
+  const seedCommit = (await transport.exec(`git rev-parse quimby/seed`, { cwd: rRepoDir })).trim()
   const subjects = (
     await transport.exec(`git log quimby/seed..HEAD --format=%s`, { cwd: rRepoDir })
   )
@@ -183,7 +184,7 @@ export async function assembleRemoteHandoff(opts: {
   }
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
 
-  const meta = buildMeta({ ...opts, codeSource, name, subjects, commits })
+  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
 }
@@ -236,6 +237,7 @@ function buildMeta(opts: {
   to?: string
   note?: string
   name: string
+  seedCommit?: string
   subjects: readonly string[]
   commits: CommitMeta[]
   description?: string
@@ -260,6 +262,7 @@ function buildMeta(opts: {
     from,
     to: opts.to,
     codeSource: codeSource !== from ? codeSource : undefined,
+    seedCommit: opts.seedCommit,
     note,
     description,
     suggestedMessage,

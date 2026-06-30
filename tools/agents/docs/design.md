@@ -195,7 +195,7 @@ quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Up
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions
 quimby status [agent]                                Show agent-written status
-quimby assign <agent> -m "..." | @file [--no-nudge]  Set an agent's current task (writes assignment.md); by default wakes a running agent via its tmux session (--no-nudge to skip)
+quimby assign <agent> -m "..." | @file [--no-sync] [--no-nudge]  Set an agent's current task; syncs the agent to its base first (--no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip)
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] | --all [-m "..."]   Wake a running agent by typing a message (default "continue") into its tmux session; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present)
@@ -230,6 +230,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-m` / `--message` (assign, handoff)
 - `-m` / `--message` (nudge — the text to type; defaults to `"continue"`)
 - `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
+- `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
@@ -242,7 +243,8 @@ All flags support `-x` short and `--xxx` long forms:
 - `--base` / `--current` (sync — retarget the sync ref; `--current` uses the host's current branch)
 - `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
 - `--stat` (diff)
-- `--commits`, `--patch`, `--3way` (apply)
+- `--commits`, `--patch` (apply)
+- `--3way` (apply — accepted for compatibility; the merge-based flow is inherently 3-way)
 - `--rebase` (handoff, dispatch, apply)
 - `--poll` (serve)
 
@@ -335,11 +337,33 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 ## Apply (crossing the boundary)
 
-`quimby apply <agent>` is the one verb that moves work **out** to the user's real repository. It assembles the agent's working-tree parcel in the host loading dock (`.quimby/staging/`), applies it to the target repo, and discards the staging copy on success. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
+`quimby apply <agent>` is the one verb that moves work **out** to the user's real repository. It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
 
-- **Squashed by default** — one commit, message auto-filled from the parcel (`-m` overrides; it never prompts). `--patch` leaves the changes in your working tree uncommitted (curate your own commits). `--commits` replays the agent's individual commits and then applies any uncommitted remainder on top. `--3way` merges (leaving conflict markers) instead of aborting.
+### Merge-based strategy
+
+The agent's diff was generated against its seed. Applying it directly to a target repo that has moved past the seed fails — context lines don't match, `git apply` aborts, and the user faces a conflict they can't interpret (is it real overlap, or just a stale diff?). The merge-based flow solves this:
+
+1. Stage the parcel in `.quimby/staging/` (diff + patches + meta, same as before)
+2. Create a temp branch (`quimby/apply-<agent>-<seed>`) from the seed commit in the target repo
+3. Apply the diff on that branch — guaranteed clean, since the diff is against that exact commit
+4. Merge the temp branch into the target
+
+The merge is where git's 3-way machinery kicks in. It knows what the agent changed (seed → temp branch) and what the user changed (seed → HEAD), and merges them with full context about both sides' intent. Conflicts are standard git merge conflicts — resolvable with `git mergetool`, the editor, or any workflow the user already knows. No special quimby commands needed.
+
+### Modes
+
+- **Squashed** (default) — one commit on the temp branch, merged with `--no-ff` into the target. Message auto-filled from the parcel.
+- **`--commits`** — replay the agent's individual commits on the temp branch via `git am`, then merge. Preserves the agent's commit history in the target repo.
+- **`--patch`** — one commit on the temp branch, merged with `--squash --no-commit`. Changes land in the working tree uncommitted — curate your own commits.
 - `-b` lands it on a fresh branch; `-t` targets a repo path other than the cwd.
-- On conflict the staged parcel is **kept** and its path reported, so the apply can be finished by hand.
+
+### Conflict handling
+
+On conflict, the merge is left in progress. The user resolves with standard git tooling, then `git merge --continue`. The staged parcel is kept so a retry doesn't re-download from SSH agents.
+
+### Why merge, not patch
+
+The previous approach applied the diff as a patch directly onto the target's working tree. This failed whenever the target had moved past the seed — which is the common case with multiple agents (you apply agent A's work, agent B's diff is now stale). The patch approach led to a cascade of workarounds: `--3way` mode, classification (settled/drifted/fresh), pre-emption, reduced diffs. The merge-based approach eliminates all of this by letting git do what it does best: three-way merge.
 
 Persisting an agent's work is git's job, reached through apply: `quimby apply <agent> -b feature/x` lands it on a branch you keep. There is no separate "save this work" store.
 
@@ -384,6 +408,8 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 - **Directed handoff vs broadcast**: Directed work uses `handoff` (addressed, validated); "to whom it may concern" uses `status` + `subscribe` (pull, set once). Broadcast is deliberately not a handoff mode — it would copy into every inbox and make every agent filter, the token cost we are avoiding.
 - **The diff is the wire format across the boundary**: A sandboxed/SSH agent is not a reachable git remote, so the host cannot `git fetch` it. Carrying the diff is what makes cross-agent and agent→host movement possible at all.
 - **Squashed apply by default**: Agent commit history is useful context but shouldn't leak into the real repo. The boundary ensures the user curates what enters.
+- **Apply is a merge, not a patch**: The agent's diff is reconstructed on a temp branch from the seed, then merged into the target — not patched directly onto the working tree. A patch fails when the target has moved past the seed (the common case with multiple agents); a merge handles it with git's 3-way machinery, producing standard merge conflicts the user can resolve with tools they already know. The agent is never touched — no non-working state inside a sandbox. Conflicts live on the host where the user has full tooling.
+- **Assign syncs by default**: Assigning to a stale agent wastes tokens — the agent works off wrong files, discovers issues that are already fixed, or produces diffs that conflict on apply. `assign` syncs the agent to its base before writing the assignment, so every new task starts from current code. `--no-sync` opts out when you intentionally want to assign against a stale base (e.g., adding context to an agent mid-work).
 - **Server is infrastructure, not convenience**: Agents in sandboxes can't see each other. The server is the only entity with cross-agent visibility. It's architecturally necessary, not a nice-to-have.
 - **Three interaction modes coexist**: Interactive (run), headless (start), and server (serve) are separate concerns. run/start manage individual agents; serve manages the connections between them.
 - **Stable IDs, not names**: `QuimbyState.id` and `AgentState.id` are UUIDs generated at creation and never change. tmux session names are derived from IDs, so renaming an agent doesn't orphan a running session.
