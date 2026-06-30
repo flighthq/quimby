@@ -77,7 +77,7 @@ quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]  # u
 quimby list                                          # show agents and subscriptions
 quimby help [command]                                # root help (grouped + banner), or usage for one command
 quimby status [agent]                               # show agent-written status
-quimby assign <agent> -m "..."                      # set an agent's current task (assignment.md)
+quimby assign <agent> -m "..." [-n]                 # set an agent's current task (assignment.md); -n/--nudge wakes a running agent by injecting a notice + Return into its tmux session
 quimby diff <agent> [agent2]                        # show an agent's live diff against its seed
 quimby handoff <from> <to> | <to> [-m <note>] [--attach <w>] [--rebase]  # carry <from>'s work to <to>; with one arg, the host's work → that agent (sender "host")
 quimby dispatch <agent> [--rebase]  # deliver the agent's queued outbox parcels to their recipients (bounces unknown recipients; drains to outbox/.sent on success)

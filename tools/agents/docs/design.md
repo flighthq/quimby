@@ -195,7 +195,7 @@ quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Up
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions
 quimby status [agent]                                Show agent-written status
-quimby assign <agent> -m "..." | @file               Set an agent's current task (writes assignment.md)
+quimby assign <agent> -m "..." | @file [-n]          Set an agent's current task (writes assignment.md); -n/--nudge wakes a running agent via its tmux session
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>]   Carry <from>'s work to <to>; with one arg, the host's work → that agent
 quimby dispatch <agent>                              Deliver the agent's queued outbox parcels to their recipients
@@ -227,6 +227,7 @@ The only place a build is verifiable is where the deps were installed — inside
 All flags support `-x` short and `--xxx` long forms:
 
 - `-m` / `--message` (assign, handoff)
+- `-n` / `--nudge` (assign — wake a running agent via its tmux session)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
 - `-c` / `--cmd` (run, set, add — the agent's entrypoint command)
