@@ -57,23 +57,6 @@ export async function applyHandoff(opts: {
     throw new QuimbyError('Target repo has uncommitted changes. Commit or stash first.')
   }
 
-  // For diff-based modes, drop settled files up front so a re-send applies only its
-  // unsettled remainder. Materialized to a temp patch the modes below apply in place
-  // of the raw squashed.diff (and cleaned up in `finally`).
-  let reducedDiffPath: string | undefined
-  let reducedIsEmpty = false
-  if (skipFiles.length > 0 && (mode === 'squashed' || mode === 'patch')) {
-    const text = await readFile(join(dir, 'squashed.diff'), 'utf-8')
-    const reduced = git.filterDiffFiles(text, skipFiles)
-    if (reduced.trim() === '') {
-      reducedIsEmpty = true
-    } else {
-      reducedDiffPath = join(tmpdir(), `quimby-apply-${crypto.randomUUID()}.diff`)
-      await writeFile(reducedDiffPath, reduced)
-    }
-  }
-  const squashedPath = reducedDiffPath ?? join(dir, 'squashed.diff')
-
   const previousRef = await git.getCurrentRef(targetRepoPath)
   let branchName: string | undefined
 
@@ -85,7 +68,25 @@ export async function applyHandoff(opts: {
     await git.createBranch(targetRepoPath, branchName)
   }
 
+  // Declared out here so `finally` cleans the temp patch up however the apply exits.
+  let reducedDiffPath: string | undefined
+
   try {
+    // For diff-based modes, drop settled files so a re-send applies only its unsettled
+    // remainder instead of `git apply` failing wholesale on files already present.
+    let squashedPath = join(dir, 'squashed.diff')
+    let reducedIsEmpty = false
+    if (skipFiles.length > 0 && (mode === 'squashed' || mode === 'patch')) {
+      const reduced = git.filterDiffFiles(await readFile(squashedPath, 'utf-8'), skipFiles)
+      if (reduced.trim() === '') {
+        reducedIsEmpty = true
+      } else {
+        reducedDiffPath = join(tmpdir(), `quimby-apply-${crypto.randomUUID()}.diff`)
+        await writeFile(reducedDiffPath, reduced)
+        squashedPath = reducedDiffPath
+      }
+    }
+
     switch (mode) {
       case 'squashed': {
         // Everything was settled — nothing left to commit. (The CLI short-circuits

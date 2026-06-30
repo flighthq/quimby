@@ -1,4 +1,5 @@
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
+import * as git from '@quimbyhq/git'
 import {
   applyHandoff,
   type ApplyMode,
@@ -92,6 +93,18 @@ export async function runApplyCommand({
   const targetRepoPath = resolve(args.target ?? process.cwd())
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
+
+  // Classification runs `git apply --check` against the target's working tree, so a
+  // dirty target would misclassify (and the short-circuit/pre-empt below could return
+  // before applyHandoff's own clean check ever runs). Gate it up front so a dirty repo
+  // gets the right message, not a misleading "nothing to apply" / "use --3way".
+  if (!(await git.isClean(targetRepoPath))) {
+    throw new QuimbyError(
+      `Target repo has uncommitted changes. Commit or stash first.${
+        args.target ? '' : ' (apply lands in the current directory; use -t to target another repo.)'
+      }`,
+    )
+  }
 
   // An agent name stages fresh work (committing the dirty tree — apply ships
   // everything across the boundary); anything else is a parcel already staged
