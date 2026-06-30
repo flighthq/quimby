@@ -131,6 +131,20 @@ export async function diffWorkingTree(cwd: string, base: string): Promise<string
   }
 }
 
+/**
+ * Reconstruct `diffText` with the named files removed. Used to drop already-settled
+ * files from a parcel before applying, so a re-send lands only its unsettled work
+ * instead of `git apply` failing wholesale on files already present in the target.
+ */
+export function filterDiffFiles(diffText: string, dropPaths: readonly string[]): string {
+  if (dropPaths.length === 0) return diffText
+  const drop = new Set(dropPaths)
+  return splitDiffByFile(diffText)
+    .filter((file) => !drop.has(file.path))
+    .map((file) => file.patch)
+    .join('')
+}
+
 export async function formatPatch(
   cwd: string,
   baseRef: string,

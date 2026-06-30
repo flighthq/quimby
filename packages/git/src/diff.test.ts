@@ -12,6 +12,7 @@ import {
   diff,
   diffStaged,
   diffWorkingTree,
+  filterDiffFiles,
   formatPatch,
   getConflicts,
 } from './diff'
@@ -194,6 +195,32 @@ describe('diffWorkingTree', () => {
 
     const output = await diffWorkingTree(dir, 'HEAD')
     expect(output).toContain('wip.txt')
+  })
+})
+
+describe('filterDiffFiles', () => {
+  it('drops the named files and keeps the rest applyable', async () => {
+    await makeCommit(dir, 'keep.txt', 'keep-original\n', 'initial')
+    await writeFile(join(dir, 'keep.txt'), 'keep-modified\n')
+    await writeFile(join(dir, 'drop.txt'), 'drop-new\n')
+    const patch = await diffWorkingTree(dir, 'HEAD')
+    expect(patch).toContain('drop.txt')
+
+    const filtered = filterDiffFiles(patch, ['drop.txt'])
+    expect(filtered).toContain('keep.txt')
+    expect(filtered).not.toContain('drop.txt')
+
+    // The reduced patch still applies cleanly on its own.
+    await execa('git', ['checkout', '--', 'keep.txt'], { cwd: dir })
+    const patchFile = join(dir, 'reduced.patch')
+    await writeFile(patchFile, filtered)
+    await apply(dir, patchFile)
+    expect(await readFile(join(dir, 'keep.txt'), 'utf-8')).toBe('keep-modified\n')
+  })
+
+  it('returns the diff unchanged when nothing is dropped', () => {
+    const patch = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n'
+    expect(filterDiffFiles(patch, [])).toBe(patch)
   })
 })
 

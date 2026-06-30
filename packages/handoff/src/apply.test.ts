@@ -103,6 +103,43 @@ describe('applyHandoff', () => {
   }
 })
 
+describe('applyHandoff skipFiles', () => {
+  it('lands only the new file when settled files are skipped', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    // Two files: one already in the target (settled), one genuinely new.
+    await writeFile(join(agentRepoDir, 'shipped.txt'), 'already shipped\n')
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'work')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+
+    const targetDir = await setupTargetRepo()
+    try {
+      // Pre-place the settled file so its patch can't forward-apply.
+      await writeFile(join(targetDir, 'shipped.txt'), 'already shipped\n')
+      await execa('git', ['add', '-A'], { cwd: targetDir })
+      await execa('git', ['commit', '-m', 'ship'], { cwd: targetDir })
+
+      const { settled, fresh } = await classifyParcelApplication(dir, meta.name, targetDir)
+      expect(settled).toEqual(['shipped.txt'])
+      expect(fresh).toEqual(['feature.txt'])
+
+      // Without skipping, the whole-diff apply would abort on shipped.txt; skipping
+      // it lets feature.txt land.
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'patch',
+        skipFiles: settled,
+      })
+      expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('classifyParcelApplication', () => {
   it('reports fresh files as new and re-sent files as settled', async () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')

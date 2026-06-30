@@ -1,4 +1,5 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -40,14 +41,38 @@ export async function applyHandoff(opts: {
   mode: ApplyMode
   branch?: boolean | string
   threeWay?: boolean
+  /**
+   * Files to omit from the applied diff — already-present (settled) work the caller
+   * has classified, so a re-send lands only what's new instead of `git apply` failing
+   * wholesale on files the target already has. Applies to `squashed`/`patch` modes.
+   */
+  skipFiles?: readonly string[]
 }): Promise<void> {
   const { repoRoot, name, targetRepoPath, mode, branch, threeWay } = opts
+  const skipFiles = opts.skipFiles ?? []
   const dir = getStagingHandoffDir(repoRoot, name)
   const { meta } = await readHandoff(repoRoot, name)
 
   if (!(await git.isClean(targetRepoPath))) {
     throw new QuimbyError('Target repo has uncommitted changes. Commit or stash first.')
   }
+
+  // For diff-based modes, drop settled files up front so a re-send applies only its
+  // unsettled remainder. Materialized to a temp patch the modes below apply in place
+  // of the raw squashed.diff (and cleaned up in `finally`).
+  let reducedDiffPath: string | undefined
+  let reducedIsEmpty = false
+  if (skipFiles.length > 0 && (mode === 'squashed' || mode === 'patch')) {
+    const text = await readFile(join(dir, 'squashed.diff'), 'utf-8')
+    const reduced = git.filterDiffFiles(text, skipFiles)
+    if (reduced.trim() === '') {
+      reducedIsEmpty = true
+    } else {
+      reducedDiffPath = join(tmpdir(), `quimby-apply-${crypto.randomUUID()}.diff`)
+      await writeFile(reducedDiffPath, reduced)
+    }
+  }
+  const squashedPath = reducedDiffPath ?? join(dir, 'squashed.diff')
 
   const previousRef = await git.getCurrentRef(targetRepoPath)
   let branchName: string | undefined
@@ -63,9 +88,11 @@ export async function applyHandoff(opts: {
   try {
     switch (mode) {
       case 'squashed': {
-        const diffPath = join(dir, 'squashed.diff')
+        // Everything was settled — nothing left to commit. (The CLI short-circuits
+        // this earlier; guard here so a direct caller doesn't hit "nothing to commit".)
+        if (reducedIsEmpty) break
         if (threeWay) {
-          const conflicts = await git.applyThreeWay(targetRepoPath, diffPath)
+          const conflicts = await git.applyThreeWay(targetRepoPath, squashedPath)
           if (conflicts.length > 0) {
             throw new ConflictError(
               `Handoff "${name}" applied with ${conflicts.length} conflict(s) — resolve then commit`,
@@ -73,8 +100,8 @@ export async function applyHandoff(opts: {
             )
           }
         } else {
-          await git.apply(targetRepoPath, diffPath, { check: true })
-          await git.apply(targetRepoPath, diffPath)
+          await git.apply(targetRepoPath, squashedPath, { check: true })
+          await git.apply(targetRepoPath, squashedPath)
         }
         await git.addAll(targetRepoPath)
         await git.commit(targetRepoPath, meta.suggestedMessage)
@@ -116,8 +143,20 @@ export async function applyHandoff(opts: {
         break
       }
       case 'patch': {
-        const diffPath = join(dir, 'squashed.diff')
-        await git.apply(targetRepoPath, diffPath)
+        if (reducedIsEmpty) break
+        if (threeWay) {
+          // Leave the merge result (and any conflict markers) in the working tree,
+          // uncommitted — patch mode never commits, so the user curates from there.
+          const conflicts = await git.applyThreeWay(targetRepoPath, squashedPath)
+          if (conflicts.length > 0) {
+            throw new ConflictError(
+              `Handoff "${name}" applied with ${conflicts.length} conflict(s) — resolve the markers (left uncommitted)`,
+              conflicts,
+            )
+          }
+        } else {
+          await git.apply(targetRepoPath, squashedPath)
+        }
         break
       }
     }
@@ -135,5 +174,7 @@ export async function applyHandoff(opts: {
     throw new QuimbyError(
       `Failed to apply handoff "${name}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
     )
+  } finally {
+    if (reducedDiffPath) await rm(reducedDiffPath, { force: true })
   }
 }

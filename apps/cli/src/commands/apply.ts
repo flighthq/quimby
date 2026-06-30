@@ -136,6 +136,18 @@ export async function runApplyCommand({
     }
     return
   }
+  // `commits` replays git-am patches, which can't be file-filtered the way a diff can;
+  // settled files are only dropped for the diff-based modes.
+  const canSkipSettled = mode !== 'commits'
+  if (settled.length > 0) {
+    logger.info(
+      colors.dim(
+        canSkipSettled
+          ? `  skipping ${settled.length} already-present file(s): ${settled.join(', ')}`
+          : `  ${settled.length} already-present file(s) will be replayed (--commits can't skip them)`,
+      ),
+    )
+  }
   if (drifted.length > 0) {
     logger.info(
       colors.dim(`  drifted: ${drifted.join(', ')} — real overlap; ${mode} may need --3way`),
@@ -145,7 +157,15 @@ export async function runApplyCommand({
   logger.start(`Applying "${name}" (${mode} mode${threeWay ? ', 3-way merge' : ''})`)
 
   try {
-    await applyHandoff({ repoRoot, name, targetRepoPath, mode, branch, threeWay })
+    await applyHandoff({
+      repoRoot,
+      name,
+      targetRepoPath,
+      mode,
+      branch,
+      threeWay,
+      skipFiles: canSkipSettled ? settled : [],
+    })
   } catch (err) {
     if (err instanceof ConflictError) {
       logger.warn(`${err.message}`)
