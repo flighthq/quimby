@@ -120,38 +120,48 @@ export async function runApplyCommand({
     targetRepoPath,
   )
   const total = fresh.length + settled.length + drifted.length
-  if (total > 0) {
-    logger.info(
-      `${name}: ${total} file(s) — ${fresh.length} new, ${settled.length} already present, ${drifted.length} drifted`,
-    )
-  }
   // Everything already in your repo: the agent is re-sending shipped work against
   // its old seed. Don't replay a no-op into a confusing conflict — say so and stop.
   if (total > 0 && fresh.length === 0 && drifted.length === 0) {
-    logger.success(`Nothing to apply — all ${settled.length} file(s) already match your repo.`)
+    logger.success(`Nothing to apply — all ${settled.length} file(s) already in your repo.`)
     if (isAgent) {
-      logger.info(`"${args.agent}" still measures its diff against its old seed. Advance it:`)
-      logger.info(`  quimby sync ${args.agent} -f   # snap it to the latest, drop the shipped work`)
+      logger.info(`"${args.agent}" measures against its old seed — advance it:`)
+      logger.info(`  quimby sync ${args.agent} -f   # snap to the latest, drop the shipped work`)
       await discardHandoff(repoRoot, name)
     }
     return
   }
-  // `commits` replays git-am patches, which can't be file-filtered the way a diff can;
+
+  // `commits` replays git-am patches, which can't be file-filtered like a diff;
   // settled files are only dropped for the diff-based modes.
   const canSkipSettled = mode !== 'commits'
-  if (settled.length > 0) {
-    logger.info(
-      colors.dim(
-        canSkipSettled
-          ? `  skipping ${settled.length} already-present file(s): ${settled.join(', ')}`
-          : `  ${settled.length} already-present file(s) will be replayed (--commits can't skip them)`,
-      ),
-    )
+
+  // One quiet line, and only when something's worth flagging (work skipped or a
+  // conflict ahead) — a clean all-new apply needs no preamble. Name the conflicts
+  // (actionable); the settled files are just a count (nothing to do about them).
+  if (settled.length > 0 || drifted.length > 0) {
+    const parts: string[] = []
+    if (fresh.length > 0) parts.push(`${fresh.length} new`)
+    if (settled.length > 0) {
+      parts.push(`${settled.length} already applied${canSkipSettled ? ', skipped' : ''}`)
+    }
+    if (drifted.length > 0) parts.push(`${drifted.length} conflicting (${drifted.join(', ')})`)
+    logger.info(`${name}: ${total} file(s) — ${parts.join('; ')}`)
   }
-  if (drifted.length > 0) {
-    logger.info(
-      colors.dim(`  drifted: ${drifted.join(', ')} — real overlap; ${mode} may need --3way`),
-    )
+
+  // A non-3way squashed/patch apply is atomic — one conflicting file aborts the whole
+  // patch. We've already proven those files won't apply, so don't run git just to fail
+  // on them: name the cure (the conflicts are in the line above) and stop here.
+  if (drifted.length > 0 && !threeWay && (mode === 'squashed' || mode === 'patch')) {
+    logger.warn(`Can't apply cleanly — the conflicting file(s) above must be merged.`)
+    logger.info(`  quimby apply ${args.agent} --3way   # merge them, leaving markers to resolve`)
+    if (isAgent) {
+      logger.info(
+        `  quimby sync ${args.agent}          # or rebase onto your latest, then re-apply`,
+      )
+      await discardHandoff(repoRoot, name)
+    }
+    process.exit(1)
   }
 
   logger.start(`Applying "${name}" (${mode} mode${threeWay ? ', 3-way merge' : ''})`)
@@ -183,43 +193,14 @@ export async function runApplyCommand({
       }
       process.exit(1)
     }
-    // A plain (non-3way) git apply aborts on any context drift. Two very
-    // different causes share this failure, so name the one we can detect:
-    // files "already exist" means the work is already applied (re-apply), while
-    // a context mismatch means the agent's seed has drifted from your repo.
+    // Drift is pre-empted above, so reaching here on a diff-based mode means an
+    // unexpected cause (not a classified conflict) — surface it directly rather than
+    // dumping git's raw wall and guessing.
     if (!threeWay && (mode === 'squashed' || mode === 'patch')) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      const alreadyPresent = (errMsg.match(/already exists in working directory/g) ?? []).length
-      if (alreadyPresent > 0) {
-        // Already-applied: the raw git wall (one line per file) is pure noise here,
-        // so summarize instead of dumping it, and lead with the cure.
-        logger.warn(
-          `Nothing to apply — ${alreadyPresent} of "${args.agent}"'s file(s) are already in your repo. This work looks already applied; the agent still measures its diff against its old seed.`,
-        )
-        if (isAgent) {
-          logger.info(
-            `  quimby sync ${args.agent}             # advance its baseline so there's nothing left to apply`,
-          )
-          logger.info(
-            `  quimby sync ${args.agent} -f          # also drop the agent's local scratch work`,
-          )
-        }
-      } else {
-        logger.error(errMsg)
-        logger.info(
-          "The patch didn't apply cleanly — your repo has drifted from the agent's seed. Try:",
-        )
-        logger.info(
-          `  quimby apply ${args.agent} --3way      # merge, leaving conflict markers to resolve`,
-        )
-        logger.info(
-          `  quimby apply ${args.agent} --commits   # replay the agent's commits individually`,
-        )
-        if (isAgent) {
-          logger.info(
-            `  quimby sync ${args.agent}             # rebase the agent onto your latest, then re-apply`,
-          )
-        }
+      logger.error(err instanceof Error ? err.message : String(err))
+      logger.info(`  quimby apply ${args.agent} --3way   # try a 3-way merge`)
+      if (isAgent) {
+        logger.info(`  quimby sync ${args.agent}          # rebase onto your latest, then re-apply`)
       }
       process.exit(1)
     }
