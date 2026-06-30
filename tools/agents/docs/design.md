@@ -199,7 +199,7 @@ quimby assign <agent> -m "..." | @file [--no-nudge]  Set an agent's current task
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] | --all [-m "..."]   Wake a running agent by typing a message (default "continue") into its tmux session; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present)
-quimby dispatch <agent> [--no-nudge]                 Deliver the agent's queued outbox parcels to their recipients (wakes each running recipient via its tmux session by default)
+quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
 quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the boundary)
 quimby sync <agent...> [--all] [-f] [--base <ref>]   Sync agent(s) to their base, keeping work (-f hard-resets; --base retargets)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
@@ -229,7 +229,7 @@ All flags support `-x` short and `--xxx` long forms:
 
 - `-m` / `--message` (assign, handoff)
 - `-m` / `--message` (nudge — the text to type; defaults to `"continue"`)
-- `--all` (nudge — broadcast to every agent with a live tmux session)
+- `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
