@@ -166,11 +166,14 @@ export async function runApplyCommand({
   // patch. We've already proven those files won't apply, so don't run git just to fail
   // on them: name the cure (the conflicts are in the line above) and stop here.
   if (drifted.length > 0 && !threeWay && (mode === 'squashed' || mode === 'patch')) {
-    logger.warn(`Can't apply cleanly — the conflicting file(s) above must be merged.`)
-    logger.info(`  quimby apply ${args.agent} --3way   # merge them, leaving markers to resolve`)
+    logger.warn(`Can't apply cleanly — ${drifted.length} file(s) conflict with your repo.`)
+    logger.info('To resolve, run one of:')
+    logger.info(
+      `  quimby apply ${args.agent} --3way   # apply anyway, leaving conflict markers to fix by hand`,
+    )
     if (isAgent) {
       logger.info(
-        `  quimby sync ${args.agent}          # or rebase onto your latest, then re-apply`,
+        `  quimby sync ${args.agent}           # rebase ${args.agent} onto your latest first, then re-apply`,
       )
       await discardHandoff(repoRoot, name)
     }
@@ -211,9 +214,12 @@ export async function runApplyCommand({
     // dumping git's raw wall and guessing.
     if (!threeWay && (mode === 'squashed' || mode === 'patch')) {
       logger.error(err instanceof Error ? err.message : String(err))
-      logger.info(`  quimby apply ${args.agent} --3way   # try a 3-way merge`)
+      logger.info('To resolve, try one of:')
+      logger.info(`  quimby apply ${args.agent} --3way   # apply with a 3-way merge`)
       if (isAgent) {
-        logger.info(`  quimby sync ${args.agent}          # rebase onto your latest, then re-apply`)
+        logger.info(
+          `  quimby sync ${args.agent}           # rebase onto your latest, then re-apply`,
+        )
       }
       process.exit(1)
     }
