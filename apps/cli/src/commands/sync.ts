@@ -1,5 +1,6 @@
 import { syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
+import * as git from '@quimbyhq/git'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -8,7 +9,7 @@ export default defineCommand({
   meta: {
     name: 'sync',
     description:
-      'Sync agent(s) to their base, keeping their work (-f hard-resets, --base retargets)',
+      'Sync agent(s) to their base, keeping their work (-f hard-resets; --base/--current retarget)',
   },
   args: {
     name: {
@@ -31,6 +32,11 @@ export default defineCommand({
       type: 'string',
       description: "Retarget the agent's sync ref to this branch, then sync onto it",
     },
+    current: {
+      type: 'boolean',
+      description: "Retarget to the host's current branch, then sync onto it (pairs with -f)",
+      default: false,
+    },
   },
   run: runSyncCommand,
 })
@@ -38,7 +44,14 @@ export default defineCommand({
 export async function runSyncCommand({
   args,
 }: {
-  args: { name?: string; _?: string[]; all: boolean; force: boolean; base?: string }
+  args: {
+    name?: string
+    _?: string[]
+    all: boolean
+    force: boolean
+    base?: string
+    current: boolean
+  }
 }): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -47,8 +60,25 @@ export async function runSyncCommand({
   if (!args.all && explicit.length === 0) {
     throw new QuimbyError('Specify one or more agent names, or use --all')
   }
+  if (args.base && args.current) {
+    throw new QuimbyError('Use --base <ref> or --current, not both')
+  }
   if (args.all && args.base) {
     throw new QuimbyError('--base retargets a single agent; use it with a name, not --all')
+  }
+
+  // --current is sugar for `--base <the host's current branch>`, resolved once. Unlike
+  // an arbitrary --base, it reads as "snap onto where I am", so it's allowed with --all
+  // (retarget every agent onto the branch you're integrating on).
+  let base = args.base
+  if (args.current) {
+    const branch = await git.getCurrentBranch(repoRoot)
+    if (!branch) {
+      throw new QuimbyError(
+        'Cannot use --current: HEAD is detached (no branch to track). Pass --base <ref> instead.',
+      )
+    }
+    base = branch
   }
 
   const names = args.all ? Object.keys(state.agents) : explicit
@@ -64,7 +94,7 @@ export async function runSyncCommand({
     const prevSeed = state.agents[name].seedCommit
 
     try {
-      const result = await syncAgent(repoRoot, name, { force: args.force, base: args.base })
+      const result = await syncAgent(repoRoot, name, { force: args.force, base })
       const seedShort = result.newSeed.slice(0, 8)
       if (args.force) {
         logger.success(`${name}: hard-reset to ${seedShort}`)

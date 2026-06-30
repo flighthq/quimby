@@ -98,6 +98,16 @@ export async function getConfig(cwd: string, key: string): Promise<string | unde
   }
 }
 
+/** The checked-out branch name, or undefined on a detached HEAD (no branch to name). */
+export async function getCurrentBranch(cwd: string): Promise<string | undefined> {
+  try {
+    const stdout = await git(['symbolic-ref', '--short', 'HEAD'], cwd)
+    return stdout.trim()
+  } catch {
+    return undefined
+  }
+}
+
 export async function getCurrentRef(cwd: string): Promise<string> {
   const stdout = await git(['rev-parse', 'HEAD'], cwd)
   return stdout.trim()

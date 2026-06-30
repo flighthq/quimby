@@ -14,6 +14,7 @@ import {
   createBranch,
   deleteBranch,
   findRoot,
+  getCurrentBranch,
   getCurrentRef,
   getRemoteUrl,
   hasCommitsSince,
@@ -143,6 +144,21 @@ describe('findRoot', () => {
     } finally {
       await rm(notARepo, { recursive: true, force: true })
     }
+  })
+})
+
+describe('getCurrentBranch', () => {
+  it('returns the checked-out branch name', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    await createBranch(dir, 'feature/x')
+    expect(await getCurrentBranch(dir)).toBe('feature/x')
+  })
+
+  it('returns undefined on a detached HEAD', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    const sha = await getCurrentRef(dir)
+    await checkout(dir, sha)
+    expect(await getCurrentBranch(dir)).toBeUndefined()
   })
 })
 

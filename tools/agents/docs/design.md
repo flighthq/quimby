@@ -201,7 +201,7 @@ quimby nudge <agent> [-m "..."] | --all [-m "..."]   Wake a running agent by typ
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present)
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
 quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the boundary)
-quimby sync <agent...> [--all] [-f] [--base <ref>]   Sync agent(s) to their base, keeping work (-f hard-resets; --base retargets)
+quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (--force: skip remote cleanup)
@@ -239,6 +239,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-b` / `--branch` (apply)
 - `-t` / `--target` (apply)
 - `-s` / `--sync` (add, set)
+- `--base` / `--current` (sync — retarget the sync ref; `--current` uses the host's current branch)
 - `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
 - `--stat` (diff)
 - `--commits`, `--patch`, `--3way` (apply)
@@ -354,6 +355,7 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 - **default (safe)** — auto-stash the agent's uncommitted + untracked work, rebase its commits onto the new base, retag `quimby/seed`, then restore the stash. The agent's work is kept. A rebase or restore conflict aborts and reports, leaving the work intact.
 - **`-f` (hard)** — `reset --hard` to the base, discarding the agent's commits and working changes — but its **mailbox** (inbox/outbox/assignment/status) is untouched. For "my work shipped; snap me to the latest and keep me in the conversation."
 - **`--base <ref>`** — retarget `syncRef` to `<ref>` (persisted), then sync onto it. The way to move an agent to a different branch. (`set --sync` records the ref without syncing.)
+- **`--current`** — sugar for `--base <the host's current branch>`, resolved once at call time. The everyday "snap onto where I am" — pair it with `-f` for the most common move after integrating (`quimby sync <agent> --current -f`: drop the agent's now-shipped work and rebase it on the branch you just landed work onto). It still **persists** the resolved branch as `syncRef`, so plain `sync` stays deterministic afterward; only the one-time read of live `HEAD` is implicit, and it errors on a detached HEAD (no branch to track). Orthogonal to `-f`: without `-f` it rebases the agent's work onto your branch; with `-f` it resets. Unlike `--base`, it is allowed with `--all` (retarget every agent onto your integration branch in one call).
 
 `--all` syncs every agent, skipping any with conflicts. Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`. The apply target is independent of `syncRef` — `quimby apply <agent> -t <branch>` lands work wherever you choose.
 
