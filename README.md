@@ -75,44 +75,33 @@ All commands follow `verb target [qualifiers]`. Work moves along a few axes:
 ### Agents
 
 ```
-quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent
-quimby config <agent>                                     Interactively (re)configure an agent
-quimby run <agent> [-c <cmd>] [-r <runtime>]              Launch the agent interactively
-quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [-s <ref>]  Update agent config
-quimby list                                               Show agents and subscriptions
-quimby status [agent]                                     Show agent-written status
-quimby assign <agent> -m "..." [--no-nudge]               Set the agent's current task
-quimby diff <agent> [agent2]                              Show live diff against seed
-quimby nudge <agent> [-m <msg>] | --all [-m <msg>]        Wake a running agent via tmux
-quimby sync <agent...> [--all] [-f] [--base <ref>]        Sync agent(s) to their base
-quimby rebuild <agent> --force                            Recreate agent from scratch
-quimby rename <agent> <new-name>                          Rename agent
-quimby remove <agent> [--force]                           Remove agent
+
+quimby add <agent> [-H <host>] [--port <n>] [-s <ref>] Create an agent quimby config <agent> Interactively (re)configure an agent quimby run <agent> [-c <cmd>] [-r <runtime>] Launch the agent interactively quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [-s <ref>] Update agent config quimby list Show agents and subscriptions quimby status [agent] Show agent-written status quimby assign <agent> -m "..." [--no-nudge] Set the agent's current task quimby diff <agent> [agent2] Show live diff against seed quimby nudge <agent> [-m <msg>] | --all [-m <msg>] Wake a running agent via tmux quimby sync <agent...> [--all] [-f] [--base <ref>] Sync agent(s) to their base quimby rebuild <agent> --force Recreate agent from scratch quimby rename <agent> <new-name> Rename agent quimby remove <agent> [--force] Remove agent
+
 ```
 
 ### Handoffs
 
 ```
-quimby handoff <from> <to> [-m <note>] [--attach <w>]    Carry work between agents
-quimby handoff <to> [-m <note>]                           Carry host's work to an agent
-quimby dispatch <agent> [--no-nudge]                      Deliver agent's outbox parcels
-quimby apply <agent> [--commits|--patch] [--3way] [-b]    Apply agent's work to your repo
+
+quimby handoff <from> <to> [-m <note>] [--attach <w>] Carry work between agents quimby handoff <to> [-m <note>] Carry host's work to an agent quimby dispatch <agent> [--no-nudge] Deliver agent's outbox parcels quimby apply <agent> [--commits|--patch] [--3way] [-b] Apply agent's work to your repo
+
 ```
 
 ### Server & Subscriptions
 
 ```
-quimby serve [-p <port>] [--poll <secs>]                  Start the server (default port 7749)
-quimby subscribe <agent> <target>                         Agent receives target's status
-quimby unsubscribe <agent> <target>                       Remove subscription
+
+quimby serve [-p <port>] [--poll <secs>] Start the server (default port 7749) quimby subscribe <agent> <target> Agent receives target's status quimby unsubscribe <agent> <target> Remove subscription
+
 ```
 
 ### SSH Agents
 
 ```
-quimby add researcher -H user@gpu-box                     Add a remote agent
-quimby sync researcher                                    Rsync project to remote
-quimby run researcher                                     Sync, init if needed, attach tmux
+
+quimby add researcher -H user@gpu-box Add a remote agent quimby sync researcher Rsync project to remote quimby run researcher Sync, init if needed, attach tmux
+
 ```
 
 SSH agents are initialized lazily on first `quimby run` — no SSH connection required at add time. Sessions run in named tmux sessions that persist across disconnects.
@@ -191,6 +180,8 @@ my-project/
 
 An npm-workspace monorepo split by capability — one package per domain, no catch-all `core`.
 
+<<<<<<< HEAD
+
 | Package               | Path                 | Description                                    |
 | --------------------- | -------------------- | ---------------------------------------------- |
 | `quimby`              | `apps/cli`           | CLI binary (citty commands, tsup-bundled)      |
@@ -206,6 +197,24 @@ An npm-workspace monorepo split by capability — one package per domain, no cat
 | `@quimbyhq/agent`     | `packages/agent`     | Agent lifecycle (add, remove, rename, sync)    |
 | `@quimbyhq/handoff`   | `packages/handoff`   | Parcel assembly, delivery, and apply           |
 | `@quimbyhq/server`    | `packages/server`    | HTTP server, status poller, client             |
+| =======               |
+| Package               | Path                 | Description                                    |
+| ---                   | ---                  | ---                                            |
+| `quimby`              | `apps/cli`           | CLI binary (citty commands, tsup-bundled)      |
+| `@quimbyhq/types`     | `packages/types`     | Shared type definitions                        |
+| `@quimbyhq/errors`    | `packages/errors`    | Error taxonomy                                 |
+| `@quimbyhq/utils`     | `packages/utils`     | Generic helpers (fs, yaml, logger)             |
+| `@quimbyhq/paths`     | `packages/paths`     | On-disk and remote layout                      |
+| `@quimbyhq/template`  | `packages/template`  | Agent CLAUDE.md generation                     |
+| `@quimbyhq/git`       | `packages/git`       | Typed git CLI wrapper                          |
+| `@quimbyhq/transport` | `packages/transport` | Local/SSH transport abstraction                |
+| `@quimbyhq/runtimes`  | `packages/runtimes`  | Runtime adapters (local, sbx, openshell)       |
+| `@quimbyhq/workspace` | `packages/workspace` | State lifecycle (resolve, load, save, migrate) |
+| `@quimbyhq/agent`     | `packages/agent`     | Agent lifecycle (add, remove, rename, sync)    |
+| `@quimbyhq/handoff`   | `packages/handoff`   | Parcel assembly, delivery, and apply           |
+| `@quimbyhq/server`    | `packages/server`    | HTTP server, status poller, client             |
+
+> > > > > > > docs: rewrite README to match current project state
 
 Dependency flow: types/errors/utils/paths/template → git/transport/runtimes → workspace → agent/handoff → server → apps/cli.
 
