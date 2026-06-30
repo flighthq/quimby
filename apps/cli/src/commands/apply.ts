@@ -50,7 +50,7 @@ export default defineCommand({
     message: {
       type: 'string',
       alias: 'm',
-      description: 'Commit message for uncommitted work + suggested apply message',
+      description: 'Commit message (used for the merge commit and uncommitted work)',
     },
     rebase: {
       type: 'boolean',
@@ -117,6 +117,7 @@ export async function runApplyCommand({
       targetRepoPath,
       mode,
       branch,
+      message: args.message,
     })
 
     await discardHandoff(repoRoot, name)

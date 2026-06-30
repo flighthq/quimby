@@ -34,7 +34,7 @@ export async function applyHandoff(opts: {
   targetRepoPath: string
   mode: ApplyMode
   branch?: boolean | string
-  threeWay?: boolean
+  message?: string
 }): Promise<ApplyResult> {
   const { repoRoot, name, targetRepoPath, mode } = opts
   const dir = getStagingHandoffDir(repoRoot, name)
@@ -82,7 +82,7 @@ export async function applyHandoff(opts: {
         if (await exists(squashedPath)) {
           await git.apply(targetRepoPath, squashedPath)
           await git.addAll(targetRepoPath)
-          await git.commit(targetRepoPath, meta.suggestedMessage)
+          await git.commit(targetRepoPath, meta.suggestedMessage, { skipHooks: true })
         }
         break
       }
@@ -100,14 +100,16 @@ export async function applyHandoff(opts: {
           if (await exists(remainderPath)) {
             await git.apply(targetRepoPath, remainderPath)
             await git.addAll(targetRepoPath)
-            await git.commit(targetRepoPath, `Uncommitted work from ${meta.from}`)
+            await git.commit(targetRepoPath, `Uncommitted work from ${meta.from}`, {
+              skipHooks: true,
+            })
           }
         } else {
           const squashedPath = join(dir, 'squashed.diff')
           if (await exists(squashedPath)) {
             await git.apply(targetRepoPath, squashedPath)
             await git.addAll(targetRepoPath)
-            await git.commit(targetRepoPath, meta.suggestedMessage)
+            await git.commit(targetRepoPath, meta.suggestedMessage, { skipHooks: true })
           }
         }
         break
@@ -119,15 +121,14 @@ export async function applyHandoff(opts: {
     await git.checkout(targetRepoPath, mergeTarget)
 
     // Step 3: Merge the temp branch in.
-    const mergeMessage = `Apply ${meta.from}: ${meta.suggestedMessage}`
+    const mergeMessage = opts.message ?? `Apply ${meta.from}: ${meta.suggestedMessage}`
     try {
       if (mode === 'patch') {
         await git.merge(targetRepoPath, tempBranch, { squash: true, noCommit: true })
       } else {
         await git.merge(targetRepoPath, tempBranch, { noFf: true, message: mergeMessage })
       }
-    } catch {
-      // Merge conflicted — this is a normal git merge conflict, not a patch failure.
+    } catch (mergeErr) {
       const conflicts = await git.getConflicts(targetRepoPath)
       if (conflicts.length > 0) {
         throw new ConflictError(
@@ -135,11 +136,11 @@ export async function applyHandoff(opts: {
           conflicts,
         )
       }
-      // Not a conflict — some other merge failure; re-throw after cleanup.
       await git.mergeAbort(targetRepoPath).catch(() => {})
       await git.checkout(targetRepoPath, previousRef).catch(() => {})
       if (landingBranch) await git.deleteBranch(targetRepoPath, landingBranch).catch(() => {})
-      throw new QuimbyError(`Failed to merge "${name}" into the target repo`)
+      const detail = mergeErr instanceof Error ? mergeErr.message : String(mergeErr)
+      throw new QuimbyError(`Merge failed:\n${detail}`)
     }
 
     // Step 4: Clean up the temp branch.

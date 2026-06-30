@@ -47,8 +47,14 @@ export async function clone(
   await execa('git', args)
 }
 
-export async function commit(cwd: string, message: string): Promise<void> {
-  await git(['commit', '-m', message], cwd)
+export async function commit(
+  cwd: string,
+  message: string,
+  opts?: { skipHooks?: boolean },
+): Promise<void> {
+  const args = ['commit', '-m', message]
+  if (opts?.skipHooks) args.push('--no-verify')
+  await git(args, cwd)
 }
 
 /**
