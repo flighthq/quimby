@@ -76,9 +76,9 @@ export async function runAssignCommand({
 
   let syncFailed = false
   if (args.sync) {
-    const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
+    const { behind, syncRef } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
     if (behind > 0) {
-      logger.start(`"${args.name}" is ${behind} commit(s) behind — syncing`)
+      logger.start(`"${args.name}" is ${behind} commit(s) behind ${syncRef} — syncing`)
       try {
         const result = await syncAgent(repoRoot, args.name)
         if (result.rebased) {

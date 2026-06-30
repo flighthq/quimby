@@ -40,11 +40,17 @@ export async function runListCommand() {
       const agent = state.agents[name]
       const defaults = agent.defaults
 
-      const syncRef = agent.syncRef ?? state.sourceRef
-      const { behind } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => ({
+      const { behind, syncRef: resolvedSyncRef } = await getAgentSyncStatus(
+        repoRoot,
+        agent,
+        state.sourceRef,
+      ).catch(() => ({
         behind: 0,
+        syncRef: agent.syncRef ?? state.sourceRef,
+        targetCommit: '',
       }))
-      const behindStr = behind > 0 ? `  ${yellow(`${behind} behind`)}` : ''
+      const syncRef = resolvedSyncRef
+      const behindStr = behind > 0 ? `  ${yellow(`${behind} behind ${syncRef}`)}` : ''
       const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
 
       let locationStr = ''

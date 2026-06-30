@@ -23,6 +23,8 @@ import {
   init,
   isClean,
   log,
+  merge,
+  mergeAbort,
   rebase,
   rebaseAbort,
   resetHard,
@@ -115,6 +117,15 @@ describe('createBranch', () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await createBranch(dir, 'feature')
     expect(await branchExists(dir, 'feature')).toBe(true)
+  })
+
+  it('creates a branch from a specific start point', async () => {
+    await makeCommit(dir, 'file.txt', 'v1', 'first')
+    const firstSha = await revParse(dir, 'HEAD')
+    await makeCommit(dir, 'file.txt', 'v2', 'second')
+    await createBranch(dir, 'from-first', firstSha)
+    const branchSha = await revParse(dir, 'HEAD')
+    expect(branchSha).toBe(firstSha)
   })
 })
 
@@ -270,6 +281,44 @@ describe('log', () => {
     await makeCommit(dir, 'file.txt', 'content', 'test commit')
     const output = await log(dir, 'HEAD')
     expect(output).toContain('|')
+  })
+})
+
+describe('merge', () => {
+  it('merges a branch with --no-ff', async () => {
+    await makeCommit(dir, 'file.txt', 'base', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'feature.txt', 'feature work', 'add feature')
+    await checkout(dir, defaultBranch)
+    await merge(dir, 'feature', { noFf: true, message: 'merge feature' })
+    const output = await log(dir, 'HEAD', '%s')
+    expect(output).toContain('merge feature')
+    expect(await readFile(join(dir, 'feature.txt'), 'utf-8')).toBe('feature work')
+  })
+
+  it('merges with --squash --no-commit leaving changes staged', async () => {
+    await makeCommit(dir, 'file.txt', 'base', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'new.txt', 'new content', 'add new')
+    await checkout(dir, defaultBranch)
+    await merge(dir, 'feature', { squash: true, noCommit: true })
+    expect(await isClean(dir)).toBe(false)
+    expect(await readFile(join(dir, 'new.txt'), 'utf-8')).toBe('new content')
+  })
+})
+
+describe('mergeAbort', () => {
+  it('throws when not in a merge', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    await expect(mergeAbort(dir)).rejects.toThrow()
   })
 })
 
