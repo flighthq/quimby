@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ConflictError } from '@quimbyhq/errors'
-import { addAll, commit, init, tag } from '@quimbyhq/git'
+import { addAll, commit, getCurrentBranch, init, tag } from '@quimbyhq/git'
 import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
 import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
@@ -158,6 +158,79 @@ describe('applyHandoff', () => {
           mode: 'squashed',
         }),
       ).rejects.toThrow(ConflictError)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up the temp branch after a successful apply', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const result = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+      })
+      const { stdout } = await execa('git', ['branch', '--list', result.tempBranch], {
+        cwd: targetDir,
+      })
+      expect(stdout.trim()).toBe('')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the target on its original branch after a successful apply', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const branchBefore = await getCurrentBranch(targetDir)
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+      })
+      const branchAfter = await getCurrentBranch(targetDir)
+      expect(branchAfter).toBe(branchBefore)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses the provided message for the merge commit', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+        message: 'feat: integrate alice work',
+      })
+      const { stdout } = await execa('git', ['log', '-1', '--format=%s'], { cwd: targetDir })
+      expect(stdout.trim()).toBe('feat: integrate alice work')
     } finally {
       await rm(targetDir, { recursive: true, force: true })
       await rm(sourceDir, { recursive: true, force: true })
