@@ -80,7 +80,7 @@ quimby help [command]                                # root help (grouped + bann
 quimby status [agent]                               # show agent-written status
 quimby assign <agent> -m "..." [--no-nudge]         # set an agent's current task (assignment.md); by default wakes a running agent by injecting "Here's your assignment: @assignment.md" + Return into its tmux session (--no-nudge to skip)
 quimby diff <agent> [agent2]                        # show an agent's live diff against its seed
-quimby nudge <agent> [-m <msg>]                     # wake a running agent by typing a message (default "continue") + Return into its tmux session; -m also carries CLI control commands ("/clear", "/model …")
+quimby nudge <agent> [-m <msg>] | --all [-m <msg>]  # wake a running agent by typing a message (default "continue") + Return into its tmux session; --all broadcasts to every agent with a live tmux session (probed, so dead ones are skipped); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m <note>] [--attach <w>] [--rebase] [--nudge|--no-nudge]  # carry <from>'s work to <to>; with one arg, the host's work → that agent (sender "host"); nudges the recipient by default only when a note (-m) is present
 quimby dispatch <agent> [--rebase] [--no-nudge]  # deliver the agent's queued outbox parcels to their recipients (bounces unknown recipients; drains to outbox/.sent on success); nudges each running recipient via tmux by default
 quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t] [--rebase]  # package the agent's work and apply it (auto-commits dirty tree; --3way merges conflicts; keeps the parcel on conflict)

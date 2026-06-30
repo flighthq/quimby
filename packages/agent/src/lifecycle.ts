@@ -81,7 +81,7 @@ export async function addAgent(
   await writeText(join(agentDir, 'assignment.md'), '')
   await writeText(join(agentDir, 'status.md'), 'idle')
 
-  const claudeMd = renderAgentClaudeMd({ agentName: name })
+  const claudeMd = renderAgentClaudeMd({ agentName: name, agentId: agentState.id })
   await writeText(join(agentDir, 'CLAUDE.md'), claudeMd)
 
   state.agents[name] = agentState

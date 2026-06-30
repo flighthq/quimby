@@ -90,7 +90,6 @@ export async function runDispatchCommand({
         // Point the recipient at the parcel just dropped in its inbox (the inbox sits
         // in the agent's cwd, named by sender + content hash).
         await nudgeAgentSession({
-          projectId: state.id,
           agent: recip,
           displayName: recipient,
           text: `New handoff in your inbox: @inbox/${meta.name}/ — please review.`,

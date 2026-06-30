@@ -53,14 +53,12 @@ describe('remoteQuimbyDir', () => {
 })
 
 describe('tmuxSessionName', () => {
-  it('returns qb-<first8>-<first8> format', () => {
-    const projectId = 'abcdef12-1234-5678-9abc-def012345678'
+  it('returns qb-<agentId first8> format', () => {
     const agentId = '98765432-abcd-ef01-2345-6789abcdef01'
-    expect(tmuxSessionName(projectId, agentId)).toBe('qb-abcdef12-98765432')
+    expect(tmuxSessionName(agentId)).toBe('qb-98765432')
   })
 
-  it('truncates UUIDs to 8 characters', () => {
-    const result = tmuxSessionName('aabbccdd-xxxx', 'eeffgghh-yyyy')
-    expect(result).toBe('qb-aabbccdd-eeffgghh')
+  it('truncates the agent UUID to 8 characters', () => {
+    expect(tmuxSessionName('eeffgghh-yyyy')).toBe('qb-eeffgghh')
   })
 })

@@ -21,7 +21,11 @@ export function remoteAgentRepoDir(projectId: string, agentId: string, base?: st
 
 // ── Stable identifiers ────────────────────────────────────────────────────────
 
-/** tmux session name derived from stable IDs — unaffected by quimby rename. */
-export function tmuxSessionName(projectId: string, agentId: string): string {
-  return `qb-${projectId.slice(0, 8)}-${agentId.slice(0, 8)}`
+/**
+ * tmux session name derived from the agent's stable id — unaffected by quimby rename.
+ * The agent id is globally unique, so it alone names the session; the human-facing
+ * label is the tmux *window* title (set to the agent's display name on `run`).
+ */
+export function tmuxSessionName(agentId: string): string {
+  return `qb-${agentId.slice(0, 8)}`
 }

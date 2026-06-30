@@ -73,7 +73,6 @@ export async function runAssignCommand({
 
   if (args.nudge) {
     await nudgeAgentSession({
-      projectId: state.id,
       agent,
       displayName: args.name,
       text: NUDGE_TEXT,

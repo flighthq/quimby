@@ -1,10 +1,11 @@
-export function renderAgentClaudeMd(opts: { agentName: string }): string {
-  const { agentName } = opts
+export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }): string {
+  const { agentName, agentId } = opts
 
   const sections = [
     `# Agent Instructions`,
     ``,
     `You are the **${agentName}** agent.`,
+    `Your stable agent id is \`${agentId}\` — it never changes, even if you are renamed.`,
     ``,
     `## Workspace Layout`,
     ``,

@@ -57,7 +57,7 @@ export async function runListCommand() {
 
       let locationStr = ''
       if (isSSH(agent.location)) {
-        const session = tmuxSessionName(state.id, agent.id)
+        const session = tmuxSessionName(agent.id)
         locationStr = `  ${cyan(`[ssh: ${agent.location.host}]`)} ${dim(`tmux: ${session}`)}`
       }
 
@@ -76,8 +76,10 @@ export async function runListCommand() {
         }
       }
 
+      // The short id matches the tmux session (`qb-<id8>`) and sandbox names, so the
+      // roster correlates with `tmux ls` / `sbx ls`.
       console.log(
-        `  ${name}  ${dim(agent.seedCommit.slice(0, 8))}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
+        `  ${name}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
       )
     }
   }

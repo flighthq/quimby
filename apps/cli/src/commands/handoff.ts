@@ -92,7 +92,7 @@ export async function runHandoffCommand({
     })
     await discardHandoff(repoRoot, meta.name)
     logger.success(`Handed off from ${HOST_SENDER} to "${recipient}"`)
-    if (shouldNudge) await nudgeRecipient(state.id, recip, recipient, meta.name)
+    if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name)
     return
   }
 
@@ -120,17 +120,15 @@ export async function runHandoffCommand({
   })
   await discardHandoff(repoRoot, meta.name)
   logger.success(`Handed off from "${source}" to "${recipient}"`)
-  if (shouldNudge) await nudgeRecipient(state.id, recip, recipient, meta.name)
+  if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name)
 }
 
 async function nudgeRecipient(
-  projectId: string,
   recip: Readonly<AgentState>,
   displayName: string,
   parcelName: string,
 ): Promise<void> {
   await nudgeAgentSession({
-    projectId,
     agent: recip,
     displayName,
     text: `New handoff in your inbox: @inbox/${parcelName}/ — please review.`,

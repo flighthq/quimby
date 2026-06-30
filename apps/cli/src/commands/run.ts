@@ -86,7 +86,7 @@ export async function runRunCommand({
       const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
       await transport.writeFile(`${rAgentDir}/assignment.md`, '')
       await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
-      const claudeMd = renderAgentClaudeMd({ agentName: args.name })
+      const claudeMd = renderAgentClaudeMd({ agentName: args.name, agentId: agent.id })
       await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
 
       state.agents[args.name].seedCommit = seedCommit
@@ -131,7 +131,7 @@ export async function runRunCommand({
     const titleCmd = `tmux set-window-option automatic-rename off 2>/dev/null; tmux rename-window ${sq(args.name)} 2>/dev/null`
     const remoteCmd = `${titleCmd}; ${launchCmd}`
 
-    const sessionName = tmuxSessionName(state.id, agent.id)
+    const sessionName = tmuxSessionName(agent.id)
     const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
     logger.success(`Attaching to tmux session "${sessionName}" on ${loc.host}${runtimeLabel}`)
     // CWD is rAgentDir (parent of repo/) so the agent sees assignment.md, inbox/, etc.
@@ -174,7 +174,7 @@ export async function runRunCommand({
   // session (the persistence SSH agents always get). `-A` attaches to an
   // existing session or creates one; `-e` carries any runtime env into it.
   if (agent.tmux) {
-    const sessionName = tmuxSessionName(state.id, agent.id)
+    const sessionName = tmuxSessionName(agent.id)
     const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [
       '-e',
       `${key}=${value}`,
