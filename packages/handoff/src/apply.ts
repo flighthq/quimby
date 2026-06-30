@@ -51,7 +51,8 @@ export async function applyHandoff(opts: {
     )
   }
 
-  const previousRef = await git.getCurrentRef(targetRepoPath)
+  const previousRef =
+    (await git.getCurrentBranch(targetRepoPath)) ?? (await git.getCurrentRef(targetRepoPath))
   const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit.slice(0, 8)}`
 
   // If a landing branch was requested, create it from the current position before we
