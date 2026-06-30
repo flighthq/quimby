@@ -10,13 +10,14 @@ export async function getAgentSyncStatus(
   repoRoot: string,
   agent: Readonly<AgentState>,
   fallback: string,
-): Promise<{ behind: number; targetCommit: string }> {
+): Promise<{ behind: number; syncRef: string; targetCommit: string }> {
+  const syncRef = agent.syncRef ?? fallback
   const targetCommit = await resolveSyncTarget(repoRoot, agent, fallback)
   if (!agent.seedCommit || agent.seedCommit === targetCommit) {
-    return { behind: 0, targetCommit }
+    return { behind: 0, syncRef, targetCommit }
   }
   const behind = await git.countCommits(repoRoot, `${agent.seedCommit}..${targetCommit}`)
-  return { behind, targetCommit }
+  return { behind, syncRef, targetCommit }
 }
 
 export async function syncAgent(

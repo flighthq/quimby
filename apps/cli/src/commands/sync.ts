@@ -93,19 +93,23 @@ export async function runSyncCommand({
     if (!state.agents[name]) {
       throw new QuimbyError(`Agent "${name}" not found`)
     }
-    const prevSeed = state.agents[name].seedCommit
+    const agent = state.agents[name]
+    const prevSeed = agent.seedCommit
+    const syncRef = agent.syncRef ?? state.sourceRef
 
     try {
       const result = await syncAgent(repoRoot, name, { force: args.force, base })
       const seedShort = result.newSeed.slice(0, 8)
       if (args.force) {
-        logger.success(`${name}: hard-reset to ${seedShort}`)
+        logger.success(`${name}: hard-reset to ${syncRef} (${seedShort})`)
       } else if (result.newSeed === prevSeed) {
-        logger.info(`${name}: already up to date`)
+        logger.info(`${name}: already up to date with ${syncRef}`)
       } else if (result.rebased) {
-        logger.success(`${name}: ${result.commitsReplayed} commit(s) rebased onto ${seedShort}`)
+        logger.success(
+          `${name}: ${result.commitsReplayed} commit(s) rebased onto ${syncRef} (${seedShort})`,
+        )
       } else {
-        logger.success(`${name}: fast-forwarded to ${seedShort}`)
+        logger.success(`${name}: fast-forwarded to ${syncRef} (${seedShort})`)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
