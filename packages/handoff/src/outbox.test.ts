@@ -78,6 +78,10 @@ afterEach(async () => {
 })
 
 describe('markHandoffSent', () => {
+  it('is a no-op when the draft does not exist', async () => {
+    await expect(markHandoffSent(dir, 'ghost', 'builder')).resolves.toBeUndefined()
+  })
+
   it('moves an outbox draft into the .sent ledger', async () => {
     await setupAgentRepo(dir, 'review')
     const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
@@ -92,6 +96,14 @@ describe('markHandoffSent', () => {
 })
 
 describe('readOutboxDraft', () => {
+  it('returns an empty note when no README.md is staged', async () => {
+    await setupAgentRepo(dir, 'review')
+    await mkdir(getAgentOutboxDraftDir(dir, 'review', 'builder'), { recursive: true })
+    const parsed = await readOutboxDraft(dir, 'review', 'builder')
+    expect(parsed.note).toBe('')
+    expect(parsed.attach).toBeUndefined()
+  })
+
   it('parses the note and an attach: code source from frontmatter', async () => {
     await setupAgentRepo(dir, 'review')
     const draft = getAgentOutboxDraftDir(dir, 'review', 'integration')
@@ -100,6 +112,16 @@ describe('readOutboxDraft', () => {
     const parsed = await readOutboxDraft(dir, 'review', 'integration')
     expect(parsed.attach).toBe('builder')
     expect(parsed.note).toBe('promote this work')
+  })
+
+  it('strips frontmatter but returns no attach when no attach: key is present', async () => {
+    await setupAgentRepo(dir, 'review')
+    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
+    await mkdir(draft, { recursive: true })
+    await writeFile(join(draft, 'README.md'), '---\nsome: metadata\n---\nclean up the null case')
+    const parsed = await readOutboxDraft(dir, 'review', 'builder')
+    expect(parsed.attach).toBeUndefined()
+    expect(parsed.note).toBe('clean up the null case')
   })
 
   it('returns the raw note when there is no frontmatter', async () => {
