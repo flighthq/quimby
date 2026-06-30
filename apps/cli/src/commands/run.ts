@@ -58,11 +58,20 @@ export async function runRunCommand({
     const loc = agent.location
     const transport = getSSHTransport(loc)
     const rRoot = remoteProjectRoot(state.id, loc.base)
-    const rAgentDir = remoteAgentDir(state.id, args.name, loc.base)
-    const rRepoDir = remoteAgentRepoDir(state.id, args.name, loc.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, loc.base)
+    const rRepoDir = remoteAgentRepoDir(state.id, agent.id, loc.base)
 
     logger.start(`Syncing project to ${loc.host}...`)
     await transport.syncProjectTo(repoRoot, rRoot)
+
+    // One-time migration of a remote agent dir from the legacy name-keyed layout to
+    // the UUID-keyed one, so an existing remote agent's work isn't re-cloned away.
+    const rLegacyAgentDir = remoteAgentDir(state.id, args.name, loc.base)
+    if (rLegacyAgentDir !== rAgentDir) {
+      await transport.exec(
+        `if [ -d ${rLegacyAgentDir} ] && [ ! -d ${rAgentDir} ]; then mkdir -p "$(dirname ${rAgentDir})" && mv ${rLegacyAgentDir} ${rAgentDir}; fi`,
+      )
+    }
 
     // Lazy remote init: set up agent dirs and clone if this is the first run.
     const repoReady = await transport.fileExists(`${rRepoDir}/.git`)
@@ -112,9 +121,12 @@ export async function runRunCommand({
     )
     // Quote the user-supplied entrypoint wherever it appears in the args; leave
     // the runtime's own static tokens (e.g. 'run', 'sandbox') unquoted.
-    const remoteCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
+    const launchCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
       ' ',
     )
+    // Label the tmux window with the current display name so the on-screen name
+    // tracks renames (the session itself stays UUID-keyed for stable identity).
+    const remoteCmd = `tmux rename-window ${sq(args.name)} 2>/dev/null; ${launchCmd}`
 
     const sessionName = tmuxSessionName(state.id, agent.id)
     const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
@@ -162,6 +174,18 @@ export async function runRunCommand({
       '-e',
       `${key}=${value}`,
     ])
+    // Run the command through a login shell (like the SSH path) so the tmux
+    // pane resolves PATH from the user's profile. Without this, tmux execs the
+    // command in the tmux server's environment — which may predate (or lack)
+    // user-installed tools like `sbx`/`claude` — and the session exits instantly.
+    const baseCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
+      ' ',
+    )
+    // Label the window with the current display name (rename-tracking); the session
+    // stays UUID-keyed. Then hold the pane open if the agent command fails, so its
+    // error is readable instead of the tmux session vanishing with a bare "[exited]".
+    // A clean exit (the user quitting the agent) closes the session normally.
+    const localCmd = `tmux rename-window ${sq(args.name)} 2>/dev/null; ${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
     logger.success(`Attaching to tmux session "${sessionName}"${runtimeLabel}`)
     try {
       await execa(
@@ -174,8 +198,10 @@ export async function runRunCommand({
           '-c',
           spec.cwd ?? repoRoot,
           ...envArgs,
-          spec.command,
-          ...spec.args,
+          'bash',
+          '-l',
+          '-c',
+          localCmd,
         ],
         { stdio: 'inherit' },
       )

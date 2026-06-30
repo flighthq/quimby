@@ -45,14 +45,14 @@ export async function runStatusCommand({ args }: { args: { name?: string } }) {
 
     if (isSSH(agent.location)) {
       const transport = getTransport(agent.location)
-      const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
+      const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
       try {
         statusContent = (await transport.readFile(`${rAgentDir}/status.md`)).trim() || '(empty)'
       } catch {
         statusContent = '(unreachable)'
       }
     } else {
-      const statusPath = join(getAgentDir(repoRoot, name), 'status.md')
+      const statusPath = join(getAgentDir(repoRoot, agent.id), 'status.md')
       if (await exists(statusPath)) {
         statusContent = (await readText(statusPath)).trim() || '(empty)'
       }

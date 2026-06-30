@@ -1,9 +1,10 @@
-import { appendFile, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, readFile, rename, writeFile } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getQuimbyDir, getStatePath } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
+import { isSSH } from '@quimbyhq/types'
 import { ensureDir, exists, readYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { join } from 'pathe'
@@ -49,7 +50,29 @@ export async function resolveWorkspace(): Promise<{
   }
   if (dirty) await saveState(repoRoot, state)
 
+  // Agent directories are now keyed by UUID; relocate any legacy name-keyed dirs in
+  // place. Runs after IDs are guaranteed present, before any id-keyed path is used.
+  await migrateAgentDirs(repoRoot, state)
+
   return { state, repoRoot }
+}
+
+/**
+ * Move local agent directories from the legacy name-keyed layout
+ * (`.quimby/agents/<name>`) to the UUID-keyed one (`.quimby/agents/<id>`). Idempotent:
+ * skips an agent whose id-dir already exists or whose legacy dir is absent. Remote
+ * (SSH) agents migrate lazily on their next `quimby run`.
+ */
+async function migrateAgentDirs(repoRoot: string, state: QuimbyState): Promise<void> {
+  const agentsRoot = join(repoRoot, '.quimby', 'agents')
+  for (const [name, agent] of Object.entries(state.agents)) {
+    if (isSSH(agent.location) || name === agent.id) continue
+    const legacy = join(agentsRoot, name)
+    const current = join(agentsRoot, agent.id)
+    if ((await exists(legacy)) && !(await exists(current))) {
+      await rename(legacy, current)
+    }
+  }
 }
 
 export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {

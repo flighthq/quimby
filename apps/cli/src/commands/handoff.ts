@@ -74,6 +74,7 @@ export async function runHandoffCommand({
       repoRoot,
       name: meta.name,
       to: recipient,
+      toId: recip.id,
       toLocation: recip.location,
       projectId: state.id,
     })
@@ -100,6 +101,7 @@ export async function runHandoffCommand({
     repoRoot,
     name: meta.name,
     to: recipient,
+    toId: recip.id,
     toLocation: recip.location,
     projectId: state.id,
   })

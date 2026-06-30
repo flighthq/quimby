@@ -87,6 +87,7 @@ describe('assembleHandoff', () => {
       repoRoot: dir,
       from: 'review',
       codeSource: 'builder',
+      codeSourceId: 'builder',
       note: 'promote this',
     })
     expect(meta.from).toBe('review')
@@ -100,14 +101,14 @@ describe('assembleHandoff', () => {
   it('names the parcel <from>-<short-sha> of the packed tip', async () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')
     await withFeatureCommit(agentRepoDir)
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice' })
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
     expect(meta.name).toMatch(/^alice-[0-9a-f]{8}$/)
   })
 
   it('stages a code parcel with squashed.diff and meta.yaml', async () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')
     await withFeatureCommit(agentRepoDir)
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice' })
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
     const parcel = getStagingHandoffDir(dir, meta.name)
     expect(await exists(join(parcel, 'squashed.diff'))).toBe(true)
     expect(await exists(join(parcel, 'meta.yaml'))).toBe(true)
@@ -116,7 +117,12 @@ describe('assembleHandoff', () => {
 
   it('stages a note-only parcel when there is no code', async () => {
     await setupAgentRepo(dir, 'review')
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'review', note: 'fix the null case' })
+    const meta = await assembleHandoff({
+      repoRoot: dir,
+      from: 'review',
+      codeSourceId: 'review',
+      note: 'fix the null case',
+    })
     const parcel = getStagingHandoffDir(dir, meta.name)
     expect(await exists(join(parcel, 'README.md'))).toBe(true)
     expect(await exists(join(parcel, 'squashed.diff'))).toBe(false)
@@ -126,9 +132,9 @@ describe('assembleHandoff', () => {
 
   it('throws when there is neither code nor a note', async () => {
     await setupAgentRepo(dir, 'alice')
-    await expect(assembleHandoff({ repoRoot: dir, from: 'alice' })).rejects.toThrow(
-      'Nothing to hand off',
-    )
+    await expect(
+      assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' }),
+    ).rejects.toThrow('Nothing to hand off')
   })
 })
 

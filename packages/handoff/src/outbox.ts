@@ -12,13 +12,13 @@ import { join } from 'pathe'
 /** Move a delivered outbox draft into the `.sent/` ledger (the progress record). */
 export async function markHandoffSent(
   repoRoot: string,
-  from: string,
+  fromId: string,
   recipient: string,
 ): Promise<void> {
-  const draft = getAgentOutboxDraftDir(repoRoot, from, recipient)
+  const draft = getAgentOutboxDraftDir(repoRoot, fromId, recipient)
   if (!(await exists(draft))) return
-  await ensureDir(getAgentOutboxSentDir(repoRoot, from))
-  const sent = getAgentOutboxSentDraftDir(repoRoot, from, recipient)
+  await ensureDir(getAgentOutboxSentDir(repoRoot, fromId))
+  const sent = getAgentOutboxSentDraftDir(repoRoot, fromId, recipient)
   await rm(sent, { recursive: true, force: true })
   await rename(draft, sent)
 }
@@ -26,17 +26,17 @@ export async function markHandoffSent(
 /** Read a recipient's queued outbox draft: its note and optional `attach:` code source. */
 export async function readOutboxDraft(
   repoRoot: string,
-  from: string,
+  fromId: string,
   recipient: string,
 ): Promise<{ note: string; attach?: string }> {
-  const readmePath = join(getAgentOutboxDraftDir(repoRoot, from, recipient), 'README.md')
+  const readmePath = join(getAgentOutboxDraftDir(repoRoot, fromId, recipient), 'README.md')
   if (!(await exists(readmePath))) return { note: '' }
   return parseDraft(await readFile(readmePath, 'utf-8'))
 }
 
 /** List recipients with a queued outbox draft (local agents; ignores the `.sent/` ledger). */
-export async function readOutboxRecipients(repoRoot: string, from: string): Promise<string[]> {
-  const outboxDir = getAgentOutboxDir(repoRoot, from)
+export async function readOutboxRecipients(repoRoot: string, fromId: string): Promise<string[]> {
+  const outboxDir = getAgentOutboxDir(repoRoot, fromId)
   if (!(await exists(outboxDir))) return []
   const entries = await readdir(outboxDir, { withFileTypes: true })
   return entries

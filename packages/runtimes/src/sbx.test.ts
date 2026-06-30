@@ -29,13 +29,34 @@ describe('sbx', () => {
     expect(spec.args).toContain('claude')
   })
 
-  it('runSpec sandbox name includes project and agent ID prefixes', () => {
+  it('runSpec names the sandbox with the agentId prefix, not the agent name', () => {
     const spec = sbx.runSpec(ctx, 'claude')
-    const nameIdx = spec.args.indexOf('--name')
-    const sandboxName = spec.args[nameIdx + 1]
-    expect(sandboxName).toContain('claude')
-    expect(sandboxName).toContain(ctx.projectId.slice(0, 8))
-    expect(sandboxName).toContain(ctx.agentId.slice(0, 8))
+    const name = spec.args[spec.args.indexOf('--name') + 1]
+    expect(name).toContain(ctx.agentId.slice(0, 8))
+    // The friendly name must NOT be in the sandbox name — it changes on rename and
+    // would needlessly break sandbox reuse.
+    expect(name).not.toContain(ctx.agentName)
+  })
+
+  it('runSpec sandbox name is stable across a rename but changes on relocation', () => {
+    const base = sbx.runSpec(ctx, 'claude')
+    const baseName = base.args[base.args.indexOf('--name') + 1]
+    // Rename only changes the display name; the UUID-keyed agentDir is unchanged,
+    // so the sandbox name is identical and sbx reuses the same sandbox.
+    const renamed = sbx.runSpec({ ...ctx, agentName: 'renamed' }, 'claude')
+    expect(renamed.args[renamed.args.indexOf('--name') + 1]).toBe(baseName)
+    // Relocation moves agentDir's absolute path, so the name changes and sbx makes
+    // a fresh sandbox rather than reusing one pinned to a directory that has moved.
+    const moved = sbx.runSpec({ ...ctx, agentDir: '/elsewhere/agents/x' }, 'claude')
+    expect(moved.args[moved.args.indexOf('--name') + 1]).not.toBe(baseName)
+  })
+
+  it('runSpec and execSpec name the same sandbox for one agent', () => {
+    const run = sbx.runSpec(ctx, 'claude')
+    const exec = sbx.execSpec(ctx, 'claude --print')
+    expect(run.args[run.args.indexOf('--name') + 1]).toBe(
+      exec.args[exec.args.indexOf('--name') + 1],
+    )
   })
 
   it('execSpec splits command and args with -- separator', () => {

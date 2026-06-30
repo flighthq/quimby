@@ -39,19 +39,21 @@ export async function runDispatchCommand({ args }: { args: { agent: string; reba
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
-  const recipients = await readOutboxRecipients(repoRoot, args.agent)
+  const senderId = state.agents[args.agent].id
+  const recipients = await readOutboxRecipients(repoRoot, senderId)
   if (recipients.length === 0) {
     logger.info(`Agent "${args.agent}" has no queued parcels.`)
     return
   }
 
   for (const recipient of recipients) {
-    if (!state.agents[recipient]) {
+    const recip = state.agents[recipient]
+    if (!recip) {
       logger.warn(`Skipping "${recipient}" — no such agent (left in outbox to fix)`)
       continue
     }
     try {
-      const draft = await readOutboxDraft(repoRoot, args.agent, recipient)
+      const draft = await readOutboxDraft(repoRoot, senderId, recipient)
       const meta = await stageParcel({
         state,
         repoRoot,
@@ -65,11 +67,12 @@ export async function runDispatchCommand({ args }: { args: { agent: string; reba
         repoRoot,
         name: meta.name,
         to: recipient,
-        toLocation: state.agents[recipient].location,
+        toId: recip.id,
+        toLocation: recip.location,
         projectId: state.id,
       })
       await discardHandoff(repoRoot, meta.name)
-      await markHandoffSent(repoRoot, args.agent, recipient)
+      await markHandoffSent(repoRoot, senderId, recipient)
       logger.success(`Delivered to "${recipient}"`)
     } catch (err) {
       logger.warn(

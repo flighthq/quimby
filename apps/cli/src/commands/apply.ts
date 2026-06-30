@@ -126,24 +126,43 @@ export async function runApplyCommand({
       }
       process.exit(1)
     }
-    // A plain (non-3way) git apply aborts on any context drift — typically the
-    // agent's seed has diverged from your repo. Point at the recovery paths
-    // instead of dead-ending on a bare "patch does not apply".
+    // A plain (non-3way) git apply aborts on any context drift. Two very
+    // different causes share this failure, so name the one we can detect:
+    // files "already exist" means the work is already applied (re-apply), while
+    // a context mismatch means the agent's seed has drifted from your repo.
     if (!threeWay && (mode === 'squashed' || mode === 'patch')) {
-      logger.error(err instanceof Error ? err.message : String(err))
-      logger.info(
-        "The patch didn't apply cleanly — your repo has drifted from the agent's seed. Try:",
-      )
-      logger.info(
-        `  quimby apply ${args.agent} --3way      # merge, leaving conflict markers to resolve`,
-      )
-      logger.info(
-        `  quimby apply ${args.agent} --commits   # replay the agent's commits individually`,
-      )
-      if (isAgent) {
-        logger.info(
-          `  quimby sync ${args.agent}             # rebase the agent onto your latest, then re-apply`,
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const alreadyPresent = (errMsg.match(/already exists in working directory/g) ?? []).length
+      if (alreadyPresent > 0) {
+        // Already-applied: the raw git wall (one line per file) is pure noise here,
+        // so summarize instead of dumping it, and lead with the cure.
+        logger.warn(
+          `Nothing to apply — ${alreadyPresent} of "${args.agent}"'s file(s) are already in your repo. This work looks already applied; the agent still measures its diff against its old seed.`,
         )
+        if (isAgent) {
+          logger.info(
+            `  quimby sync ${args.agent}             # advance its baseline so there's nothing left to apply`,
+          )
+          logger.info(
+            `  quimby sync ${args.agent} -f          # also drop the agent's local scratch work`,
+          )
+        }
+      } else {
+        logger.error(errMsg)
+        logger.info(
+          "The patch didn't apply cleanly — your repo has drifted from the agent's seed. Try:",
+        )
+        logger.info(
+          `  quimby apply ${args.agent} --3way      # merge, leaving conflict markers to resolve`,
+        )
+        logger.info(
+          `  quimby apply ${args.agent} --commits   # replay the agent's commits individually`,
+        )
+        if (isAgent) {
+          logger.info(
+            `  quimby sync ${args.agent}             # rebase the agent onto your latest, then re-apply`,
+          )
+        }
       }
       process.exit(1)
     }

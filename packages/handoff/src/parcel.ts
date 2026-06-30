@@ -18,10 +18,12 @@ export async function deliverHandoff(opts: {
   repoRoot: string
   name: string
   to: string
+  /** Stable id of the recipient — keys its on-disk inbox directory. */
+  toId: string
   toLocation: Readonly<AgentLocation> | undefined
   projectId: string
 }): Promise<void> {
-  const { repoRoot, name, to, toLocation, projectId } = opts
+  const { repoRoot, name, to, toId, toLocation, projectId } = opts
 
   const stagingDir = getStagingHandoffDir(repoRoot, name)
   if (!(await exists(stagingDir))) {
@@ -30,16 +32,16 @@ export async function deliverHandoff(opts: {
 
   if (isSSH(toLocation)) {
     const transport = getSSHTransport(toLocation)
-    const rInboxDir = `${remoteAgentDir(projectId, to, toLocation.base)}/inbox/${name}`
+    const rInboxDir = `${remoteAgentDir(projectId, toId, toLocation.base)}/inbox/${name}`
     await transport.ensureDir(rInboxDir)
     await transport.rsyncTo(stagingDir, rInboxDir)
     return
   }
 
-  if (!(await exists(getAgentDir(repoRoot, to)))) {
+  if (!(await exists(getAgentDir(repoRoot, toId)))) {
     throw new QuimbyError(`Agent "${to}" not found`)
   }
-  const inboxDir = getAgentInboxParcelDir(repoRoot, to, name)
+  const inboxDir = getAgentInboxParcelDir(repoRoot, toId, name)
   await ensureDir(inboxDir)
   await cp(stagingDir, inboxDir, { recursive: true })
 }

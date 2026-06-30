@@ -32,7 +32,7 @@ function colorizeDiff(diff: string): string {
 async function getDiff(
   repoRoot: string,
   name: string,
-  state: { id: string; agents: Record<string, { location?: AgentLocation }> },
+  state: { id: string; agents: Record<string, { id: string; location?: AgentLocation }> },
   stat: boolean,
 ): Promise<string> {
   const agent = state.agents[name]
@@ -42,13 +42,13 @@ async function getDiff(
 
   if (isSSH(agent.location)) {
     const transport = getTransport(agent.location)
-    const rRepoDir = remoteAgentRepoDir(state.id, name, agent.location.base)
+    const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
     return stat
       ? transport.exec(`git diff --stat quimby/seed`, { cwd: rRepoDir })
       : transport.exec(`git diff quimby/seed`, { cwd: rRepoDir })
   }
 
-  const repoPath = getAgentRepoDir(repoRoot, name)
+  const repoPath = getAgentRepoDir(repoRoot, agent.id)
   if (stat) {
     const { stdout } = await execa('git', ['diff', '--stat', 'quimby/seed'], { cwd: repoPath })
     return stdout

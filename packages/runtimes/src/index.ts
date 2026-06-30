@@ -31,8 +31,8 @@ export function buildContext(
     projectId,
     agentId,
     agentName,
-    agentDir: getAgentDir(repoRoot, agentName),
-    repoDir: getAgentRepoDir(repoRoot, agentName),
+    agentDir: getAgentDir(repoRoot, agentId),
+    repoDir: getAgentRepoDir(repoRoot, agentId),
     repoRoot,
   }
 }

@@ -65,7 +65,7 @@ export async function runListCommand() {
         ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
         : dim('no defaults — run `quimby set`')
 
-      const outboxDir = getAgentOutboxDir(repoRoot, name)
+      const outboxDir = getAgentOutboxDir(repoRoot, agent.id)
       let outboxStr = ''
       if (await exists(outboxDir)) {
         const drafts = (await readdir(outboxDir, { withFileTypes: true })).filter(

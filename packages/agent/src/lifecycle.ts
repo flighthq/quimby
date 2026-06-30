@@ -1,4 +1,4 @@
-import { rename, rm } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -64,12 +64,13 @@ export async function addAgent(
     return agentState
   }
 
-  // Local agent: create dirs, clone, tag, write files.
-  const agentDir = getAgentDir(repoRoot, name)
-  const repoDir = getAgentRepoDir(repoRoot, name)
+  // Local agent: create dirs, clone, tag, write files. Directories are keyed by the
+  // agent's stable UUID so a later rename never moves them.
+  const agentDir = getAgentDir(repoRoot, agentState.id)
+  const repoDir = getAgentRepoDir(repoRoot, agentState.id)
 
   await ensureDir(join(agentDir, 'inbox', 'status'))
-  await ensureDir(getAgentOutboxDir(repoRoot, name))
+  await ensureDir(getAgentOutboxDir(repoRoot, agentState.id))
 
   await git.clone(repoRoot, repoDir, { ref: state.sourceRef })
   await git.tag(repoDir, 'quimby/seed')
@@ -102,8 +103,8 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     const transport = getSSHTransport(agent.location)
     const rRoot = remoteProjectRoot(state.id, agent.location.base)
     const rQuimby = remoteQuimbyDir(state.id, agent.location.base)
-    const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
-    const rRepoDir = remoteAgentRepoDir(state.id, name, agent.location.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
+    const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
     await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/inbox ${rAgentDir}/outbox`)
@@ -122,8 +123,8 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     return
   }
 
-  const agentDir = getAgentDir(repoRoot, name)
-  const repoDir = getAgentRepoDir(repoRoot, name)
+  const agentDir = getAgentDir(repoRoot, agent.id)
+  const repoDir = getAgentRepoDir(repoRoot, agent.id)
 
   await rm(repoDir, { recursive: true, force: true })
 
@@ -158,10 +159,10 @@ export async function removeAgent(repoRoot: string, name: string): Promise<void>
 
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
-    const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
     await transport.exec(`rm -rf ${rAgentDir}`)
   } else {
-    const agentDir = getAgentDir(repoRoot, name)
+    const agentDir = getAgentDir(repoRoot, agent.id)
     await rm(agentDir, { recursive: true, force: true })
   }
 
@@ -188,17 +189,9 @@ export async function renameAgent(
 
   const agent = state.agents[oldName]
 
-  if (isSSH(agent.location)) {
-    const transport = getSSHTransport(agent.location)
-    const oldDir = remoteAgentDir(state.id, oldName, agent.location.base)
-    const newDir = remoteAgentDir(state.id, newName, agent.location.base)
-    await transport.exec(`mv ${oldDir} ${newDir}`)
-  } else {
-    const oldDir = getAgentDir(repoRoot, oldName)
-    const newDir = getAgentDir(repoRoot, newName)
-    await rename(oldDir, newDir)
-  }
-
+  // Rename is a pure relabel: agent directories (local and remote), the sbx sandbox,
+  // and the tmux session are all keyed by the stable UUID, so nothing on disk moves
+  // and no running session or sandbox is orphaned. Only the display name changes.
   agent.name = newName
   delete state.agents[oldName]
   state.agents[newName] = agent

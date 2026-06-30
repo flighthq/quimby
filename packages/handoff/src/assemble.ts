@@ -22,6 +22,8 @@ export async function assembleHandoff(opts: {
   repoRoot: string
   from: string
   codeSource?: string
+  /** Stable id of the code-source agent — keys its on-disk repo directory. */
+  codeSourceId: string
   to?: string
   note?: string
   description?: string
@@ -30,7 +32,7 @@ export async function assembleHandoff(opts: {
 }): Promise<HandoffMeta> {
   const { repoRoot, from } = opts
   const codeSource = opts.codeSource ?? from
-  const repoDir = getAgentRepoDir(repoRoot, codeSource)
+  const repoDir = getAgentRepoDir(repoRoot, opts.codeSourceId)
 
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
   // Full working-tree delta vs seed — committed + uncommitted + untracked, no commit made.
@@ -127,6 +129,8 @@ export async function assembleRemoteHandoff(opts: {
   repoRoot: string
   from: string
   codeSource?: string
+  /** Stable id of the code-source agent — keys its remote repo directory. */
+  codeSourceId: string
   codeSourceLocation: Readonly<SSHLocation>
   projectId: string
   to?: string
@@ -138,7 +142,7 @@ export async function assembleRemoteHandoff(opts: {
   const { repoRoot, from, codeSourceLocation, projectId } = opts
   const codeSource = opts.codeSource ?? from
   const transport = getSSHTransport(codeSourceLocation)
-  const rRepoDir = remoteAgentRepoDir(projectId, codeSource, codeSourceLocation.base)
+  const rRepoDir = remoteAgentRepoDir(projectId, opts.codeSourceId, codeSourceLocation.base)
 
   const subjects = (
     await transport.exec(`git log quimby/seed..HEAD --format=%s`, { cwd: rRepoDir })

@@ -45,10 +45,10 @@ export async function runAssignCommand({ args }: { args: { name: string; message
 
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
-    const rAgentDir = remoteAgentDir(state.id, args.name, agent.location.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
     await transport.writeFile(`${rAgentDir}/assignment.md`, taskContent)
   } else {
-    const agentDir = getAgentDir(repoRoot, args.name)
+    const agentDir = getAgentDir(repoRoot, agent.id)
     await writeText(join(agentDir, 'assignment.md'), taskContent)
   }
 

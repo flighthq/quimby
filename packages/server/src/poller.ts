@@ -26,7 +26,7 @@ export async function pollAgentStatus(
   if (isSSH(agent.location)) {
     // For SSH agents, fetch content and compare (no reliable mtime over SSH).
     const transport = getTransport(agent.location)
-    const rAgentDir = remoteAgentDir(state.id, name, agent.location.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
     try {
       content = (await transport.readFile(`${rAgentDir}/status.md`)).trim()
     } catch {
@@ -35,7 +35,7 @@ export async function pollAgentStatus(
     if (previous && previous.content === content) return
     cache.set(name, { content, mtime: 0 })
   } else {
-    const statusPath = join(getAgentDir(repoRoot, name), 'status.md')
+    const statusPath = join(getAgentDir(repoRoot, agent.id), 'status.md')
     if (!(await exists(statusPath))) return
 
     const mtime = await getFileMtime(statusPath)
@@ -62,11 +62,11 @@ export async function pollAgentStatus(
 
     if (isSSH(subAgent.location)) {
       const transport = getTransport(subAgent.location)
-      const rInboxStatusDir = `${remoteAgentDir(state.id, subscriber, subAgent.location.base)}/inbox/status`
+      const rInboxStatusDir = `${remoteAgentDir(state.id, subAgent.id, subAgent.location.base)}/inbox/status`
       await transport.ensureDir(rInboxStatusDir)
       await transport.writeFile(`${rInboxStatusDir}/${name}.md`, statusPayload)
     } else {
-      const inboxStatusDir = getAgentInboxStatusDir(repoRoot, subscriber)
+      const inboxStatusDir = getAgentInboxStatusDir(repoRoot, subAgent.id)
       await ensureDir(inboxStatusDir)
       await writeText(join(inboxStatusDir, `${name}.md`), statusPayload)
     }

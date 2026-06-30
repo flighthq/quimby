@@ -9,12 +9,14 @@ export function remoteQuimbyDir(projectId: string, base?: string): string {
   return `${remoteProjectRoot(projectId, base)}/.quimby`
 }
 
-export function remoteAgentDir(projectId: string, name: string, base?: string): string {
-  return `${remoteQuimbyDir(projectId, base)}/agents/${name}`
+// Remote agent dirs are keyed by the agent's stable UUID, mirroring the local layout
+// (see getAgentDir) so a rename never moves the remote directory either.
+export function remoteAgentDir(projectId: string, agentId: string, base?: string): string {
+  return `${remoteQuimbyDir(projectId, base)}/agents/${agentId}`
 }
 
-export function remoteAgentRepoDir(projectId: string, name: string, base?: string): string {
-  return `${remoteAgentDir(projectId, name, base)}/repo`
+export function remoteAgentRepoDir(projectId: string, agentId: string, base?: string): string {
+  return `${remoteAgentDir(projectId, agentId, base)}/repo`
 }
 
 // ── Stable identifiers ────────────────────────────────────────────────────────

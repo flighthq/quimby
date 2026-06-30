@@ -93,7 +93,7 @@ quimby unsubscribe <agent> <target>                 # remove subscription
 
 ## Conventions
 
-- Agents are isolated clones in `.quimby/agents/<name>/repo/`
+- Agents are isolated clones in `.quimby/agents/<id>/repo/` — directories are keyed by the agent's stable UUID (`AgentState.id`), not its name, so a rename never moves them (the sandbox/tmux bound to that path survive); the name is a display label only. Legacy name-keyed dirs migrate on state load
 - Handoffs are ephemeral parcels (folders: optional `README.md` note + optional `squashed.diff`/`commits/` + `meta.yaml`) named `<from>-<contentHash>`, staged transiently in `.quimby/staging/<name>/` then discarded once consumed (kept only on apply conflict) — not an archive; durable work lives in git. Delivered parcels land in `inbox/<from>-<hash>/`
 - `handoff` is direct transport: `handoff A B` (agent→agent) or `handoff B` (host→B, sender `host`, diff = host worktree vs B's seed). `dispatch <agent>` enacts the agent's outbox: drafts are addressed by recipient (`outbox/<recipient>/`, optional `attach:` frontmatter), delivered, drained to `outbox/.sent/` only on success, with unknown recipients bounced (left in the outbox). `host` is a reserved agent name
 - Seed ref is `quimby/seed` tag in agent repos
@@ -109,7 +109,7 @@ quimby unsubscribe <agent> <target>                 # remove subscription
 - `QuimbyState.id` and `AgentState.id` are stable UUIDs; existing state is migrated on load
 - SSH agents are initialized lazily on first `quimby run` (no SSH required at `quimby add`)
 - SSH agents use tmux sessions named `qb-<projectId[:8]>-<agentId[:8]>` for stable identity; local agents can opt into the same tmux session via the `tmux` field on `AgentState`
-- Remote layout: `~/.quimby/workspaces/<projectId>/.quimby/agents/<name>/`
+- Remote layout: `~/.quimby/workspaces/<projectId>/.quimby/agents/<id>/`
 - `sq()` in transport.ts: POSIX single-quote escaping for safe SSH command arguments
 - Each command exports a named `run<Name>Command` function at module level (e.g. `runAddCommand`), referenced as `run:` in defineCommand — not inline
 - No `.js` extensions in imports — `moduleResolution: "bundler"` handles resolution

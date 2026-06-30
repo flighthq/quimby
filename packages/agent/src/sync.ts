@@ -29,7 +29,7 @@ export async function syncAgent(
     return syncSSHAgent(repoRoot, name, agent, state, opts)
   }
 
-  const repoDir = getAgentRepoDir(repoRoot, name)
+  const repoDir = getAgentRepoDir(repoRoot, agent.id)
   const hostHead = await resolveSyncTarget(repoRoot, agent, state.sourceRef)
   await git.fetch(repoDir, 'origin')
 
@@ -95,7 +95,7 @@ async function syncSSHAgent(
   const location = agent.location as SSHLocation
   const transport = getSSHTransport(location)
   const rRoot = remoteProjectRoot(state.id, location.base)
-  const rRepoDir = remoteAgentRepoDir(state.id, name, location.base)
+  const rRepoDir = remoteAgentRepoDir(state.id, agent.id, location.base)
 
   await transport.syncProjectTo(repoRoot, rRoot)
 

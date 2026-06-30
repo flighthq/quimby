@@ -89,11 +89,17 @@ describe('deliverHandoff', () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')
     await withFeatureCommit(agentRepoDir)
     await setupAgentRepo(dir, 'receiver')
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', to: 'receiver' })
+    const meta = await assembleHandoff({
+      repoRoot: dir,
+      from: 'alice',
+      codeSourceId: 'alice',
+      to: 'receiver',
+    })
     await deliverHandoff({
       repoRoot: dir,
       name: meta.name,
       to: 'receiver',
+      toId: 'receiver',
       toLocation: undefined,
       projectId: 'proj',
     })
@@ -107,6 +113,7 @@ describe('deliverHandoff', () => {
         repoRoot: dir,
         name: 'ghost-00000000',
         to: 'receiver',
+        toId: 'receiver',
         toLocation: undefined,
         projectId: 'proj',
       }),
@@ -122,7 +129,7 @@ describe('discardHandoff', () => {
   it('removes a staged parcel', async () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')
     await withFeatureCommit(agentRepoDir)
-    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice' })
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
     expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)
     await discardHandoff(dir, meta.name)
     expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(false)
@@ -133,7 +140,12 @@ describe('readHandoff', () => {
   it('returns meta, diff, and note', async () => {
     const agentRepoDir = await setupAgentRepo(dir, 'alice')
     await withFeatureCommit(agentRepoDir)
-    const created = await assembleHandoff({ repoRoot: dir, from: 'alice', note: 'have a look' })
+    const created = await assembleHandoff({
+      repoRoot: dir,
+      from: 'alice',
+      codeSourceId: 'alice',
+      note: 'have a look',
+    })
     const { meta, squashedDiff, note } = await readHandoff(dir, created.name)
     expect(meta.name).toBe(created.name)
     expect(meta.from).toBe('alice')

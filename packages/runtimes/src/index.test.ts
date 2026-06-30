@@ -5,8 +5,11 @@ import { buildContext, getRuntime, runtimeTypes } from './index'
 describe('buildContext', () => {
   it('returns a RuntimeContext with agentDir, repoDir, and claudeMdPath', () => {
     const ctx = buildContext('/root', 'alice', 'proj-id', 'agent-id')
-    expect(ctx.agentDir).toContain('alice')
-    expect(ctx.repoDir).toContain('alice')
+    // Directories are keyed by the agent's stable id, not its name, so a rename
+    // never moves them.
+    expect(ctx.agentDir).toContain('agent-id')
+    expect(ctx.agentDir).not.toContain('alice')
+    expect(ctx.repoDir).toContain('agent-id')
     expect(ctx.repoRoot).toBe('/root')
     expect(ctx.agentName).toBe('alice')
     expect(ctx.projectId).toBe('proj-id')

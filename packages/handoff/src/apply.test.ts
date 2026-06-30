@@ -91,7 +91,7 @@ describe('applyHandoff', () => {
       await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
       await addAll(agentRepoDir)
       await commit(agentRepoDir, 'add feature')
-      const meta = await assembleHandoff({ repoRoot: dir, from: 'alice' })
+      const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
       const targetDir = await setupTargetRepo()
       try {
         await applyHandoff({ repoRoot: dir, name: meta.name, targetRepoPath: targetDir, mode })

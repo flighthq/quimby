@@ -60,8 +60,8 @@ describe('addAgent', () => {
   })
 
   it('creates the agent directory and CLAUDE.md scaffold', async () => {
-    await addAgent(dir, 'bob')
-    const agentDir = getAgentDir(dir, 'bob')
+    const agent = await addAgent(dir, 'bob')
+    const agentDir = getAgentDir(dir, agent.id)
     expect(await exists(agentDir)).toBe(true)
     expect(await exists(join(agentDir, 'CLAUDE.md'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
@@ -125,11 +125,20 @@ describe('removeAgent', () => {
 })
 
 describe('renameAgent', () => {
-  it('renames the agent directory', async () => {
-    await addAgent(dir, 'alice')
+  it('relabels the agent without moving its UUID-keyed directory', async () => {
+    const agent = await addAgent(dir, 'alice')
+    const agentDir = getAgentDir(dir, agent.id)
+    expect(await exists(agentDir)).toBe(true)
+
     await renameAgent(dir, 'alice', 'bob')
-    expect(await exists(getAgentDir(dir, 'bob'))).toBe(true)
-    expect(await exists(getAgentDir(dir, 'alice'))).toBe(false)
+
+    // The directory is keyed by the stable id, so a rename never moves it — the
+    // sandbox and tmux session bound to that path survive. Only the name changes.
+    expect(await exists(agentDir)).toBe(true)
+    const state = await loadState(dir)
+    expect(state.agents.bob).toBeDefined()
+    expect(state.agents.bob.id).toBe(agent.id)
+    expect(state.agents.alice).toBeUndefined()
   })
 
   it('throws QuimbyError if agent does not exist', async () => {
