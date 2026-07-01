@@ -224,13 +224,15 @@ const HOST_WINDOW = 'host'
 const HOST_TAB_NAME = '$'
 const DASH_PLACEHOLDER = '__quimby__'
 
-// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. A dead
-// agent (its process exited; the pane is held open by remain-on-exit) shows red so the tab
-// reads as "stopped", not as a glitch. Otherwise: silence → green, activity → amber, idle → grey.
+// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Color
+// tracks *attention*, not just state: an agent going quiet (silence → settled, likely waiting
+// on you) is the notable event, so it gets green-bold; ongoing work is normal, so activity
+// gets the calm quimby-blue accent rather than an alarming amber; idle is grey; a dead agent
+// (process exited, pane held by remain-on-exit) is red so it reads as "stopped", not a glitch.
 const AGENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}}'
+  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour244] #W }}}'
 const HOST_WINDOW_FMT =
-  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour248] #W }}'
+  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour248] #W }}'
 const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
 
 interface WindowSpec {

@@ -28,7 +28,10 @@ export function renderTmuxConfig(): string {
       'set -g status-left-length 40',
       'set -g status-left "#[fg=colour109,bold] quimby #[fg=colour240]│ "',
       'set -g status-right-length 60',
-      'set -g status-right "#[fg=colour245] %a %b %d  %H:%M "',
+      // Surface the detach key rather than the date: "^b d" leaves the agent running and
+      // returns you to your shell — the intended way to step away (the session is durable;
+      // only `quimby stop` tears it down). The dashboard overrides this with its own hint.
+      'set -g status-right "#[fg=colour240]^b d detach — agent keeps running  #[fg=colour245]%H:%M "',
       'set -g window-status-format " #W "',
       'set -g window-status-style "fg=colour244"',
       'set -g window-status-current-format " #W "',
