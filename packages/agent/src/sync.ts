@@ -6,6 +6,36 @@ import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { loadState, saveState } from '@quimbyhq/workspace'
 
+export async function getAgentPendingWork(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<{ commits: number; dirty: boolean } | null> {
+  try {
+    if (isSSH(agent.location)) {
+      const transport = getSSHTransport(agent.location)
+      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
+      const [countOut, statusOut] = await Promise.all([
+        transport.exec(`git rev-list --count quimby/seed..HEAD`, { cwd: rRepoDir }),
+        transport.exec(`git status --porcelain`, { cwd: rRepoDir }),
+      ])
+      return {
+        commits: parseInt(countOut.trim(), 10) || 0,
+        dirty: statusOut.trim().length > 0,
+      }
+    }
+
+    const repoDir = getAgentRepoDir(repoRoot, agent.id)
+    const [commits, clean] = await Promise.all([
+      git.countCommits(repoDir, 'quimby/seed..HEAD'),
+      git.isClean(repoDir),
+    ])
+    return { commits, dirty: !clean }
+  } catch {
+    return null
+  }
+}
+
 export async function getAgentSyncStatus(
   repoRoot: string,
   agent: Readonly<AgentState>,
