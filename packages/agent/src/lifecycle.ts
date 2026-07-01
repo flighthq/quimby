@@ -259,13 +259,16 @@ async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {
 }
 
 function validateAgentName(name: string): void {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
+  // Dots are excluded: tmux target syntax uses `.` as the pane separator
+  // (`session:window.pane`), so a dot in a window name breaks `send-keys -t`.
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) {
     throw new QuimbyError(
-      `Invalid agent name "${name}". Use letters, numbers, hyphens, dots, and underscores.`,
+      `Invalid agent name "${name}". Use letters, numbers, hyphens, and underscores (no dots).`,
     )
   }
-  // `host` is the reserved sender of a host → agent handoff; it must not collide
-  // with a real agent or a parcel from the host would be indistinguishable.
+  // `host` is the reserved sender of a host → agent handoff and the reserved
+  // window name in the dashboard (`quimby run agent1 host`); it must not
+  // collide with a real agent.
   if (name === 'host') {
     throw new QuimbyError('Agent name "host" is reserved (it names the host in a handoff).')
   }

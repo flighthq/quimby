@@ -86,6 +86,10 @@ describe('addAgent', () => {
     await expect(addAgent(dir, 'charlie')).rejects.toThrow('already exists')
   })
 
+  it('throws QuimbyError for an agent name containing dots', async () => {
+    await expect(addAgent(dir, 'my.agent')).rejects.toThrow('Invalid agent name')
+  })
+
   it('throws QuimbyError for an agent name that starts with a hyphen', async () => {
     await expect(addAgent(dir, '-bad')).rejects.toThrow('Invalid agent name')
   })

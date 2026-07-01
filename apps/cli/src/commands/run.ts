@@ -188,6 +188,10 @@ export async function runRunCommand({
 // ── Dashboard mode ────────────────────────────────────────────────────────────
 // Multiple agents → one tmux session, one window per agent. Each window runs the
 // agent's entrypoint directly; activity/silence monitoring lights up the tabs.
+// The reserved name "host" adds a plain terminal window (bash login shell in the
+// repo root) — the user's command line inside the same tabbed view.
+
+const HOST_WINDOW = 'host'
 
 interface WindowSpec {
   name: string
@@ -200,13 +204,17 @@ async function runDashboard(names: string[]): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
 
   for (const name of names) {
-    if (!state.agents[name]) {
+    if (name !== HOST_WINDOW && !state.agents[name]) {
       throw new QuimbyError(`Agent "${name}" not found`)
     }
   }
 
   const windows: WindowSpec[] = []
   for (const name of names) {
+    if (name === HOST_WINDOW) {
+      windows.push({ name: HOST_WINDOW, cwd: repoRoot, cmd: ['bash', '-l'] })
+      continue
+    }
     const agent = state.agents[name]
     const window = isSSH(agent.location)
       ? await buildSSHWindow(name, agent, state, repoRoot)
