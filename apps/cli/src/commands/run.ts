@@ -63,6 +63,15 @@ export async function runRunCommand({
     ...new Set([args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))),
   ].filter((n) => n !== HOST_WINDOW)
 
+  // If we're already inside the quimby dashboard, a nested `tmux attach` / `new-session -A`
+  // would steal this client from the dashboard and fire its client-detached self-destruct
+  // hook, tearing down every tab. Add/select the requested agents as tabs in the current
+  // session instead — no attach, no teardown.
+  if (names.length > 0 && insideQuimbyTmux()) {
+    await attachWithinCurrentSession(names)
+    return
+  }
+
   if (names.length > 1) {
     if (args.cmd) {
       throw new QuimbyError('--cmd applies to a single agent; omit it when running multiple agents')
@@ -202,6 +211,15 @@ const HOST_WINDOW = 'host'
 const HOST_TAB_NAME = '$'
 const DASH_PLACEHOLDER = '__quimby__'
 
+// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. A dead
+// agent (its process exited; the pane is held open by remain-on-exit) shows red so the tab
+// reads as "stopped", not as a glitch. Otherwise: silence → green, activity → amber, idle → grey.
+const AGENT_WINDOW_FMT =
+  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}}'
+const HOST_WINDOW_FMT =
+  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour248] #W }}'
+const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
+
 interface WindowSpec {
   name: string
   cwd: string
@@ -319,6 +337,73 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
       process.exit(e.exitCode)
     }
   }
+}
+
+// True when this process runs inside a client of quimby's own tmux server (socket -L quimby),
+// i.e. inside a `quimby run` / dashboard session. $TMUX is "<socketPath>,<pid>,<session>"; the
+// socket's basename is the -L name. A nested attach here must be avoided (see the caller).
+function insideQuimbyTmux(): boolean {
+  const tmux = process.env.TMUX
+  if (!tmux) return false
+  const socketPath = tmux.split(',')[0]
+  return socketPath.slice(socketPath.lastIndexOf('/') + 1) === quimbyTmuxSocket
+}
+
+// Add the requested agents to the current dashboard session as tabs, then select the last
+// one — the safe in-dashboard equivalent of `quimby run <agent>`. It never attaches (we are
+// already attached) and never kills a session, so it can't trip the dashboard's
+// client-detached self-destruct hook the way a nested attach did. An agent already present is
+// just selected; a local agent is linked from its own (ensured) session, an SSH agent gets a
+// fresh ssh-attach window. A per-run --cmd/--runtime is intentionally ignored here: the tab
+// links the agent's canonical session, which those flags don't reshape once it exists.
+async function attachWithinCurrentSession(names: string[]): Promise<void> {
+  const { state, repoRoot } = await resolveWorkspace()
+  for (const name of names) {
+    if (!state.agents[name]) {
+      throw new QuimbyError(`Agent "${name}" not found`)
+    }
+  }
+
+  const TMUX = ['-L', quimbyTmuxSocket]
+  const session = (
+    await execa('tmux', [...TMUX, 'display-message', '-p', '#{session_name}'])
+  ).stdout.trim()
+  const { stdout: winList } = await execa('tmux', [
+    ...TMUX,
+    'list-windows',
+    '-t',
+    session,
+    '-F',
+    '#{window_name}',
+  ])
+  const existing = new Set(winList.split('\n').filter(Boolean))
+
+  let enrolled = false
+  let selected: string | null = null
+  for (const name of names) {
+    const agent = state.agents[name]
+    if (!existing.has(name)) {
+      if (isSSH(agent.location)) {
+        const w = await buildSSHWindow(name, agent, state, repoRoot)
+        const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+        await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
+      } else {
+        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+        if (!agent.tmux) {
+          state.agents[name].tmux = true
+          enrolled = true
+        }
+        await execa('tmux', [...TMUX, 'link-window', '-a', '-s', `${srcSession}:${name}`, '-t', `${session}:`]) // prettier-ignore
+      }
+      await styleAgentTab(TMUX, `${session}:${name}`)
+    }
+    selected = name
+  }
+  if (enrolled) await saveState(repoRoot, state)
+  if (selected) {
+    await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:${selected}`]).catch(() => {})
+  }
+  logger.success(`Added to dashboard "${session}": ${names.join(', ')}`)
 }
 
 // Ensure a local agent has its own detached tmux session (identical to `quimby start`),
@@ -475,6 +560,17 @@ async function buildSSHWindow(
 // server-global (tmux has no session-scoped binds), but they are harmless on
 // single-window agent sessions and are set here so the intent is clear.
 
+// Style an agent tab and make it outlive the agent's exit. `remain-on-exit on` holds the pane
+// open as a [dead] pane instead of closing the window — which, since a local agent tab is a
+// LINKED window shared with the agent's own session, would otherwise remove the tab from every
+// session at once (the "disappearing tab"). A dead tab is revived in place with the dashboard's
+// restart key (respawn-window).
+async function styleAgentTab(TMUX: string[], target: string): Promise<void> {
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', AGENT_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'on']).catch(() => {}) // prettier-ignore
+}
+
 async function styleDashboard(
   TMUX: string[],
   session: string,
@@ -544,12 +640,9 @@ async function styleDashboard(
   ])
 
   // ── Tab bar formatting ──────────────────────────────────────────────────────
-  // Activity → amber, silence → green, default → grey (lighter for the host tab).
-  const agentWindowFmt =
-    '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}'
-  const hostWindowFmt =
-    '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour248] #W }}'
-  const currentFmt = '#[fg=colour231,bg=colour238,bold] #W '
+  // Dead → red, activity → amber, silence → green, idle → grey (lighter for the host tab).
+  // Agent tabs also get remain-on-exit (via styleAgentTab) so an exit leaves a dead tab
+  // rather than deleting the shared linked window; the host tab closes normally on exit.
   const { stdout: winIdx } = await execa('tmux', [
     ...TMUX,
     'list-windows',
@@ -559,9 +652,13 @@ async function styleDashboard(
     '#{window_index}',
   ])
   for (const idx of winIdx.split('\n').filter(Boolean)) {
-    const fmt = Number(idx) === hostIdx ? hostWindowFmt : agentWindowFmt
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-format', fmt]) // prettier-ignore
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-current-format', currentFmt]) // prettier-ignore
+    const target = `${session}:${idx}`
+    if (Number(idx) === hostIdx) {
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+    } else {
+      await styleAgentTab(TMUX, target)
+    }
   }
 
   // ── Status bar hint + keybindings ───────────────────────────────────────────
@@ -573,7 +670,7 @@ async function styleDashboard(
     '-t',
     session,
     'status-right',
-    '#[fg=colour240]alt+←→ tabs · ^b d exit  #[fg=colour245]%H:%M ',
+    '#[fg=colour240]alt+←→ tabs · ^b r restart · ^b d exit  #[fg=colour245]%H:%M ',
   ])
   // Alt+arrow and Alt+number tab switching (no prefix key). These are server-global
   // but harmless on single-window agent sessions — set here so they are clearly
@@ -583,6 +680,13 @@ async function styleDashboard(
   for (let i = 1; i <= 9; i++) {
     await execa('tmux', [...TMUX, 'bind', '-n', `M-${i}`, 'select-window', '-t', `:${i - 1}`])
   }
+  // Restart a stopped (or running) agent in its tab: respawn-window re-runs the tab's original
+  // command in place, reviving a dead pane. Bound under the prefix (not a bare key) so it can't
+  // fire by accident and kill a live agent.
+  await execa('tmux', [...TMUX, 'bind', 'r', 'respawn-window', '-k']).catch(() => {})
+  // Banner shown inside a dead agent pane so the exit reads as a status, not a freeze
+  // (tmux ≥ 3.4; a no-op on older tmux, hence the catch).
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'remain-on-exit-format', '[quimby] #{window_name} exited (status #{pane_dead_status}) — <prefix> r restarts it']).catch(() => {}) // prettier-ignore
 
   // Select the first tab.
   await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`])

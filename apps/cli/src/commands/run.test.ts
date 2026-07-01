@@ -1,5 +1,5 @@
 import { tmuxSessionName } from '@quimbyhq/paths'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({ calls: [] as string[][], sessions: new Set<string>() }))
 
@@ -13,6 +13,10 @@ vi.mock('execa', () => ({
     }
     if (args.includes('new-session')) h.sessions.add(after('-s'))
     if (args.includes('kill-session')) h.sessions.delete(after('-t'))
+    // The within-dashboard jump asks for the current session name and its window list.
+    if (args.includes('display-message'))
+      return { stdout: 'qb-dash-proj-id', stderr: '', exitCode: 0 }
+    if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
     return { stdout: '', stderr: '', exitCode: 0 }
   }),
 }))
@@ -51,9 +55,19 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   })),
 }))
 
+// Determinism: the guard keys off $TMUX, and the test runner may itself run inside tmux.
+// Clear it per test so the default (non-nested) path is exercised unless a test opts in.
+let savedTmux: string | undefined
+beforeEach(() => {
+  savedTmux = process.env.TMUX
+  delete process.env.TMUX
+})
+
 afterEach(() => {
   h.calls.length = 0
   h.sessions.clear()
+  if (savedTmux === undefined) delete process.env.TMUX
+  else process.env.TMUX = savedTmux
 })
 
 describe('run', () => {
@@ -87,6 +101,31 @@ describe('run', () => {
     const links = h.calls.filter((a) => a.includes('link-window'))
     expect(links).toHaveLength(2)
     expect(links.filter((a) => a.some((x) => x.endsWith(':a')))).toHaveLength(1)
+  })
+
+  it('inside the quimby dashboard, adds the agent as a tab instead of a nested attach', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0' // socket basename "quimby" ⇒ nested
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    // Never attaches (that would steal the dashboard client and trip its self-destruct hook)
+    // and never kills a session (the old bug tore the whole dashboard down).
+    expect(h.calls.some((c) => c.includes('attach'))).toBe(false)
+    expect(h.calls.some((c) => c.includes('kill-session'))).toBe(false)
+    // Instead it links the agent's window into the current session and selects it.
+    expect(h.calls.some((c) => c.includes('link-window'))).toBe(true)
+    expect(h.calls.some((c) => c.includes('select-window'))).toBe(true)
+  })
+
+  it('outside quimby tmux, a foreign $TMUX does not trigger the in-dashboard jump', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/default,42,0' // the user's own tmux, not quimby's
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    // Normal single-agent path: attaches its own session, no link-window jump.
+    expect(h.calls.some((c) => c.includes('link-window'))).toBe(false)
+    const created = h.calls
+      .filter((c) => c.includes('new-session'))
+      .map((c) => c[c.indexOf('-s') + 1])
+    expect(created).toEqual([tmuxSessionName('id-a')])
   })
 
   it('reuses a running per-agent session instead of restarting it', async () => {

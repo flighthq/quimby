@@ -4,9 +4,11 @@ CLI tool for orchestrating multiple AI agents working on a single project in iso
 
 ## Design References
 
-@tools/agents/docs/design.md @tools/agents/docs/user-workflow.md @tools/agents/docs/build-and-tooling.md
+@tools/agents/docs/design.md @tools/agents/docs/cli-surface.md @tools/agents/docs/design-decisions.md @tools/agents/docs/user-workflow.md @tools/agents/docs/build-and-tooling.md
 
-- **design.md** — authoritative product/architecture design (concepts, CLI surface, behaviors, key design decisions)
+- **design.md** — authoritative product/architecture design (concepts, behaviors, lifecycles); links out to the two companion docs below
+- **cli-surface.md** — the complete command and flag reference (split out of design.md)
+- **design-decisions.md** — the key-design-decisions rationale log (split out of design.md)
 - **user-workflow.md** — the real-world multi-agent workflow quimby is built to support
 - **build-and-tooling.md** — build system (`tsc -b` project references), monorepo tsconfig layout, governance scripts, packaging model, interactive config + tmux. **Read before touching `tsconfig.*`, build scripts, or `scripts/`.**
 
