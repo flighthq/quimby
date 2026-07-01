@@ -33,6 +33,12 @@ export default defineCommand({
         'Wake a running agent by injecting the assignment notice + Return into its tmux session (on by default; --no-nudge to skip)',
       default: true,
     },
+    clear: {
+      type: 'boolean',
+      alias: 'c',
+      description: "Type '/clear' first to reset the agent's context, then send the nudge",
+      default: false,
+    },
     sync: {
       type: 'boolean',
       description: 'Sync the agent to its base before assigning (on by default; --no-sync to skip)',
@@ -45,7 +51,7 @@ export default defineCommand({
 export async function runAssignCommand({
   args,
 }: {
-  args: { name: string; message?: string; nudge: boolean; sync: boolean }
+  args: { name: string; message?: string; nudge: boolean; sync: boolean; clear: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -99,6 +105,7 @@ export async function runAssignCommand({
   if (args.nudge && !syncFailed) {
     await nudgeAgentSession({
       agent,
+      clear: args.clear,
       displayName: args.name,
       text: NUDGE_TEXT,
     })

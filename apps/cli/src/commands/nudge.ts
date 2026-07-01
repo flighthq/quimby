@@ -26,6 +26,12 @@ export default defineCommand({
       description:
         'Text to type into the agent (defaults to "continue"); also carries CLI control commands like "/clear" or "/model …"',
     },
+    clear: {
+      type: 'boolean',
+      alias: 'c',
+      description: "Type '/clear' first to reset the agent's context, then send the nudge",
+      default: false,
+    },
     all: {
       type: 'boolean',
       description: 'Broadcast to every agent with a live tmux session (probed)',
@@ -38,7 +44,7 @@ export default defineCommand({
 export async function runNudgeCommand({
   args,
 }: {
-  args: { name?: string; message?: string; all: boolean }
+  args: { name?: string; message?: string; clear: boolean; all: boolean }
 }) {
   const { state } = await resolveWorkspace()
 
@@ -64,7 +70,7 @@ export async function runNudgeCommand({
 
     logger.start(`Nudging ${live.length} agent(s): ${live.map(([name]) => name).join(', ')}`)
     for (const [name, agent] of live) {
-      await nudgeAgentSession({ agent, displayName: name, text })
+      await nudgeAgentSession({ agent, clear: args.clear, displayName: name, text })
     }
     return
   }
@@ -80,6 +86,7 @@ export async function runNudgeCommand({
 
   await nudgeAgentSession({
     agent,
+    clear: args.clear,
     displayName: args.name,
     text,
   })

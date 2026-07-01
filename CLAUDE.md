@@ -78,9 +78,9 @@ quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]  # u
 quimby list                                          # show agents and subscriptions
 quimby help [command]                                # root help (grouped + banner), or usage for one command
 quimby status [agent]                               # show agent-written status
-quimby assign <agent> -m "..." [--no-sync] [--no-nudge]  # set an agent's current task; syncs to base first (--no-sync to skip), writes assignment.md, wakes a running agent (--no-nudge to skip)
+quimby assign <agent> -m "..." [--no-sync] [--no-nudge] [-c]  # set an agent's current task; syncs to base first (--no-sync to skip), writes assignment.md, wakes a running agent (--no-nudge to skip); -c/--clear types /clear before the nudge
 quimby diff <agent> [agent2]                        # show an agent's live diff against its seed
-quimby nudge <agent> [-m <msg>] | --all [-m <msg>]  # wake a running agent by typing a message (default "continue") + Return into its tmux session; --all broadcasts to every agent with a live tmux session (probed, so dead ones are skipped); -m also carries CLI control commands ("/clear", "/model …")
+quimby nudge <agent> [-m <msg>] [-c] | --all [-m <msg>] [-c]  # wake a running agent by typing a message (default "continue") + Return into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed, so dead ones are skipped); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m <note>] [--attach <w>] [--rebase] [--nudge|--no-nudge]  # carry <from>'s work to <to>; with one arg, the host's work → that agent (sender "host"); nudges the recipient by default only when a note (-m) is present
 quimby dispatch <agent> | --all [--rebase] [--no-nudge]  # deliver the agent's queued outbox parcels to their recipients (--all dispatches every agent's outbox; bounces unknown recipients; drains to outbox/.sent on success); nudges each running recipient via tmux by default
 quimby apply <agent> [--commits|--patch] [-b] [-t] [--rebase]  # package the agent's work and merge it into your repo (merge-based: builds on a temp branch from the seed, merges into target; conflicts are standard git merge conflicts)

@@ -34,10 +34,32 @@ describe('nudgeAgentSession', () => {
     ).resolves.toBeUndefined()
   })
 
+  it('no-ops with clear set for a local agent without tmux', async () => {
+    await expect(
+      nudgeAgentSession({
+        agent: localNoTmux,
+        clear: true,
+        displayName: 'builder',
+        text: 'continue',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
   it('warns gracefully when the tmux session is not running', async () => {
     // No quimby tmux server in test — the nudge should warn but not throw
     await expect(
       nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'continue' }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('warns gracefully with clear set when the tmux session is not running', async () => {
+    await expect(
+      nudgeAgentSession({
+        agent: localWithTmux,
+        clear: true,
+        displayName: 'reviewer',
+        text: 'continue',
+      }),
     ).resolves.toBeUndefined()
   })
 })

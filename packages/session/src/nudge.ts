@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises'
+
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
@@ -9,6 +11,14 @@ import { execa } from 'execa'
 // at the user's default server and never find the agent sessions.
 const TMUX = ['-L', quimbyTmuxSocket]
 const TMUX_CMD = `tmux ${TMUX.join(' ')}`
+
+// The CLI control command that resets an agent's context; sent before the nudge text
+// when `clear` is set, so the agent picks up the work on a fresh context.
+const CLEAR_COMMAND = '/clear'
+
+// A slash command needs a beat to be accepted and processed before the next line is
+// typed, or the nudge text races into the still-open `/clear` prompt.
+const CLEAR_SETTLE_MS = 600
 
 /**
  * Whether the agent has a live tmux session right now (`tmux has-session`). False for
@@ -40,13 +50,17 @@ export async function hasAgentSession(agent: Readonly<AgentState>): Promise<bool
  * non-tmux agent runs in the foreground (the user is already attached to it), so there
  * is nothing to wake. When the session isn't running, this reports and no-ops — the
  * work was already written/delivered, so the agent will see it on its next run.
+ *
+ * With `clear`, a `/clear` control command is typed first (and given a beat to settle)
+ * so the agent resets its context before picking up the nudge text.
  */
 export async function nudgeAgentSession(opts: {
   agent: Readonly<AgentState>
+  clear?: boolean
   displayName: string
   text: string
 }): Promise<void> {
-  const { agent, displayName, text } = opts
+  const { agent, clear, displayName, text } = opts
 
   if (!isSSH(agent.location) && !agent.tmux) {
     logger.info(
@@ -57,24 +71,42 @@ export async function nudgeAgentSession(opts: {
   }
 
   const session = tmuxSessionName(agent.id)
-  // Two send-keys: `-l` types the literal text (no key-name parsing), then a
-  // separate Enter submits it to the agent's prompt.
-  const inject = `${TMUX_CMD} send-keys -t ${sq(session)} -l ${sq(text)} && ${TMUX_CMD} send-keys -t ${sq(session)} Enter`
 
   try {
     if (isSSH(agent.location)) {
       const transport = getSSHTransport(agent.location)
+      // `sleep` between the two lines gives `/clear` time to process before the nudge.
+      const clearInject = clear
+        ? `${sendKeysInject(session, CLEAR_COMMAND)} && sleep ${CLEAR_SETTLE_MS / 1000} && `
+        : ''
+      const inject = `${clearInject}${sendKeysInject(session, text)}`
       await transport.exec(`${TMUX_CMD} has-session -t ${sq(session)} 2>/dev/null && ${inject}`)
     } else {
       await execa('tmux', [...TMUX, 'has-session', '-t', session])
-      await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text])
-      await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'])
+      if (clear) {
+        await sendKeysLocal(session, CLEAR_COMMAND)
+        await delay(CLEAR_SETTLE_MS)
+      }
+      await sendKeysLocal(session, text)
     }
-    logger.success(`Nudged "${displayName}" in tmux session "${session}"`)
+    const cleared = clear ? ' (cleared context first)' : ''
+    logger.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
   } catch {
     logger.warn(
       `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
         `(it'll see it on its next run; start it with \`quimby run ${displayName}\`).`,
     )
   }
+}
+
+// Two send-keys as a shell fragment (for SSH transport): `-l` types the literal text
+// (no key-name parsing), then a separate Enter submits it to the agent's prompt.
+function sendKeysInject(session: string, text: string): string {
+  return `${TMUX_CMD} send-keys -t ${sq(session)} -l ${sq(text)} && ${TMUX_CMD} send-keys -t ${sq(session)} Enter`
+}
+
+// The local twin of `sendKeysInject`: type the literal text, then submit with Enter.
+async function sendKeysLocal(session: string, text: string): Promise<void> {
+  await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text])
+  await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'])
 }
