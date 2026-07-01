@@ -1,12 +1,31 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+
 import type { SSHLocation } from '@quimbyhq/types'
 import { execa } from 'execa'
-import { dirname } from 'pathe'
+import { dirname, join } from 'pathe'
 
 import type { Transport } from './localTransport'
 
 /** POSIX single-quote escaping — safe for any string content in SSH commands. */
 export function sq(s: string): string {
   return `'${s.replace(/'/g, `'"'"'`)}'`
+}
+
+/**
+ * Convert `git ls-files -z --others --ignored` output into an anchored,
+ * NUL-separated rsync exclude list. Each path is prefixed with `/` so it
+ * anchors to the rsync transfer root (the project root) rather than matching
+ * a same-named file at any depth; directory entries keep their trailing slash,
+ * which limits the rsync rule to a directory. Empty input yields an empty
+ * string (no exclusions).
+ */
+export function toRsyncExcludeList(gitLsFilesZ: string): string {
+  return gitLsFilesZ
+    .split('\0')
+    .filter(Boolean)
+    .map((p) => `/${p}`)
+    .join('\0')
 }
 
 export class SSHTransport implements Transport {
@@ -126,28 +145,67 @@ export class SSHTransport implements Transport {
 
   /**
    * Rsync the local project root to the remote workspace, excluding runtime
-   * artifacts. The remote receives the full git object store so it can clone
-   * locally without any external network access.
+   * artifacts and everything git ignores. The remote reconstructs tracked
+   * source by cloning the rsynced `.git`, so git-ignored build output (compiled
+   * binaries, caches) is never needed there — shipping it wastes bandwidth and
+   * disk on every sync. We derive the exclude set from git itself
+   * (`git ls-files --others --ignored --exclude-standard`) rather than a fixed
+   * denylist, so nested `.gitignore`, `.git/info/exclude`, and the global
+   * gitignore are all honored exactly as git sees them. The explicit excludes
+   * below remain as a fast path and cover `.git/hooks/` (git never lists its
+   * own dir) and `flight/` (a sibling repo that may not be ignored).
    */
   async syncProjectTo(localRoot: string, remotePath: string): Promise<void> {
     await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${remotePath}`])
-    await execa(
-      'rsync',
-      [
-        '-av',
-        '--delete',
-        '--exclude=.quimby/',
-        '--exclude=node_modules/',
-        '--exclude=dist/',
-        '--exclude=.git/hooks/',
-        '--exclude=flight/',
-        '-e',
-        this.sshRsyncCmd,
-        `${localRoot}/`,
-        `${this.loc.host}:${remotePath}/`,
-      ],
-      { stdio: 'inherit' },
-    )
+    const excludeFile = await this.writeGitignoreExcludeFile(localRoot)
+    try {
+      await execa(
+        'rsync',
+        [
+          '-av',
+          '--delete',
+          '--exclude=.quimby/',
+          '--exclude=node_modules/',
+          '--exclude=dist/',
+          '--exclude=.git/hooks/',
+          '--exclude=flight/',
+          ...(excludeFile ? [`--exclude-from=${excludeFile}`, '--from0'] : []),
+          '-e',
+          this.sshRsyncCmd,
+          `${localRoot}/`,
+          `${this.loc.host}:${remotePath}/`,
+        ],
+        { stdio: 'inherit' },
+      )
+    } finally {
+      if (excludeFile) await rm(dirname(excludeFile), { recursive: true, force: true })
+    }
+  }
+
+  /**
+   * Write git's ignored-file list to a temp file for rsync's `--exclude-from`,
+   * returning its path (or null when nothing is ignored or git is unavailable —
+   * the sync then falls back to just the explicit excludes). `--directory`
+   * collapses a wholly-ignored directory to a single entry instead of listing
+   * every file inside it; `-z` keeps paths with spaces or newlines intact.
+   */
+  private async writeGitignoreExcludeFile(localRoot: string): Promise<string | null> {
+    let list: string
+    try {
+      const { stdout } = await execa(
+        'git',
+        ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'],
+        { cwd: localRoot, stripFinalNewline: false },
+      )
+      list = toRsyncExcludeList(stdout)
+    } catch {
+      return null
+    }
+    if (!list) return null
+    const dir = await mkdtemp(join(tmpdir(), 'qb-rsync-'))
+    const file = join(dir, 'exclude')
+    await writeFile(file, list)
+    return file
   }
 }
 
