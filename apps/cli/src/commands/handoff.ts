@@ -43,6 +43,12 @@ export default defineCommand({
       description:
         'Wake the recipient via its tmux session. Default: nudge only when the parcel carries a note (-m); --nudge / --no-nudge force it',
     },
+    clear: {
+      type: 'boolean',
+      alias: 'c',
+      description: "Type '/clear' first to reset the recipient's context, then send the nudge",
+      default: false,
+    },
   },
   run: runHandoffCommand,
 })
@@ -57,6 +63,7 @@ export async function runHandoffCommand({
     attach?: string
     rebase: boolean
     nudge?: boolean
+    clear: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -92,7 +99,7 @@ export async function runHandoffCommand({
     })
     await discardHandoff(repoRoot, meta.name)
     logger.success(`Handed off from ${HOST_SENDER} to "${recipient}"`)
-    if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message)
+    if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message, args.clear)
     return
   }
 
@@ -120,7 +127,7 @@ export async function runHandoffCommand({
   })
   await discardHandoff(repoRoot, meta.name)
   logger.success(`Handed off from "${source}" to "${recipient}"`)
-  if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message)
+  if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message, args.clear)
 }
 
 async function nudgeRecipient(
@@ -128,12 +135,14 @@ async function nudgeRecipient(
   displayName: string,
   parcelName: string,
   message?: string,
+  clear?: boolean,
 ): Promise<void> {
   const text = message
     ? `Please review: @inbox/${parcelName}/\n\n${message}`
     : `New handoff in your inbox: @inbox/${parcelName}/ — please review.`
   await nudgeAgentSession({
     agent: recip,
+    clear,
     displayName,
     text,
   })

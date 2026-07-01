@@ -198,7 +198,7 @@ quimby status [agent]                                Show agent-written status
 quimby assign <agent> -m "..." | @file [--no-sync] [--no-nudge] [-c]  Set an agent's current task; syncs the agent to its base first (--no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
-quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present)
+quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
 quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the boundary)
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
@@ -232,7 +232,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
 - `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
-- `-c` / `--clear` (assign, nudge — type `/clear` into the agent's session before the nudge, resetting its context)
+- `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
 - `-c` / `--cmd` (run, set, add — the agent's entrypoint command)
