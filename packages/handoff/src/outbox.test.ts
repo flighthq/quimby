@@ -5,32 +5,46 @@ import { join } from 'node:path'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import {
   getAgentDir,
+  getAgentOutboxDir,
   getAgentOutboxDraftDir,
   getAgentOutboxSentDraftDir,
   getAgentRepoDir,
 } from '@quimbyhq/paths'
+import type { AgentState } from '@quimbyhq/types'
 import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { markHandoffSent, readOutboxDraft, readOutboxRecipients } from './outbox'
+import {
+  clearRemoteOutboxDraft,
+  markHandoffSent,
+  pickupRemoteOutbox,
+  readOutboxDraft,
+  readOutboxRecipients,
+} from './outbox'
+
+const sshTransport = {
+  exec: vi.fn(async () => ''),
+  readFile: vi.fn(async () => ''),
+  writeFile: vi.fn(),
+  fileExists: vi.fn(async () => false),
+  ensureDir: vi.fn(),
+  rsyncFrom: vi.fn(),
+  rsyncTo: vi.fn(),
+}
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...(actual as object),
-    getSSHTransport: vi.fn(() => ({
-      exec: vi.fn(async () => ''),
-      readFile: vi.fn(async () => ''),
-      writeFile: vi.fn(),
-      fileExists: vi.fn(async () => false),
-      ensureDir: vi.fn(),
-      rsyncFrom: vi.fn(),
-      rsyncTo: vi.fn(),
-    })),
+    getSSHTransport: vi.fn(() => sshTransport),
   }
 })
+
+function agent(id: string, location: AgentState['location']): AgentState {
+  return { id, name: id, seedCommit: 'seed', createdAt: '2026-01-01T00:00:00Z', location }
+}
 
 let dir: string
 
@@ -77,6 +91,25 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
+describe('clearRemoteOutboxDraft', () => {
+  it('is a no-op for a local agent (no transport touched)', async () => {
+    await clearRemoteOutboxDraft(agent('review', { type: 'local' }), 'proj', 'builder')
+    expect(sshTransport.exec).not.toHaveBeenCalled()
+  })
+
+  it('moves the remote draft into the remote .sent ledger', async () => {
+    await clearRemoteOutboxDraft(
+      agent('9b35cd55', { type: 'ssh', host: 'joshua@box' }),
+      'proj',
+      'builder',
+    )
+    expect(sshTransport.exec).toHaveBeenCalledTimes(1)
+    const cmd = (sshTransport.exec.mock.calls[0] as unknown as [string])[0]
+    expect(cmd).toContain('/agents/9b35cd55/outbox')
+    expect(cmd).toMatch(/&& mv \S+\/outbox\/'builder' \S+\/outbox\/\.sent\/'builder'/)
+  })
+})
+
 describe('markHandoffSent', () => {
   it('is a no-op when the draft does not exist', async () => {
     await expect(markHandoffSent(dir, 'ghost', 'builder')).resolves.toBeUndefined()
@@ -92,6 +125,31 @@ describe('markHandoffSent', () => {
     expect(
       await exists(join(getAgentOutboxSentDraftDir(dir, 'review', 'builder'), 'README.md')),
     ).toBe(true)
+  })
+})
+
+describe('pickupRemoteOutbox', () => {
+  it('is a no-op for a local agent (no transport touched)', async () => {
+    await pickupRemoteOutbox(dir, agent('review', { type: 'local' }), 'proj')
+    expect(sshTransport.fileExists).not.toHaveBeenCalled()
+    expect(sshTransport.rsyncFrom).not.toHaveBeenCalled()
+  })
+
+  it('skips the rsync when the remote outbox does not exist yet', async () => {
+    sshTransport.fileExists.mockResolvedValueOnce(false)
+    await pickupRemoteOutbox(dir, agent('9b35cd55', { type: 'ssh', host: 'joshua@box' }), 'proj')
+    expect(sshTransport.fileExists).toHaveBeenCalledTimes(1)
+    expect(sshTransport.rsyncFrom).not.toHaveBeenCalled()
+  })
+
+  it('rsyncs the remote outbox into the local outbox dir when it exists', async () => {
+    sshTransport.fileExists.mockResolvedValueOnce(true)
+    const ssh = agent('9b35cd55', { type: 'ssh', host: 'joshua@box' })
+    await pickupRemoteOutbox(dir, ssh, 'proj')
+    expect(sshTransport.rsyncFrom).toHaveBeenCalledTimes(1)
+    const [remote, local] = sshTransport.rsyncFrom.mock.calls[0] as unknown as [string, string]
+    expect(remote).toContain('/agents/9b35cd55/outbox')
+    expect(local).toContain(getAgentOutboxDir(dir, '9b35cd55'))
   })
 })
 

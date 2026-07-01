@@ -2,7 +2,12 @@ import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
-import { markHandoffSent, readOutboxDraft, readOutboxRecipients } from './outbox'
+import {
+  clearRemoteOutboxDraft,
+  markHandoffSent,
+  readOutboxDraft,
+  readOutboxRecipients,
+} from './outbox'
 import { deliverHandoff, discardHandoff } from './parcel'
 
 export interface DispatchOutboxResult {
@@ -77,6 +82,7 @@ export async function dispatchOutbox(opts: {
       })
       await discardHandoff(repoRoot, meta.name)
       await markHandoffSent(repoRoot, senderId, recipient)
+      await clearRemoteOutboxDraft(senderState, state.id, recipient)
       results.push({
         recipient,
         status: 'delivered',

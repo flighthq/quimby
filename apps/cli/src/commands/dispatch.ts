@@ -1,6 +1,6 @@
 import { syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
-import { dispatchOutbox } from '@quimbyhq/handoff'
+import { dispatchOutbox, pickupRemoteOutbox } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
@@ -81,6 +81,8 @@ async function dispatchSenderOutbox(
     ? (codeSourceName: string) => rebaseOntoHead(repoRoot, codeSourceName)
     : undefined
 
+  // SSH agents author their outbox on the remote host; pick it up before reading.
+  await pickupRemoteOutbox(repoRoot, state.agents[sender], state.id)
   const results = await dispatchOutbox({ state, repoRoot, sender, beforeStage })
   if (results.length === 0) return 0
 

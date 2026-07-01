@@ -10,7 +10,7 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from '@quimbyhq/paths'
-import { buildContext, getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
+import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
 import { renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RuntimeType, SSHLocation } from '@quimbyhq/types'
@@ -114,69 +114,49 @@ export async function runRunCommand({
     return
   }
 
-  // ── Local agent, opted into tmux ─────────────────────────────────────────────
-  if (agent.tmux) {
-    const launch = await prepareLocalTmuxLaunch({
-      state,
-      repoRoot,
-      agent,
-      cmd: args.cmd,
-      runtime: args.runtime,
-    })
+  // ── Local agent (always tmux, so the session is grab-able from anywhere) ──────
+  // Every agent lives in its own persistent tmux session; `new-session -A` attaches to it
+  // if it is already running (started here, by `start`, or shown in a dashboard) and
+  // creates it otherwise — so `quimby run <agent>` always grabs the one canonical session.
+  const launch = await prepareLocalTmuxLaunch({
+    state,
+    repoRoot,
+    agent,
+    cmd: args.cmd,
+    runtime: args.runtime,
+  })
 
-    logger.success(`Attaching to tmux session "${launch.sessionName}"${launch.runtimeLabel}`)
-    try {
-      await execa(
-        'tmux',
-        [
-          '-L',
-          quimbyTmuxSocket,
-          '-f',
-          launch.tmuxConf,
-          'new-session',
-          '-A',
-          '-s',
-          launch.sessionName,
-          '-n',
-          launch.windowName,
-          '-c',
-          launch.cwd,
-          ...launch.envArgs,
-          'bash',
-          '-l',
-          '-c',
-          launch.shellCmd,
-        ],
-        { stdio: 'inherit' },
-      )
-    } catch (err) {
-      const e = err as { exitCode?: number }
-      if (e.exitCode !== undefined && e.exitCode !== 0) {
-        process.exit(e.exitCode)
-      }
-    }
-    return
+  // Enroll into tmux so `nudge`/`list` recognize the now-persistent session on later calls.
+  if (!agent.tmux) {
+    state.agents[args.name].tmux = true
+    await saveState(repoRoot, state)
   }
 
-  // ── Local agent, foreground ──────────────────────────────────────────────────
-  const saved = agent.defaults
-  const runtime =
-    (args.runtime as RuntimeType | undefined) ?? (saved?.runtime as RuntimeType) ?? 'local'
-  const entrypoint = args.cmd ?? saved?.entrypoint ?? 'claude'
-
-  if (!runtimeTypes.includes(runtime)) {
-    throw new QuimbyError(`Unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`)
-  }
-
-  const adapter = getRuntime(runtime)
-  const ctx = buildContext(repoRoot, args.name, state.id, agent.id)
-  const spec = await adapter.runSpec(ctx, entrypoint)
-  const runtimeLabel = runtime !== 'local' ? ` [${runtime}]` : ''
-
-  logger.start(`Running "${entrypoint}" in agent "${args.name}"${runtimeLabel}`)
-
+  logger.success(`Attaching to tmux session "${launch.sessionName}"${launch.runtimeLabel}`)
   try {
-    await execa(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, stdio: 'inherit' })
+    await execa(
+      'tmux',
+      [
+        '-L',
+        quimbyTmuxSocket,
+        '-f',
+        launch.tmuxConf,
+        'new-session',
+        '-A',
+        '-s',
+        launch.sessionName,
+        '-n',
+        launch.windowName,
+        '-c',
+        launch.cwd,
+        ...launch.envArgs,
+        'bash',
+        '-l',
+        '-c',
+        launch.shellCmd,
+      ],
+      { stdio: 'inherit' },
+    )
   } catch (err) {
     const e = err as { exitCode?: number }
     if (e.exitCode !== undefined && e.exitCode !== 0) {
@@ -186,12 +166,15 @@ export async function runRunCommand({
 }
 
 // ── Dashboard mode ────────────────────────────────────────────────────────────
-// Multiple agents → one tmux session, one window per agent. Each window runs the
-// agent's entrypoint directly; activity/silence monitoring lights up the tabs.
-// The reserved name "host" adds a plain terminal window (bash login shell in the
-// repo root) — the user's command line inside the same tabbed view.
+// Multiple agents → one tmux "dashboard" session, one tab per agent. The dashboard is
+// only a viewport: each agent runs in its OWN persistent tmux session — a local agent in
+// a detached per-agent session linked in with `link-window`, an SSH agent in its remote
+// session reached by an ssh-attach window. So closing or rebuilding the dashboard never
+// kills an agent; the per-agent sessions outlive it and `nudge`/`list` address them
+// directly. The reserved name "host" adds a plain login-shell window in the repo root.
 
 const HOST_WINDOW = 'host'
+const DASH_PLACEHOLDER = '__quimby__'
 
 interface WindowSpec {
   name: string
@@ -199,6 +182,13 @@ interface WindowSpec {
   cmd: string[]
   env?: [string, string][]
 }
+
+// A dashboard tab is either a window LINKED from an agent's own session (local agents, so
+// the session persists past the dashboard) or a normal window running a command (an SSH
+// attach, or the host shell).
+type DashboardTab =
+  | { name: string; kind: 'link'; srcSession: string }
+  | { name: string; kind: 'window'; cwd: string; cmd: string[]; env?: [string, string][] }
 
 async function runDashboard(names: string[]): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
@@ -209,28 +199,42 @@ async function runDashboard(names: string[]): Promise<void> {
     }
   }
 
-  const windows: WindowSpec[] = []
-  for (const name of names) {
-    if (name === HOST_WINDOW) {
-      windows.push({ name: HOST_WINDOW, cwd: repoRoot, cmd: ['bash', '-l'] })
-      continue
-    }
-    const agent = state.agents[name]
-    const window = isSSH(agent.location)
-      ? await buildSSHWindow(name, agent, state, repoRoot)
-      : buildLocalWindow(name, agent, state, repoRoot)
-    windows.push(window)
-  }
-
+  const TMUX = ['-L', quimbyTmuxSocket]
   const tmuxConf = getTmuxConfigPath(repoRoot)
   await writeText(tmuxConf, renderTmuxConfig())
 
-  const session = dashboardSessionName(state.id)
-  const TMUX = ['-L', quimbyTmuxSocket]
+  // Resolve each requested tab, ensuring a local agent has its own live session first so
+  // the dashboard can link (not own) it.
+  const tabs: DashboardTab[] = []
+  let enrolled = false
+  for (const name of names) {
+    if (name === HOST_WINDOW) {
+      tabs.push({ name: HOST_WINDOW, kind: 'window', cwd: repoRoot, cmd: ['bash', '-l'] })
+      continue
+    }
+    const agent = state.agents[name]
+    if (isSSH(agent.location)) {
+      const w = await buildSSHWindow(name, agent, state, repoRoot)
+      tabs.push({ name: w.name, kind: 'window', cwd: w.cwd, cmd: w.cmd, env: w.env })
+    } else {
+      const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+      // Enroll the agent into tmux so `nudge`/`list` recognize its now-persistent session.
+      if (!agent.tmux) {
+        state.agents[name].tmux = true
+        enrolled = true
+      }
+      tabs.push({ name, kind: 'link', srcSession })
+    }
+  }
+  if (enrolled) await saveState(repoRoot, state)
 
-  // Create the session (detached) with the first window, then add the rest.
-  const first = windows[0]
-  const firstEnvArgs = (first.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  const session = dashboardSessionName(state.id)
+
+  // The dashboard owns no state (the agent sessions are separate), so tear down any stale
+  // one and rebuild: this always reflects the requested set and sidesteps tmux's
+  // "duplicate session" error on a re-run. A throwaway placeholder window seeds the
+  // session so the first real tab can be appended in order.
+  await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
   await execa('tmux', [
     ...TMUX,
     '-f',
@@ -240,40 +244,70 @@ async function runDashboard(names: string[]): Promise<void> {
     '-s',
     session,
     '-n',
-    first.name,
+    DASH_PLACEHOLDER,
     '-c',
-    first.cwd,
-    ...firstEnvArgs,
-    ...first.cmd,
+    repoRoot,
   ])
 
-  for (const w of windows.slice(1)) {
-    const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-    await execa('tmux', [
-      ...TMUX,
-      'new-window',
-      '-t',
-      session,
-      '-n',
-      w.name,
-      '-c',
-      w.cwd,
-      ...envArgs,
-      ...w.cmd,
-    ])
+  for (const tab of tabs) {
+    if (tab.kind === 'link') {
+      await execa('tmux', [
+        ...TMUX,
+        'link-window',
+        '-a',
+        '-s',
+        `${tab.srcSession}:${tab.name}`,
+        '-t',
+        `${session}:`,
+      ])
+    } else {
+      const envArgs = (tab.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+      await execa('tmux', [
+        ...TMUX,
+        'new-window',
+        '-a',
+        '-t',
+        `${session}:`,
+        '-n',
+        tab.name,
+        '-c',
+        tab.cwd,
+        ...envArgs,
+        ...tab.cmd,
+      ])
+    }
   }
+  await execa('tmux', [...TMUX, 'kill-window', '-t', `${session}:${DASH_PLACEHOLDER}`]).catch(
+    () => {},
+  )
 
-  // Monitoring: light up tabs when an agent finishes (silence) or resumes (activity).
-  // These are window options set as session defaults so every window inherits them.
-  const monitorOpts: [string, string][] = [
-    ['monitor-activity', 'on'],
-    ['monitor-silence', '30'],
-    ['visual-activity', 'off'],
-    ['visual-silence', 'off'],
-  ]
-  for (const [opt, val] of monitorOpts) {
-    await execa('tmux', [...TMUX, 'set-option', '-t', session, opt, val])
+  // Number the tabs from 0 so `Ctrl-b 0/1/…` lines up with what you see; the placeholder
+  // left a gap at index 0, so renumber once the real tabs are in. base-index/renumber are
+  // session options — isolated to the dashboard, never touching an agent's own session.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
+  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
+
+  // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
+  // monitor-activity/-silence are WINDOW options, so `set-option -t <session>` only reaches
+  // the current window — set them per tab so every one reacts. On a linked local window the
+  // flag is shared with the agent's own session, but that's invisible there: its plain
+  // window-status-format doesn't react and visual-* stay off (set below).
+  const { stdout: winIdx } = await execa('tmux', [
+    ...TMUX,
+    'list-windows',
+    '-t',
+    session,
+    '-F',
+    '#{window_index}',
+  ])
+  for (const idx of winIdx.split('\n').filter(Boolean)) {
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'monitor-activity', 'on']) // prettier-ignore
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'monitor-silence', '30']) // prettier-ignore
   }
+  // Suppress the popup/bell so only the tab color changes — session-scoped, dashboard-only.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-activity', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-silence', 'off'])
 
   // Style the tab bar so activity/silence states are visually distinct.
   // Tmux's conditional format: activity → amber, silence → green, default → grey.
@@ -290,8 +324,8 @@ async function runDashboard(names: string[]): Promise<void> {
     currentFmt,
   ])
 
-  // Select the first window and attach.
-  await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`])
+  // Select the first requested tab (by name, so it's base-index independent) and attach.
+  await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:=${tabs[0].name}`])
 
   logger.success(`Dashboard "${session}" — ${names.join(', ')}`)
 
@@ -305,36 +339,40 @@ async function runDashboard(names: string[]): Promise<void> {
   }
 }
 
-function buildLocalWindow(
-  name: string,
-  agent: AgentState,
-  state: QuimbyState,
-  repoRoot: string,
-): WindowSpec {
-  const runtime = (agent.defaults?.runtime as RuntimeType) ?? 'local'
-  const entrypoint = agent.defaults?.entrypoint ?? 'claude'
-
-  if (!runtimeTypes.includes(runtime)) {
-    throw new QuimbyError(
-      `Agent "${name}": unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`,
-    )
+// Ensure a local agent has its own detached tmux session (identical to `quimby start`),
+// so the dashboard can link its window in without owning the agent's lifecycle. Idempotent:
+// an already-running session is reused, so a re-run never restarts the agent. Returns the
+// session name to link from.
+async function ensureLocalAgentSession(
+  opts: Readonly<{ state: QuimbyState; repoRoot: string; agent: Readonly<AgentState> }>,
+  tmux: string[],
+): Promise<string> {
+  const launch = await prepareLocalTmuxLaunch(opts)
+  const running = await execa('tmux', [...tmux, 'has-session', '-t', launch.sessionName]).then(
+    () => true,
+    () => false,
+  )
+  if (!running) {
+    await execa('tmux', [
+      ...tmux,
+      '-f',
+      launch.tmuxConf,
+      'new-session',
+      '-d',
+      '-s',
+      launch.sessionName,
+      '-n',
+      launch.windowName,
+      '-c',
+      launch.cwd,
+      ...launch.envArgs,
+      'bash',
+      '-l',
+      '-c',
+      launch.shellCmd,
+    ])
   }
-
-  const adapter = getRuntime(runtime)
-  const ctx = buildContext(repoRoot, name, state.id, agent.id)
-  const spec = adapter.runSpec(ctx, entrypoint)
-
-  const baseCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(' ')
-  const windowCmd = `${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
-
-  const env = Object.entries(spec.env ?? {}).map(([k, v]) => [k, v] as [string, string])
-
-  return {
-    name,
-    cwd: spec.cwd ?? repoRoot,
-    cmd: ['bash', '-l', '-c', windowCmd],
-    env: env.length > 0 ? env : undefined,
-  }
+  return launch.sessionName
 }
 
 async function buildSSHWindow(

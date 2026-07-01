@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 
-import { dispatchOutbox, readOutboxRecipients } from '@quimbyhq/handoff'
+import { dispatchOutbox, pickupRemoteOutbox, readOutboxRecipients } from '@quimbyhq/handoff'
 import { getAgentOutboxDraftDir } from '@quimbyhq/paths'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { QuimbyState } from '@quimbyhq/types'
@@ -18,7 +18,17 @@ export async function autoDispatchOutboxes(
   tracker: OutboxDispatchTracker,
 ): Promise<void> {
   for (const sender of Object.keys(state.agents)) {
-    const senderId = state.agents[sender].id
+    const senderAgent = state.agents[sender]
+    const senderId = senderAgent.id
+    // SSH agents author their outbox on the remote host; pick it up so the local reads
+    // below (recipients, settle-debounce mtimes) see it. rsync preserves mtimes, so the
+    // debounce still observes genuine stability across cycles. An unreachable host must
+    // not abort the pass for every other agent, so skip this sender for the cycle.
+    try {
+      await pickupRemoteOutbox(repoRoot, senderAgent, state.id)
+    } catch {
+      continue
+    }
     const recipients = await readOutboxRecipients(repoRoot, senderId)
     const present = new Set<string>()
     const stable: string[] = []
