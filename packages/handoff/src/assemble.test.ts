@@ -9,7 +9,12 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { assembleHandoff, assembleHostHandoff, assembleRemoteHandoff } from './assemble'
+import {
+  assembleHandoff,
+  assembleHostHandoff,
+  assembleRemoteHandoff,
+  getWorkingParcelName,
+} from './assemble'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
   const actual = await importOriginal()
@@ -179,5 +184,36 @@ describe('assembleHostHandoff', () => {
 describe('assembleRemoteHandoff', () => {
   it('is a function', () => {
     expect(typeof assembleRemoteHandoff).toBe('function')
+  })
+})
+
+describe('getWorkingParcelName', () => {
+  it('matches the name assembleHandoff assigns the same code-only tree', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await withFeatureCommit(agentRepoDir)
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const live = await getWorkingParcelName({
+      repoRoot: dir,
+      from: 'alice',
+      codeSourceId: 'alice',
+      location: { type: 'local' },
+      projectId: 'p',
+    })
+    expect(live).toBe(meta.name)
+  })
+
+  it('changes once the working tree drifts from the parcel', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await withFeatureCommit(agentRepoDir)
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'edited after the parcel\n')
+    const live = await getWorkingParcelName({
+      repoRoot: dir,
+      from: 'alice',
+      codeSourceId: 'alice',
+      location: { type: 'local' },
+      projectId: 'p',
+    })
+    expect(live).not.toBe(meta.name)
   })
 })

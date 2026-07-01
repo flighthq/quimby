@@ -138,6 +138,96 @@ describe('applyHandoff', () => {
     }
   })
 
+  it('leaves the uncommitted remainder in the working tree (commits mode)', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    await writeFile(join(agentRepoDir, 'wip.txt'), 'work in progress\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const result = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(result.leftUncommitted).toBe(true)
+      const { stdout: log } = await execa('git', ['log', '--format=%s'], { cwd: targetDir })
+      expect(log).toContain('add feature')
+      const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: targetDir })
+      expect(status).toContain('wip.txt')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('commits the remainder when a message is given (commits mode)', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    await writeFile(join(agentRepoDir, 'wip.txt'), 'work in progress\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const result = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+        message: 'wip: finish the feature',
+      })
+      expect(result.leftUncommitted).toBe(false)
+      const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: targetDir })
+      expect(status.trim()).toBe('')
+      const { stdout: log } = await execa('git', ['log', '--format=%s'], { cwd: targetDir })
+      expect(log).toContain('add feature')
+      expect(log).toContain('wip: finish the feature')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('flags leftUncommitted for patch but not for squashed', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    try {
+      const squashedTarget = await setupTargetRepo(sourceDir)
+      const patchTarget = await setupTargetRepo(sourceDir)
+      try {
+        const squashed = await applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: squashedTarget,
+          mode: 'squashed',
+        })
+        const patched = await applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: patchTarget,
+          mode: 'patch',
+        })
+        expect(squashed.leftUncommitted).toBe(false)
+        expect(patched.leftUncommitted).toBe(true)
+      } finally {
+        await rm(squashedTarget, { recursive: true, force: true })
+        await rm(patchTarget, { recursive: true, force: true })
+      }
+    } finally {
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('throws ConflictError when the merge conflicts', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)

@@ -6,7 +6,8 @@ import { HandoffError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getAgentRepoDir, getStagingHandoffDir, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
+import type { AgentLocation, CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
+import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
@@ -187,6 +188,37 @@ export async function assembleRemoteHandoff(opts: {
   const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
+}
+
+/**
+ * Compute the parcel name an agent's *current* working tree would produce — the same
+ * `<from>-<hash>` identity {@link assembleHandoff} assigns, but without staging anything.
+ * Callers compare it to a previously-assembled parcel's name to tell whether the agent
+ * has changed since (equal name ⇒ identical tree), e.g. to know a post-merge seed advance
+ * would be lossless. The hash is note-less, matching a code-only parcel. Returns null when
+ * the diff can't be captured — treat that as "unknown", not "unchanged".
+ */
+export async function getWorkingParcelName(opts: {
+  repoRoot: string
+  from: string
+  /** Stable id of the agent whose working tree to hash — keys its repo directory. */
+  codeSourceId: string
+  location?: Readonly<AgentLocation>
+  projectId: string
+}): Promise<string | null> {
+  try {
+    if (isSSH(opts.location)) {
+      const transport = getSSHTransport(opts.location)
+      const rRepoDir = remoteAgentRepoDir(opts.projectId, opts.codeSourceId, opts.location.base)
+      const diff = await remoteWorkingTreeDiff(transport, rRepoDir, 'quimby/seed')
+      return parcelName(opts.from, contentDigest([diff, '']))
+    }
+    const repoDir = getAgentRepoDir(opts.repoRoot, opts.codeSourceId)
+    const diff = await git.diffWorkingTree(repoDir, 'quimby/seed', { binary: true })
+    return parcelName(opts.from, contentDigest([diff, '']))
+  } catch {
+    return null
+  }
 }
 
 // A parcel's name is its origin and contents: <from>-<short-hash>, where the hash is

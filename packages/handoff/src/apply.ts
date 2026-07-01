@@ -17,6 +17,12 @@ export interface ApplyResult {
   tempBranch: string
   /** Conflicted file paths, empty when the merge was clean. */
   conflicts: string[]
+  /**
+   * True when work was intentionally left uncommitted in the target's working tree —
+   * `patch` mode, or `commits` mode whose uncommitted remainder was not given a message.
+   * The caller treats this as an incomplete landing: no celebration, no seed advance.
+   */
+  leftUncommitted: boolean
 }
 
 /**
@@ -71,6 +77,12 @@ export async function applyHandoff(opts: {
     await git.deleteBranch(targetRepoPath, tempBranch)
   }
 
+  let leftUncommitted = mode === 'patch'
+  // The `commits`-mode uncommitted remainder is deferred until after the merge, so it can
+  // land in the target's working tree (mirroring the agent's own committed/uncommitted
+  // split) rather than being fabricated into a commit on the temp branch.
+  let remainderPath: string | undefined
+
   try {
     // Step 1: Create temp branch from the seed commit and apply the diff there.
     // The diff was generated against this exact commit, so application is guaranteed clean.
@@ -101,20 +113,16 @@ export async function applyHandoff(opts: {
           : []
         if (sortedPatches.length > 0) {
           await git.am(targetRepoPath, sortedPatches, { skipHooks: true })
-          const remainderPath = join(dir, 'uncommitted.diff')
-          if (await exists(remainderPath)) {
-            await git.apply(targetRepoPath, remainderPath)
-            await git.addAll(targetRepoPath)
-            await git.commit(targetRepoPath, `Uncommitted work from ${meta.from}`, {
-              skipHooks: true,
-            })
-          }
+          const rp = join(dir, 'uncommitted.diff')
+          if (await exists(rp)) remainderPath = rp
         } else {
           const squashedPath = join(dir, 'squashed.diff')
           if (await exists(squashedPath)) {
             await git.apply(targetRepoPath, squashedPath)
             await git.addAll(targetRepoPath)
-            await git.commit(targetRepoPath, meta.suggestedMessage, { skipHooks: true })
+            await git.commit(targetRepoPath, opts.message ?? meta.suggestedMessage, {
+              skipHooks: true,
+            })
           }
         }
         break
@@ -150,10 +158,31 @@ export async function applyHandoff(opts: {
       throw new QuimbyError(`Merge failed:\n${detail}`)
     }
 
+    // Step 3b: `commits`-mode remainder. The agent's committed history is now merged, so
+    // the loose remainder applies cleanly onto it. With a message it becomes one commit;
+    // without, it stays uncommitted in the working tree — the agent didn't commit it, so
+    // quimby doesn't either.
+    if (mode === 'commits' && remainderPath) {
+      try {
+        await git.apply(targetRepoPath, remainderPath)
+      } catch (err) {
+        throw new QuimbyError(
+          `The agent's commits merged, but its uncommitted remainder didn't apply cleanly — ` +
+            `resolve it by hand. ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      if (opts.message) {
+        await git.addAll(targetRepoPath)
+        await git.commit(targetRepoPath, opts.message, { skipHooks: true })
+      } else {
+        leftUncommitted = true
+      }
+    }
+
     // Step 4: Clean up the temp branch.
     await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
 
-    return { mode, tempBranch, conflicts: [] }
+    return { mode, tempBranch, conflicts: [], leftUncommitted }
   } catch (err) {
     if (err instanceof ConflictError) throw err
     // On unexpected failure, try to restore the user to where they were.
