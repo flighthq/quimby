@@ -189,9 +189,10 @@ export async function runRunCommand({
 // a detached per-agent session linked in with `link-window`, an SSH agent in its remote
 // session reached by an ssh-attach window. So closing or rebuilding the dashboard never
 // kills an agent; the per-agent sessions outlive it and `nudge`/`list` address them
-// directly. The reserved name "host" adds a plain login-shell window in the repo root.
+// directly. The reserved name "host" adds a "$" shell tab in the repo root.
 
 const HOST_WINDOW = 'host'
+const HOST_TAB_NAME = '$'
 const DASH_PLACEHOLDER = '__quimby__'
 
 interface WindowSpec {
@@ -227,7 +228,7 @@ async function runDashboard(names: string[]): Promise<void> {
   let enrolled = false
   for (const name of names) {
     if (name === HOST_WINDOW) {
-      tabs.push({ name: HOST_WINDOW, kind: 'window', cwd: repoRoot, cmd: ['bash', '-l'] })
+      tabs.push({ name: HOST_TAB_NAME, kind: 'window', cwd: repoRoot, cmd: ['bash', '-l'] })
       continue
     }
     const agent = state.agents[name]
@@ -299,75 +300,7 @@ async function runDashboard(names: string[]): Promise<void> {
     () => {},
   )
 
-  // Suppress the status bar on per-agent sessions — the dashboard's own bar is sufficient,
-  // and SSH tabs (which nest a remote tmux) would otherwise show a double status bar.
-  for (const tab of tabs) {
-    if (tab.kind === 'link') {
-      await execa('tmux', [...TMUX, 'set-option', '-t', tab.srcSession, 'status', 'off']).catch(
-        () => {},
-      )
-    }
-  }
-
-  // Number the tabs from 0 so `Ctrl-b 0/1/…` lines up with what you see; the placeholder
-  // left a gap at index 0, so renumber once the real tabs are in. base-index/renumber are
-  // session options — isolated to the dashboard, never touching an agent's own session.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
-  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
-
-  // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
-  // Global window-option defaults ensure linked windows (local agents borrowed from their
-  // own sessions) inherit the setting — harmless on standalone single-window sessions
-  // because the flag only triggers for non-current windows. Silence starts disabled;
-  // hooks below arm it per-window on activity and disarm after it fires once.
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
-  // Suppress the bell and visual message on activity/silence — the format string shows the
-  // state via tab color; we don't want an audible bell or status-line message on top of that.
-  // The flags (window_activity_flag, window_silence_flag) are still set with action none.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
-  // Arm silence monitoring only after activity; disarm once it fires — one green flash per
-  // activity burst instead of re-triggering every 30s on an idle window.
-  await execa('tmux', [
-    ...TMUX,
-    'set-hook',
-    '-g',
-    'alert-activity',
-    'set-window-option -t #{window_id} monitor-silence 30',
-  ])
-  await execa('tmux', [
-    ...TMUX,
-    'set-hook',
-    '-g',
-    'alert-silence',
-    'set-window-option -t #{window_id} monitor-silence 0',
-  ])
-
-  // Style the tab bar so activity/silence states are visually distinct. #I: prefix matches
-  // the Ctrl-b number shortcut for each tab.
-  // Conditional format: activity → amber, silence → green, default → grey.
-  // Per-window set-window-option ensures all tabs — including linked windows from agent
-  // sessions — get the format; session-level set-option for window options requires tmux 3.2+.
-  const windowFmt =
-    '#{?window_silence_flag,#[fg=colour108]#[bold] #I:#W ,#{?window_activity_flag,#[fg=colour214] #I:#W ,#[fg=colour244] #I:#W }}'
-  const currentFmt = '#[fg=colour231,bg=colour238,bold] #I:#W '
-  const { stdout: winIdx } = await execa('tmux', [
-    ...TMUX,
-    'list-windows',
-    '-t',
-    session,
-    '-F',
-    '#{window_index}',
-  ])
-  for (const idx of winIdx.split('\n').filter(Boolean)) {
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-format', windowFmt]) // prettier-ignore
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-current-format', currentFmt]) // prettier-ignore
-  }
-
-  // Select the first requested tab (by name, so it's base-index independent) and attach.
-  await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:=${tabs[0].name}`])
+  await styleDashboard(TMUX, session, tabs)
 
   logger.success(`Dashboard "${session}" — ${names.join(', ')}`)
 
@@ -527,4 +460,118 @@ async function buildSSHWindow(
     cwd: repoRoot,
     cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs],
   }
+}
+
+// ── Dashboard styling ─────────────────────────────────────────────────────────
+// Everything below is applied ONLY to the dashboard session — none of it touches
+// the bundled tmux config or individual agent sessions. Keybindings (`bind`) are
+// server-global (tmux has no session-scoped binds), but they are harmless on
+// single-window agent sessions and are set here so the intent is clear.
+
+async function styleDashboard(
+  TMUX: string[],
+  session: string,
+  tabs: Readonly<DashboardTab[]>,
+): Promise<void> {
+  // Suppress the status bar on per-agent sessions — the dashboard's own bar is sufficient,
+  // and SSH tabs (which nest a remote tmux) would otherwise show a double status bar.
+  for (const tab of tabs) {
+    if (tab.kind === 'link') {
+      await execa('tmux', [...TMUX, 'set-option', '-t', tab.srcSession, 'status', 'off']).catch(
+        () => {},
+      )
+    }
+  }
+
+  // Number the tabs from 0 so `Ctrl-b 0/1/…` lines up with what you see; the placeholder
+  // left a gap at index 0, so renumber once the real tabs are in. base-index/renumber are
+  // session options — isolated to the dashboard, never touching an agent's own session.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
+  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
+
+  // ── Host tab: auto-rename with "$" prefix ───────────────────────────────────
+  // The bundled tmux config disables auto-rename globally to keep agent window names
+  // stable; this per-window override only affects the host tab so it shows the running
+  // command (e.g. "$ bash", "$ quimby").
+  const hostIdx = tabs.findIndex((t) => t.name === HOST_TAB_NAME)
+  if (hostIdx !== -1) {
+    const target = `${session}:${hostIdx}`
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
+    await execa('tmux', [
+      ...TMUX,
+      'set-window-option',
+      '-t',
+      target,
+      'automatic-rename-format',
+      '$ #{pane_current_command}',
+    ])
+  }
+
+  // ── Activity / silence highlights ───────────────────────────────────────────
+  // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
+  // Silence starts disabled; hooks arm it per-window on activity and disarm after it
+  // fires once — one green flash per activity burst, no re-triggering on idle windows.
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
+  await execa('tmux', [
+    ...TMUX,
+    'set-hook',
+    '-g',
+    'alert-activity',
+    'set-window-option monitor-silence 30',
+  ])
+  await execa('tmux', [
+    ...TMUX,
+    'set-hook',
+    '-g',
+    'alert-silence',
+    'set-window-option monitor-silence 0',
+  ])
+
+  // ── Tab bar formatting ──────────────────────────────────────────────────────
+  // Activity → amber, silence → green, default → grey (lighter for the host tab).
+  const agentWindowFmt =
+    '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}'
+  const hostWindowFmt =
+    '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour248] #W }}'
+  const currentFmt = '#[fg=colour231,bg=colour238,bold] #W '
+  const { stdout: winIdx } = await execa('tmux', [
+    ...TMUX,
+    'list-windows',
+    '-t',
+    session,
+    '-F',
+    '#{window_index}',
+  ])
+  for (const idx of winIdx.split('\n').filter(Boolean)) {
+    const fmt = Number(idx) === hostIdx ? hostWindowFmt : agentWindowFmt
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-format', fmt]) // prettier-ignore
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-current-format', currentFmt]) // prettier-ignore
+  }
+
+  // ── Status bar hint + keybindings ───────────────────────────────────────────
+  // Session-scoped status-right with a shortcut hint; replaces the default date/time.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right-length', '80'])
+  await execa('tmux', [
+    ...TMUX,
+    'set-option',
+    '-t',
+    session,
+    'status-right',
+    '#[fg=colour240]alt+←→ tabs · ^b d exit  #[fg=colour245]%H:%M ',
+  ])
+  // Alt+arrow and Alt+number tab switching (no prefix key). These are server-global
+  // but harmless on single-window agent sessions — set here so they are clearly
+  // dashboard-only intent and only present while a dashboard has been created.
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'previous-window'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'next-window'])
+  for (let i = 1; i <= 9; i++) {
+    await execa('tmux', [...TMUX, 'bind', '-n', `M-${i}`, 'select-window', '-t', `:${i - 1}`])
+  }
+
+  // Select the first tab.
+  await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`])
 }
