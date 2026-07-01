@@ -52,7 +52,9 @@ export async function runRunCommand({
 }: {
   args: { name: string; _?: string[]; cmd?: string; runtime?: string }
 }) {
-  const names = [args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))
+  // citty puts every positional in `args._` (including the one bound to `name`), so a
+  // plain concat would duplicate the first agent — dedupe, as `sync` does.
+  const names = [...new Set([args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))]
 
   if (names.length > 1) {
     if (args.cmd) {
