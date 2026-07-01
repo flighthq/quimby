@@ -1,14 +1,13 @@
 import { getAgentSyncStatus, syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
+import { nudgeAgentSession } from '@quimbyhq/session'
 import { getSSHTransport } from '@quimbyhq/transport'
 import { isSSH } from '@quimbyhq/types'
 import { logger, readText, writeText } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { join } from 'pathe'
-
-import { nudgeAgentSession } from '../nudge'
 
 const NUDGE_TEXT = "Here's your assignment: @assignment.md"
 

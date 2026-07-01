@@ -7,14 +7,14 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   }),
 }))
 
-describe('runApplyCommand', () => {
-  it('delegates to runMergeCommand', async () => {
-    const { default: cmd } = await import('./apply')
+describe('runMergeCommand', () => {
+  it('is a function', async () => {
+    const { default: cmd } = await import('./merge')
     expect(typeof cmd.run).toBe('function')
   })
 
   it('throws when workspace is missing', async () => {
-    const { default: cmd } = await import('./apply')
+    const { default: cmd } = await import('./merge')
     await expect(
       cmd.run!({ args: { agent: 'alice', commits: false, patch: false } } as never),
     ).rejects.toThrow()

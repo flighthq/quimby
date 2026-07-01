@@ -7,6 +7,7 @@ import { logger, writeText } from '@quimbyhq/utils'
 import { loadState, saveState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
+import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
 
@@ -14,6 +15,7 @@ export interface ServerOptions {
   repoRoot: string
   port?: number
   pollInterval?: number
+  autoDispatch?: boolean
 }
 
 export interface ServerInfo {
@@ -22,10 +24,16 @@ export interface ServerInfo {
   startedAt: string
 }
 
-export async function startServer(opts: ServerOptions): Promise<void> {
-  const { repoRoot, port = 7749, pollInterval = 5000 } = opts
+export interface QuimbyServerHandle {
+  port: number
+  stop(): Promise<void>
+}
+
+export async function startServer(opts: ServerOptions): Promise<QuimbyServerHandle> {
+  const { repoRoot, port = 7749, pollInterval = 5000, autoDispatch = true } = opts
 
   const statusCache = new Map<string, StatusSnapshot>()
+  const outboxTracker = createOutboxDispatchTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
 
@@ -115,6 +123,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       for (const name of Object.keys(state.agents)) {
         await pollAgentStatus(repoRoot, state, name, statusCache)
       }
+      if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker)
     } catch (err) {
       logger.error(`Poll error: ${err}`)
     }
@@ -130,26 +139,30 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     throw err
   })
 
-  server.listen(port, '127.0.0.1', () => {
-    logger.success(`Server listening on http://127.0.0.1:${port}`)
-    logger.info(`Polling every ${pollInterval / 1000}s`)
-    logger.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
-    const subCount = countSubscriptions(state)
-    if (subCount > 0) {
-      logger.info(`${subCount} active subscription(s)`)
-    }
+  await new Promise<void>((resolve) => {
+    server.listen(port, '127.0.0.1', () => {
+      logger.success(`Server listening on http://127.0.0.1:${port}`)
+      logger.info(`Polling every ${pollInterval / 1000}s`)
+      logger.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
+      if (autoDispatch) logger.info('Auto-dispatching outboxes on change')
+      const subCount = countSubscriptions(state)
+      if (subCount > 0) {
+        logger.info(`${subCount} active subscription(s)`)
+      }
+      resolve()
+    })
   })
 
-  const shutdown = async () => {
-    logger.info('Shutting down...')
+  let stopped = false
+  const stop = async (): Promise<void> => {
+    if (stopped) return
+    stopped = true
     clearInterval(poller)
-    server.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
     await removeServerInfo(repoRoot)
-    process.exit(0)
   }
 
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+  return { port, stop }
 }
 
 async function addSubscription(

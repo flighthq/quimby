@@ -27,7 +27,6 @@ An npm-workspace monorepo. The domain is split into one package per capability s
   - `src/cli.ts` — entry point (citty root command, flat subcommands; intercepts `help`/`-h`/`--help`)
   - `src/index.ts` — public API (type re-exports)
   - `src/commands/` — one file per command (add, config, run, list, status, assign, nudge, diff, handoff, dispatch, apply, sync, rebuild, rename, remove, set, serve, subscribe, unsubscribe)
-  - `src/nudge.ts` — shared `nudgeAgentSession` (inject text + Return into an agent's tmux session), reused by assign, dispatch, handoff, and the standalone `nudge` command
   - `src/courier.ts` — shared `stageParcel` (optional rebase → assemble a commit-free working-tree parcel), reused by apply and handoff
   - `src/banner.ts` — colored wordmark on root help; `src/help.ts` — grouped root-help renderer; `src/walkthrough.ts` — interactive agent config (`@clack/prompts`)
 - `packages/types/` — `@quimbyhq/types` — shared types, **one PascalCase file per interface** (`QuimbyState.ts`, `AgentState.ts`, `HandoffMeta.ts`, `CommitMeta.ts`, `AgentLocation.ts`, `LocalLocation.ts`, `SSHLocation.ts`, `RuntimeAdapter.ts`, `RuntimeContext.ts`, `RunSpec.ts`, `RuntimeType.ts`); `index.ts` is the barrel
@@ -38,12 +37,13 @@ An npm-workspace monorepo. The domain is split into one package per capability s
 - `packages/git/` — `@quimbyhq/git` — typed wrapper over the git CLI
 - `packages/transport/` — `@quimbyhq/transport` — LocalTransport / SSHTransport abstraction (`sq`, getTransport, getSSHTransport)
 - `packages/runtimes/` — `@quimbyhq/runtimes` — execution adapters (local, sbx, openshell) + registry + buildContext
+- `packages/session/` — `@quimbyhq/session` — waking a live agent's tmux session (nudgeAgentSession, hasAgentSession); reused by the CLI nudge/assign/dispatch/handoff and the server's auto-dispatch
 - `packages/workspace/` — `@quimbyhq/workspace` — `.quimby/` state lifecycle (resolve/ensure/load/save, migrations)
 - `packages/agent/` — `@quimbyhq/agent` — agent lifecycle (add, remove, rename, sync, rebuild, sync targets)
-- `packages/handoff/` — `@quimbyhq/handoff` — parcel lifecycle + apply, the boundary (assemble, deliver, apply, discard, readOutbox\*, markHandoffSent)
-- `packages/server/` — `@quimbyhq/server` — HTTP server + status poller + client (CLI → server API)
+- `packages/handoff/` — `@quimbyhq/handoff` — parcel lifecycle + apply, the boundary (assemble, deliver, apply, discard, readOutbox\*, markHandoffSent, dispatchOutbox — the shared outbox-enact core reused by the CLI `dispatch` and the server)
+- `packages/server/` — `@quimbyhq/server` — HTTP server + status poller + outbox auto-dispatch + client (CLI → server API)
 
-Dependency flow is a DAG: leaves (types, errors, utils, paths, template) → git/transport/runtimes → workspace → agent/handoff → server → apps/cli.
+Dependency flow is a DAG: leaves (types, errors, utils, paths, template) → git/transport/runtimes/session → workspace → agent/handoff → server → apps/cli.
 
 ## Development
 
@@ -88,7 +88,7 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]  # sync agent(s) 
 quimby rebuild <agent> --force                       # recreate agent from current source (requires --force; discards work + clears inbox/outbox/assignment/status)
 quimby rename <agent> <new-name>                    # rename agent
 quimby remove <agent> [--force]                     # remove agent (--force skips remote cleanup)
-quimby serve [-p <port>] [--poll <secs>]             # start the server
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch]  # start the server; polls status, auto-dispatches settled outbox drafts (--no-dispatch to skip), routes subscriptions; -it/--interactive stacks a shell on top (run commands live; `exit` or double Ctrl+C stops it)
 quimby subscribe <agent> <target>                   # agent receives target's status
 quimby unsubscribe <agent> <target>                 # remove subscription
 ```
@@ -100,7 +100,7 @@ quimby unsubscribe <agent> <target>                 # remove subscription
 - `handoff` is direct transport: `handoff A B` (agent→agent) or `handoff B` (host→B, sender `host`, diff = host worktree vs B's seed). `dispatch <agent>` enacts the agent's outbox: drafts are addressed by recipient (`outbox/<recipient>/`, optional `attach:` frontmatter), delivered, drained to `outbox/.sent/` only on success, with unknown recipients bounced (left in the outbox). `host` is a reserved agent name
 - Seed ref is `quimby/seed` tag in agent repos
 - Each agent records a `syncRef` (default: host branch at `add` time); `quimby sync` resolves that ref's tip in the host repo as the new baseline — it does not follow the host's live HEAD. Retarget with `quimby sync <agent> --base <ref>`, or `quimby sync <agent> --current` to retarget to the host's checked-out branch (sugar for `--base <current-branch>`, persisted; allowed with `--all`; errors on detached HEAD) — pair with `-f` for the post-integration "snap onto where I am, drop shipped work" move (or record-only via `quimby set <agent> --sync <ref>`)
-- Subscriptions stored in `state.yaml`, routed by server
+- Subscriptions stored in `state.yaml`, routed by server; the server also auto-dispatches settled outbox drafts each poll (debounced on mtime stability; `serve --no-dispatch` opts out) — additive to subscriptions, not a replacement
 - Server writes `.quimby/server.json` pidfile when running
 - All file paths use pathe for cross-platform consistency
 - Prefer the unjs ecosystem (citty, consola, pathe)

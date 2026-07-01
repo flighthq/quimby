@@ -6,13 +6,7 @@
   },
   "references": [
     {
-      "path": "../handoff"
-    },
-    {
       "path": "../paths"
-    },
-    {
-      "path": "../session"
     },
     {
       "path": "../transport"
@@ -22,9 +16,6 @@
     },
     {
       "path": "../utils"
-    },
-    {
-      "path": "../workspace"
     }
   ],
   "include": ["src"],

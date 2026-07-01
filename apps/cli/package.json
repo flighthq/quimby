@@ -35,6 +35,7 @@
     "@quimbyhq/paths": "*",
     "@quimbyhq/runtimes": "*",
     "@quimbyhq/server": "*",
+    "@quimbyhq/session": "*",
     "@quimbyhq/template": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",

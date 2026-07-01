@@ -29,6 +29,8 @@ export class SSHTransport implements Transport {
       `ControlPath=${controlPath}`,
       '-o',
       'ControlPersist=60s',
+      '-o',
+      'ConnectTimeout=5',
     ]
     this.sshFlags = [...ctrlFlags, ...(loc.port ? ['-p', String(loc.port)] : [])]
     this.scpFlags = [...ctrlFlags, ...(loc.port ? ['-P', String(loc.port)] : [])]

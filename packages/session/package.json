@@ -1,5 +1,5 @@
 {
-  "name": "@quimbyhq/server",
+  "name": "@quimbyhq/session",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,13 +19,11 @@
     "clean": "tsc -b --clean"
   },
   "dependencies": {
-    "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
-    "@quimbyhq/session": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",
-    "@quimbyhq/workspace": "*",
+    "execa": "^9.6.1",
     "pathe": "^2.0.3"
   },
   "devDependencies": {

@@ -1,12 +1,12 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import { assembleHostHandoff, deliverHandoff, discardHandoff, HOST_SENDER } from '@quimbyhq/handoff'
+import { nudgeAgentSession } from '@quimbyhq/session'
 import type { AgentState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { stageParcel } from '../courier'
-import { nudgeAgentSession } from '../nudge'
 
 export default defineCommand({
   meta: {
