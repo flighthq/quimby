@@ -1,10 +1,9 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-
-import { hasAgentSession, nudgeAgentSession } from '../nudge'
 
 // Sent when no message is given: the lightest possible kick — tell the agent to
 // pick back up. Agent-agnostic and harmless to a paused or idle session.

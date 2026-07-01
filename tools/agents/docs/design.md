@@ -205,7 +205,7 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) t
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (--force: skip remote cleanup)
-quimby serve [-p <port>] [--poll <secs>]              Start the server
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top
 quimby subscribe <agent> <target>                    Agent receives target's status
 quimby unsubscribe <agent> <target>                  Remove subscription
 ```
@@ -247,6 +247,8 @@ All flags support `-x` short and `--xxx` long forms:
 - `--3way` (apply — accepted for compatibility; the merge-based flow is inherently 3-way)
 - `--rebase` (handoff, dispatch, apply)
 - `--poll` (serve)
+- `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)
+- `--dispatch` / `--no-dispatch` (serve — auto-carry settled outbox drafts, on by default)
 
 ## No Config File (For Now)
 
@@ -292,6 +294,8 @@ When backend's `status.md` changes, the server pushes a snapshot to `reviewer/in
 
 Subscriptions are the "to whom it may concern" channel: an agent publishes status, and anyone who subscribed pulls it. The discernment is the subscription, set once — so broadcasts don't pile copies into every inbox or make every agent read-and-filter. Subscriptions are stored in `state.yaml` and can be added/removed whether or not the server is running. The server reloads state on each poll cycle.
 
+The server also **auto-dispatches outboxes**: on the same poll cycle it scans each agent's outbox and carries any _settled_ draft to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. A draft is dispatched only once its newest file has been unchanged for a full poll cycle; that debounce is the completion signal, keeping the server from carrying a half-written parcel while the agent is still authoring it (no `.ready` marker or agent cooperation required). Each exact draft version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored draft (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. This is **additive to** subscriptions, not a replacement: dispatch carries directed, discrete parcels; subscriptions mirror ambient status. Auto-dispatch is on by default; `quimby serve --no-dispatch` disables it, leaving only status routing.
+
 ## Server Architecture
 
 The server (`quimby serve`) runs two components:
@@ -313,8 +317,13 @@ DELETE /api/subscriptions/:subscriber/:target Remove subscription
 2. For each agent, check `status.md` (local: mtime; SSH: content comparison)
 3. If changed, read content, update cache, route to subscribers
 4. Route = write to subscriber's `inbox/status/<target>.md` (local or remote)
+5. Scan each agent's outbox; auto-dispatch any draft whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
 
 The server writes `.quimby/server.json` (pid, port, startedAt) on startup and removes it on shutdown. CLI commands use this file to detect a running server and display its status.
+
+### Interactive mode (`serve -it`)
+
+`quimby serve -it` (or `--interactive`) starts the server and then stacks a shell on top of it, so `quimby` (and any other) commands run live against the server underneath — one terminal instead of two. The shell owns the terminal, so its own Ctrl+C just interrupts the current command; `exit`/Ctrl+D — or a quick double Ctrl+C — stops the server and quits. (A single Ctrl+C deliberately does _not_ tear the server down, so interrupting a command is never fatal.) The `-it` spelling reads like `docker run -it`.
 
 ## Handoff Lifecycle
 
@@ -411,6 +420,8 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 - **Apply is a merge, not a patch**: The agent's diff is reconstructed on a temp branch from the seed, then merged into the target — not patched directly onto the working tree. A patch fails when the target has moved past the seed (the common case with multiple agents); a merge handles it with git's 3-way machinery, producing standard merge conflicts the user can resolve with tools they already know. The agent is never touched — no non-working state inside a sandbox. Conflicts live on the host where the user has full tooling.
 - **Assign syncs by default, but never loses the message**: Assigning to a stale agent wastes tokens — the agent works off wrong files, discovers issues that are already fixed, or produces diffs that conflict on apply. `assign` writes `assignment.md` first (the user's intent is durable), then syncs the agent to its base. If sync fails (rebase conflict), the assignment is still on disk — the user's message is never lost — but the nudge is suppressed (don't wake an agent on a stale baseline). The user resolves the conflict and runs `quimby sync` manually. `--no-sync` opts out entirely.
 - **Server is infrastructure, not convenience**: Agents in sandboxes can't see each other. The server is the only entity with cross-agent visibility. It's architecturally necessary, not a nice-to-have.
+- **Auto-dispatch enacts the outbox; it doesn't replace subscribe**: while running, the server carries settled outbox drafts to their recipients on the poll cycle — the final removal of the human-as-messenger from the directed channel, since `dispatch` was already agent-authored routing the human merely triggered. It is deliberately **additive** to subscriptions, not a replacement for them: the two solve orthogonal problems. `dispatch` carries **directed, discrete parcels** (a diff and/or note addressed to one recipient); `subscribe` mirrors **ambient, continuous status** ("to whom it may concern," set once, pulled). Folding status into re-sent parcels would be chattier and lose the publish-once/pull property, so both stay. The safety comes from the same courier invariants automation needs: content-hashed names dedupe, bounces stay in the outbox, `.sent/` is the ledger — plus a **settle debounce** (a draft carries only after its files are unchanged for a full cycle) so a half-written parcel is never shipped, and an **attempt-once** rule so a bad address never nudges in a loop. Because human-gated dispatch was also the accidental rate limiter against the #1 pain point (token exhaustion), auto-dispatch is opt-out per server run (`--no-dispatch`), never per-agent config.
+- **`serve -it` binds the server's life to a terminal, like `docker run -it`**: the server is a background daemon, but running it in one terminal and typing commands in another is friction. `-it` starts the server and stacks a shell on top in the same terminal, so commands run live against the server underneath and the server dies when you leave the shell. Ctrl+C is deliberately **not** a single-press kill — the shell owns it for interrupting commands, and only `exit`/Ctrl+D or a quick **double** Ctrl+C tears the server down, so interrupting a long command never accidentally takes the server with it. The server library returns a `stop()` handle rather than installing its own `process.exit`, so the command layer owns lifecycle in both the plain and interactive modes.
 - **Three interaction modes coexist**: Interactive (run), headless (start), and server (serve) are separate concerns. run/start manage individual agents; serve manages the connections between them.
 - **Stable IDs, not names**: `QuimbyState.id` and `AgentState.id` are UUIDs generated at creation and never change. tmux session names are derived from IDs, so renaming an agent doesn't orphan a running session.
 - **One UUID is an agent's identity across every surface; the name is only a display label**: an agent's `id` keys its on-disk directory (`.quimby/agents/<id>/`, local and remote), its tmux session (`qb-<projectId[:8]>-<agentId[:8]>`), and its sandbox name. The friendly name is a pure display attribute — stored in `state.yaml`, shown in `quimby list`, and set as the tmux **window** title (`rename-window`) on each `run` so the on-screen label tracks renames. Because nothing on disk or in a live session is keyed by the name, **rename is a pure relabel**: the directory never moves (no `fs.rename`/`mv`), so the sandbox and tmux session bound to that path survive, and no running work is orphaned. Existing name-keyed workspaces migrate on state load (local: `fs.rename` to the id-dir; remote: a guarded `mv` on next `run`).

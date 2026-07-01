@@ -1,18 +1,11 @@
+import { syncAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
-import {
-  deliverHandoff,
-  discardHandoff,
-  markHandoffSent,
-  readOutboxDraft,
-  readOutboxRecipients,
-} from '@quimbyhq/handoff'
+import { dispatchOutbox } from '@quimbyhq/handoff'
+import { nudgeAgentSession } from '@quimbyhq/session'
 import type { QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-
-import { stageParcel } from '../courier'
-import { nudgeAgentSession } from '../nudge'
 
 export default defineCommand({
   meta: {
@@ -63,7 +56,7 @@ export async function runDispatchCommand({
 
   let totalQueued = 0
   for (const sender of senders) {
-    totalQueued += await dispatchOutbox(state, repoRoot, sender, {
+    totalQueued += await dispatchSenderOutbox(state, repoRoot, sender, {
       rebase: args.rebase,
       nudge: args.nudge,
     })
@@ -78,66 +71,48 @@ export async function runDispatchCommand({
   }
 }
 
-/**
- * Carry one agent's queued outbox parcels to their recipients. Returns the number of
- * recipients it attempted (0 = the outbox was empty), so the caller can report when a
- * whole `--all` pass found nothing. Empty outboxes are silent — a `--all` over many
- * agents shouldn't print a line for each one that had nothing queued.
- */
-async function dispatchOutbox(
+async function dispatchSenderOutbox(
   state: Readonly<QuimbyState>,
   repoRoot: string,
   sender: string,
   opts: { rebase: boolean; nudge: boolean },
 ): Promise<number> {
-  const senderId = state.agents[sender].id
-  const recipients = await readOutboxRecipients(repoRoot, senderId)
-  if (recipients.length === 0) return 0
+  const beforeStage = opts.rebase
+    ? (codeSourceName: string) => rebaseOntoHead(repoRoot, codeSourceName)
+    : undefined
 
-  logger.start(`Dispatching "${sender}" → ${recipients.length} recipient(s)…`)
-  for (const recipient of recipients) {
-    const recip = state.agents[recipient]
-    if (!recip) {
-      logger.warn(`Skipping "${recipient}" — no such agent (left in outbox to fix)`)
-      continue
-    }
-    try {
-      const draft = await readOutboxDraft(repoRoot, senderId, recipient)
-      const meta = await stageParcel({
-        state,
-        repoRoot,
-        from: sender,
-        to: recipient,
-        note: draft.note || undefined,
-        attach: draft.attach,
-        rebase: opts.rebase,
-      })
-      await deliverHandoff({
-        repoRoot,
-        name: meta.name,
-        to: recipient,
-        toId: recip.id,
-        toLocation: recip.location,
-        projectId: state.id,
-      })
-      await discardHandoff(repoRoot, meta.name)
-      await markHandoffSent(repoRoot, senderId, recipient)
-      logger.success(`Delivered "${sender}" → "${recipient}"`)
+  const results = await dispatchOutbox({ state, repoRoot, sender, beforeStage })
+  if (results.length === 0) return 0
 
+  logger.start(`Dispatching "${sender}" → ${results.length} recipient(s)…`)
+  for (const result of results) {
+    if (result.status === 'delivered') {
+      logger.success(`Delivered "${sender}" → "${result.recipient}"`)
       if (opts.nudge) {
-        // Point the recipient at the parcel just dropped in its inbox (the inbox sits
-        // in the agent's cwd, named by sender + content hash).
-        await nudgeAgentSession({
-          agent: recip,
-          displayName: recipient,
-          text: `New handoff in your inbox: @inbox/${meta.name}/ — please review.`,
-        })
+        const recip = state.agents[result.recipient]
+        if (recip) {
+          await nudgeAgentSession({
+            agent: recip,
+            displayName: result.recipient,
+            text: `New handoff in your inbox: @inbox/${result.parcelName}/ — please review.`,
+          })
+        }
       }
-    } catch (err) {
-      logger.warn(
-        `Failed to deliver to "${recipient}" (left in outbox): ${err instanceof Error ? err.message : err}`,
-      )
+    } else if (result.status === 'unknown') {
+      logger.warn(`Skipping "${result.recipient}" — no such agent (left in outbox to fix)`)
+    } else {
+      logger.warn(`Failed to deliver to "${result.recipient}" (left in outbox): ${result.error}`)
     }
   }
-  return recipients.length
+  return results.length
+}
+
+async function rebaseOntoHead(repoRoot: string, agentName: string): Promise<void> {
+  logger.start(`Syncing "${agentName}" onto its base`)
+  const result = await syncAgent(repoRoot, agentName)
+  if (result.rebased) {
+    logger.success(`Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`)
+  } else {
+    logger.info(`Already based on host HEAD (${result.newSeed.slice(0, 8)})`)
+  }
 }

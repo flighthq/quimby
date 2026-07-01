@@ -1,4 +1,5 @@
 export * from './apply'
 export * from './assemble'
+export * from './dispatch'
 export * from './outbox'
 export * from './parcel'

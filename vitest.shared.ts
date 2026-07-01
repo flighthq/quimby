@@ -15,6 +15,7 @@ const PACKAGES = [
   'git',
   'transport',
   'runtimes',
+  'session',
   'workspace',
   'agent',
   'handoff',

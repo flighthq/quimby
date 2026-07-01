@@ -9,6 +9,7 @@
     { "path": "./packages/git" },
     { "path": "./packages/transport" },
     { "path": "./packages/runtimes" },
+    { "path": "./packages/session" },
     { "path": "./packages/workspace" },
     { "path": "./packages/agent" },
     { "path": "./packages/handoff" },
