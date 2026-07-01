@@ -319,14 +319,31 @@ async function runDashboard(names: string[]): Promise<void> {
   // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
   // Global window-option defaults ensure linked windows (local agents borrowed from their
   // own sessions) inherit the setting — harmless on standalone single-window sessions
-  // because the flag only triggers for non-current windows.
+  // because the flag only triggers for non-current windows. Silence starts disabled;
+  // hooks below arm it per-window on activity and disarm after it fires once.
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '30'])
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
   // Suppress the bell and visual message on activity/silence — the format string shows the
   // state via tab color; we don't want an audible bell or status-line message on top of that.
   // The flags (window_activity_flag, window_silence_flag) are still set with action none.
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
+  // Arm silence monitoring only after activity; disarm once it fires — one green flash per
+  // activity burst instead of re-triggering every 30s on an idle window.
+  await execa('tmux', [
+    ...TMUX,
+    'set-hook',
+    '-g',
+    'alert-activity',
+    'set-window-option -t #{window_id} monitor-silence 30',
+  ])
+  await execa('tmux', [
+    ...TMUX,
+    'set-hook',
+    '-g',
+    'alert-silence',
+    'set-window-option -t #{window_id} monitor-silence 0',
+  ])
 
   // Style the tab bar so activity/silence states are visually distinct. #I: prefix matches
   // the Ctrl-b number shortcut for each tab.
