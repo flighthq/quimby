@@ -21,6 +21,7 @@ const main = defineCommand({
     diff: () => import('./commands/diff').then((m) => m.default),
     handoff: () => import('./commands/handoff').then((m) => m.default),
     dispatch: () => import('./commands/dispatch').then((m) => m.default),
+    merge: () => import('./commands/merge').then((m) => m.default),
     apply: () => import('./commands/apply').then((m) => m.default),
     set: () => import('./commands/set').then((m) => m.default),
     sync: () => import('./commands/sync').then((m) => m.default),

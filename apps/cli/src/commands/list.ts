@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises'
 
-import { getAgentSyncStatus } from '@quimbyhq/agent'
+import { getAgentPendingWork, getAgentSyncStatus } from '@quimbyhq/agent'
 import { getAgentOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { isSSH } from '@quimbyhq/types'
@@ -13,6 +13,7 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`
 
 export default defineCommand({
   meta: {
@@ -40,15 +41,24 @@ export async function runListCommand() {
       const agent = state.agents[name]
       const defaults = agent.defaults
 
-      const { behind, syncRef: resolvedSyncRef } = await getAgentSyncStatus(
-        repoRoot,
-        agent,
-        state.sourceRef,
-      ).catch(() => ({
-        behind: 0,
-        syncRef: agent.syncRef ?? state.sourceRef,
-        targetCommit: '',
-      }))
+      const [syncStatus, pending, outboxDrafts] = await Promise.all([
+        getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => ({
+          behind: 0,
+          syncRef: agent.syncRef ?? state.sourceRef,
+          targetCommit: '',
+        })),
+        getAgentPendingWork(repoRoot, state.id, agent),
+        (async () => {
+          const outboxDir = getAgentOutboxDir(repoRoot, agent.id)
+          if (!(await exists(outboxDir))) return 0
+          const drafts = (await readdir(outboxDir, { withFileTypes: true })).filter(
+            (e) => e.isDirectory() && !e.name.startsWith('.'),
+          )
+          return drafts.length
+        })(),
+      ])
+
+      const { behind, syncRef: resolvedSyncRef } = syncStatus
       const syncRef = resolvedSyncRef
       const behindStr = behind > 0 ? `  ${yellow(`${behind} behind ${syncRef}`)}` : ''
       const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
@@ -63,21 +73,20 @@ export async function runListCommand() {
         ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
         : dim('no defaults — run `quimby set`')
 
-      const outboxDir = getAgentOutboxDir(repoRoot, agent.id)
-      let outboxStr = ''
-      if (await exists(outboxDir)) {
-        const drafts = (await readdir(outboxDir, { withFileTypes: true })).filter(
-          (e) => e.isDirectory() && !e.name.startsWith('.'),
-        )
-        if (drafts.length > 0) {
-          outboxStr = `  ${cyan(`outbox: ${drafts.length}`)}`
-        }
+      const outboxStr = outboxDrafts > 0 ? `  ${cyan(`outbox: ${outboxDrafts}`)}` : ''
+
+      let pendingStr = ''
+      if (pending !== null) {
+        const parts: string[] = []
+        if (pending.commits > 0) parts.push(`${pending.commits} ahead`)
+        if (pending.dirty) parts.push('dirty')
+        if (parts.length > 0) pendingStr = `  ${green(`● ${parts.join(', ')}`)}`
       }
 
       // The short id matches the tmux session (`qb-<id8>`) and sandbox names, so the
       // roster correlates with `tmux ls` / `sbx ls`.
       console.log(
-        `  ${name}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${behindStr}`,
+        `  ${name}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${pendingStr}${behindStr}`,
       )
     }
   }

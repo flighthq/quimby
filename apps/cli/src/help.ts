@@ -15,7 +15,7 @@ interface CommandGroup {
 const COMMAND_GROUPS: readonly CommandGroup[] = [
   { title: 'Manage Agents', names: ['add', 'config', 'set', 'rename', 'remove', 'rebuild'] },
   { title: 'Run & Inspect', names: ['run', 'list', 'status', 'diff', 'sync'] },
-  { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'apply'] },
+  { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge'] },
   { title: 'Server', names: ['serve', 'subscribe', 'unsubscribe'] },
   { title: 'Help', names: ['help'] },
 ]
