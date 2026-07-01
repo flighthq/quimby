@@ -322,25 +322,32 @@ async function runDashboard(names: string[]): Promise<void> {
   // because the flag only triggers for non-current windows.
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '30'])
-  // Suppress the popup/bell so only the tab color changes — session-scoped, dashboard-only.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-activity', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-silence', 'off'])
+  // Suppress the bell and visual message on activity/silence — the format string shows the
+  // state via tab color; we don't want an audible bell or status-line message on top of that.
+  // The flags (window_activity_flag, window_silence_flag) are still set with action none.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
 
-  // Style the tab bar so activity/silence states are visually distinct. #I: prefix
-  // matches the Ctrl-b number shortcut for each tab.
+  // Style the tab bar so activity/silence states are visually distinct. #I: prefix matches
+  // the Ctrl-b number shortcut for each tab.
   // Conditional format: activity → amber, silence → green, default → grey.
+  // Per-window set-window-option ensures all tabs — including linked windows from agent
+  // sessions — get the format; session-level set-option for window options requires tmux 3.2+.
   const windowFmt =
     '#{?window_silence_flag,#[fg=colour108]#[bold] #I:#W ,#{?window_activity_flag,#[fg=colour214] #I:#W ,#[fg=colour244] #I:#W }}'
   const currentFmt = '#[fg=colour231,bg=colour238,bold] #I:#W '
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-format', windowFmt])
-  await execa('tmux', [
+  const { stdout: winIdx } = await execa('tmux', [
     ...TMUX,
-    'set-option',
+    'list-windows',
     '-t',
     session,
-    'window-status-current-format',
-    currentFmt,
+    '-F',
+    '#{window_index}',
   ])
+  for (const idx of winIdx.split('\n').filter(Boolean)) {
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-format', windowFmt]) // prettier-ignore
+    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'window-status-current-format', currentFmt]) // prettier-ignore
+  }
 
   // Select the first requested tab (by name, so it's base-index independent) and attach.
   await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:=${tabs[0].name}`])
