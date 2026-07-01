@@ -30,6 +30,15 @@ export function remoteTmuxConfigPath(projectId: string, base?: string): string {
 export const quimbyTmuxSocket = 'quimby'
 
 /**
+ * Dashboard session name for multi-agent `quimby run`. Keyed by project id so
+ * different projects on the same socket don't collide with each other or with
+ * per-agent sessions (`qb-<agentId>`).
+ */
+export function dashboardSessionName(projectId: string): string {
+  return `qb-dash-${projectId.slice(0, 8)}`
+}
+
+/**
  * tmux session name derived from the agent's stable id — unaffected by quimby rename.
  * The agent id is globally unique, so it alone names the session; the human-facing
  * label is the tmux *window* title (set to the agent's display name on `run`).

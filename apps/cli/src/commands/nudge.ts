@@ -1,4 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import { dashboardSessionName } from '@quimbyhq/paths'
 import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
@@ -51,6 +52,7 @@ export async function runNudgeCommand({
   // Sent verbatim — an `@path` in the message is Claude's file-reference syntax to
   // pass through, not a file to read (unlike `assign`, whose @file reads task content).
   const text = args.message ?? DEFAULT_NUDGE
+  const dashSession = dashboardSessionName(state.id)
 
   if (args.all) {
     // Probe tmux for which sessions are actually live, so we target exactly the
@@ -60,7 +62,10 @@ export async function runNudgeCommand({
       ([, agent]) => isSSH(agent.location) || agent.tmux,
     )
     const probed = await Promise.all(
-      capable.map(async ([name, agent]) => [name, agent, await hasAgentSession(agent)] as const),
+      capable.map(
+        async ([name, agent]) =>
+          [name, agent, await hasAgentSession(agent, { dashboardSession: dashSession })] as const,
+      ),
     )
     const live = probed.filter(([, , isLive]) => isLive)
     if (live.length === 0) {
@@ -70,7 +75,13 @@ export async function runNudgeCommand({
 
     logger.start(`Nudging ${live.length} agent(s): ${live.map(([name]) => name).join(', ')}`)
     for (const [name, agent] of live) {
-      await nudgeAgentSession({ agent, clear: args.clear, displayName: name, text })
+      await nudgeAgentSession({
+        agent,
+        clear: args.clear,
+        displayName: name,
+        text,
+        dashboardSession: dashSession,
+      })
     }
     return
   }
@@ -89,5 +100,6 @@ export async function runNudgeCommand({
     clear: args.clear,
     displayName: args.name,
     text,
+    dashboardSession: dashSession,
   })
 }

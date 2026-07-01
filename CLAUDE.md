@@ -26,7 +26,7 @@ An npm-workspace monorepo. The domain is split into one package per capability s
 - `apps/cli/` — the `quimby` binary; commands only
   - `src/cli.ts` — entry point (citty root command, flat subcommands; intercepts `help`/`-h`/`--help`)
   - `src/index.ts` — public API (type re-exports)
-  - `src/commands/` — one file per command (add, config, run, start, stop, list, status, assign, nudge, diff, handoff, dispatch, apply, sync, rebuild, rename, remove, set, serve, subscribe, unsubscribe)
+  - `src/commands/` — one file per command (add, config, run, start, stop, list, status, assign, nudge, diff, handoff, dispatch, apply, merge, sync, rebuild, rename, remove, set, serve, subscribe, unsubscribe)
   - `src/courier.ts` — shared `stageParcel` (optional rebase → assemble a commit-free working-tree parcel), reused by apply and handoff
   - `src/launch.ts` — shared tmux launch prep (`prepareLocalTmuxLaunch`, `prepareSshLaunch`): SSH sync + lazy init, runtime spec, bundled tmux config; reused by run (attach) and start (detached)
   - `src/banner.ts` — colored wordmark on root help; `src/help.ts` — grouped root-help renderer; `src/walkthrough.ts` — interactive agent config (`@clack/prompts`)

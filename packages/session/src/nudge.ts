@@ -24,9 +24,21 @@ const CLEAR_SETTLE_MS = 600
  * Whether the agent has a live tmux session right now (`tmux has-session`). False for
  * a local non-tmux agent (no session to have) and for any tmux/SSH agent that isn't
  * currently running. Lets `nudge --all` target only sessions that actually exist.
+ *
+ * When `dashboardSession` is provided, also checks for the agent as a window in
+ * that session (multi-agent `quimby run` creates one session with agent windows).
  */
-export async function hasAgentSession(agent: Readonly<AgentState>): Promise<boolean> {
-  if (!isSSH(agent.location) && !agent.tmux) return false
+export async function hasAgentSession(
+  agent: Readonly<AgentState>,
+  opts?: { dashboardSession?: string },
+): Promise<boolean> {
+  if (!isSSH(agent.location) && !agent.tmux) {
+    // Local non-tmux agent — but might still be in a dashboard window.
+    if (opts?.dashboardSession) {
+      return hasWindowInSession(opts.dashboardSession, agent.name)
+    }
+    return false
+  }
   const session = tmuxSessionName(agent.id)
   try {
     if (isSSH(agent.location)) {
@@ -36,6 +48,9 @@ export async function hasAgentSession(agent: Readonly<AgentState>): Promise<bool
     }
     return true
   } catch {
+    if (opts?.dashboardSession) {
+      return hasWindowInSession(opts.dashboardSession, agent.name)
+    }
     return false
   }
 }
@@ -53,16 +68,24 @@ export async function hasAgentSession(agent: Readonly<AgentState>): Promise<bool
  *
  * With `clear`, a `/clear` control command is typed first (and given a beat to settle)
  * so the agent resets its context before picking up the nudge text.
+ *
+ * When `dashboardSession` is provided and the per-agent session isn't found, falls
+ * back to targeting the agent's window in the dashboard session.
  */
 export async function nudgeAgentSession(opts: {
   agent: Readonly<AgentState>
   clear?: boolean
   displayName: string
   text: string
+  dashboardSession?: string
 }): Promise<void> {
-  const { agent, clear, displayName, text } = opts
+  const { agent, clear, displayName, text, dashboardSession } = opts
 
   if (!isSSH(agent.location) && !agent.tmux) {
+    // Local non-tmux agent — try dashboard window before giving up.
+    if (dashboardSession && (await nudgeWindowInSession(dashboardSession, displayName, text))) {
+      return
+    }
     logger.info(
       `"${displayName}" isn't a tmux/SSH agent — it'll see it on its next run ` +
         `(enable tmux via \`quimby config ${displayName}\` for live nudges).`,
@@ -91,11 +114,51 @@ export async function nudgeAgentSession(opts: {
     }
     const cleared = clear ? ' (cleared context first)' : ''
     logger.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
+    return
   } catch {
-    logger.warn(
-      `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
-        `(it'll see it on its next run; start it with \`quimby run ${displayName}\`).`,
-    )
+    // Per-agent session not found — try dashboard window before reporting.
+  }
+
+  if (dashboardSession && (await nudgeWindowInSession(dashboardSession, displayName, text))) {
+    return
+  }
+
+  logger.warn(
+    `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
+      `(it'll see it on its next run; start it with \`quimby run ${displayName}\`).`,
+  )
+}
+
+async function hasWindowInSession(session: string, windowName: string): Promise<boolean> {
+  try {
+    await execa('tmux', [...TMUX, 'has-session', '-t', session])
+    const { stdout } = await execa('tmux', [
+      ...TMUX,
+      'list-windows',
+      '-t',
+      session,
+      '-F',
+      '#{window_name}',
+    ])
+    return stdout.split('\n').includes(windowName)
+  } catch {
+    return false
+  }
+}
+
+async function nudgeWindowInSession(
+  session: string,
+  windowName: string,
+  text: string,
+): Promise<boolean> {
+  const target = `${session}:=${windowName}`
+  try {
+    await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-l', text])
+    await execa('tmux', [...TMUX, 'send-keys', '-t', target, 'Enter'])
+    logger.success(`Nudged "${windowName}" in dashboard "${session}"`)
+    return true
+  } catch {
+    return false
   }
 }
 
