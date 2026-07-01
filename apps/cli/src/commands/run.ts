@@ -87,6 +87,13 @@ export async function runRunCommand({
       runtime: args.runtime,
     })
 
+    // Restore the status bar (a previous dashboard session turns it off on SSH agents).
+    await launch.transport
+      .exec(
+        `tmux -L ${sq(quimbyTmuxSocket)} set-option -t ${sq(launch.sessionName)} status on 2>/dev/null; true`,
+      )
+      .catch(() => {})
+
     logger.success(
       `Attaching to tmux session "${launch.sessionName}" on ${launch.host}${launch.runtimeLabel}`,
     )
@@ -131,6 +138,17 @@ export async function runRunCommand({
     state.agents[args.name].tmux = true
     await saveState(repoRoot, state)
   }
+
+  // Restore the status bar (a previous dashboard session turns it off on linked agents).
+  await execa('tmux', [
+    '-L',
+    quimbyTmuxSocket,
+    'set-option',
+    '-t',
+    launch.sessionName,
+    'status',
+    'on',
+  ]).catch(() => {})
 
   logger.success(`Attaching to tmux session "${launch.sessionName}"${launch.runtimeLabel}`)
   try {
@@ -281,6 +299,16 @@ async function runDashboard(names: string[]): Promise<void> {
     () => {},
   )
 
+  // Suppress the status bar on per-agent sessions — the dashboard's own bar is sufficient,
+  // and SSH tabs (which nest a remote tmux) would otherwise show a double status bar.
+  for (const tab of tabs) {
+    if (tab.kind === 'link') {
+      await execa('tmux', [...TMUX, 'set-option', '-t', tab.srcSession, 'status', 'off']).catch(
+        () => {},
+      )
+    }
+  }
+
   // Number the tabs from 0 so `Ctrl-b 0/1/…` lines up with what you see; the placeholder
   // left a gap at index 0, so renumber once the real tabs are in. base-index/renumber are
   // session options — isolated to the dashboard, never touching an agent's own session.
@@ -289,31 +317,21 @@ async function runDashboard(names: string[]): Promise<void> {
   await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
 
   // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
-  // monitor-activity/-silence are WINDOW options, so `set-option -t <session>` only reaches
-  // the current window — set them per tab so every one reacts. On a linked local window the
-  // flag is shared with the agent's own session, but that's invisible there: its plain
-  // window-status-format doesn't react and visual-* stay off (set below).
-  const { stdout: winIdx } = await execa('tmux', [
-    ...TMUX,
-    'list-windows',
-    '-t',
-    session,
-    '-F',
-    '#{window_index}',
-  ])
-  for (const idx of winIdx.split('\n').filter(Boolean)) {
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'monitor-activity', 'on']) // prettier-ignore
-    await execa('tmux', [...TMUX, 'set-window-option', '-t', `${session}:${idx}`, 'monitor-silence', '30']) // prettier-ignore
-  }
+  // Global window-option defaults ensure linked windows (local agents borrowed from their
+  // own sessions) inherit the setting — harmless on standalone single-window sessions
+  // because the flag only triggers for non-current windows.
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '30'])
   // Suppress the popup/bell so only the tab color changes — session-scoped, dashboard-only.
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-activity', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'visual-silence', 'off'])
 
-  // Style the tab bar so activity/silence states are visually distinct.
-  // Tmux's conditional format: activity → amber, silence → green, default → grey.
+  // Style the tab bar so activity/silence states are visually distinct. #I: prefix
+  // matches the Ctrl-b number shortcut for each tab.
+  // Conditional format: activity → amber, silence → green, default → grey.
   const windowFmt =
-    '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}'
-  const currentFmt = '#[fg=colour231,bg=colour238,bold] #W '
+    '#{?window_silence_flag,#[fg=colour108]#[bold] #I:#W ,#{?window_activity_flag,#[fg=colour214] #I:#W ,#[fg=colour244] #I:#W }}'
+  const currentFmt = '#[fg=colour231,bg=colour238,bold] #I:#W '
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-format', windowFmt])
   await execa('tmux', [
     ...TMUX,
@@ -469,6 +487,10 @@ async function buildSSHWindow(
     '-l',
     '-c',
     sq(launchCmd),
+    '\\;',
+    'set',
+    'status',
+    'off',
   ].join(' ')
 
   const sshFlags: string[] = []
