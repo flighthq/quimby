@@ -213,7 +213,7 @@ describe('applyHandoff', () => {
     }
   })
 
-  it('uses the provided message for the merge commit', async () => {
+  it('uses the provided message for the landed commit', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
     await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
@@ -231,6 +231,59 @@ describe('applyHandoff', () => {
       })
       const { stdout } = await execa('git', ['log', '-1', '--format=%s'], { cwd: targetDir })
       expect(stdout.trim()).toBe('feat: integrate alice work')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fast-forwards to a single commit when the target is still at the seed', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+      })
+      // A fast-forward leaves HEAD with a single parent — no merge commit / boundary node.
+      const { stdout } = await execa('git', ['log', '-1', '--format=%P'], { cwd: targetDir })
+      expect(stdout.trim().split(/\s+/)).toHaveLength(1)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('creates a standard merge commit when the target has diverged', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      // Move the target past the seed with a non-conflicting commit, forcing a real merge.
+      await writeFile(join(targetDir, 'unrelated.txt'), 'host work\n')
+      await execa('git', ['add', '-A'], { cwd: targetDir })
+      await execa('git', ['commit', '-m', 'host work'], { cwd: targetDir })
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+      })
+      const { stdout } = await execa('git', ['log', '-1', '--format=%P%n%s'], { cwd: targetDir })
+      const [parents, subject] = stdout.split('\n')
+      expect(parents.trim().split(/\s+/)).toHaveLength(2)
+      expect(subject).toMatch(/^Merge branch/)
     } finally {
       await rm(targetDir, { recursive: true, force: true })
       await rm(sourceDir, { recursive: true, force: true })

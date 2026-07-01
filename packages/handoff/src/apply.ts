@@ -83,7 +83,11 @@ export async function applyHandoff(opts: {
         if (await exists(squashedPath)) {
           await git.apply(targetRepoPath, squashedPath)
           await git.addAll(targetRepoPath)
-          await git.commit(targetRepoPath, meta.suggestedMessage, { skipHooks: true })
+          // An explicit -m names the landed work; it rides on this commit so it survives a
+          // fast-forward (where no merge commit is created to carry it).
+          await git.commit(targetRepoPath, opts.message ?? meta.suggestedMessage, {
+            skipHooks: true,
+          })
         }
         break
       }
@@ -121,13 +125,15 @@ export async function applyHandoff(opts: {
     const mergeTarget = landingBranch ?? previousRef
     await git.checkout(targetRepoPath, mergeTarget)
 
-    // Step 3: Merge the temp branch in.
-    const mergeMessage = opts.message ?? `Apply ${meta.from}: ${meta.suggestedMessage}`
+    // Step 3: Merge the temp branch in. No --no-ff: when the target is still at the seed
+    // this fast-forwards to the agent's own commit (clean linear history, no boundary node);
+    // when the target has diverged git creates a standard merge commit with its default
+    // "Merge branch …" message — visibly a merge, and an obvious candidate to rebase away.
     try {
       if (mode === 'patch') {
         await git.merge(targetRepoPath, tempBranch, { squash: true, noCommit: true })
       } else {
-        await git.merge(targetRepoPath, tempBranch, { noFf: true, message: mergeMessage })
+        await git.merge(targetRepoPath, tempBranch)
       }
     } catch (mergeErr) {
       const conflicts = await git.getConflicts(targetRepoPath)
