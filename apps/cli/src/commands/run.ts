@@ -110,6 +110,14 @@ export async function runRunCommand({
       )
       .catch(() => {})
 
+    // Revive a held-dead remote pane before attaching (see the local path) so recovery is
+    // always `quimby run`, never a raw tmux respawn on the remote host.
+    await launch.transport
+      .exec(
+        `if [ "$(tmux -L ${sq(quimbyTmuxSocket)} display-message -p -t ${sq(launch.sessionName)} '#{pane_dead}' 2>/dev/null)" = 1 ]; then tmux -L ${sq(quimbyTmuxSocket)} respawn-window -k -t ${sq(launch.sessionName)}; fi 2>/dev/null; true`,
+      )
+      .catch(() => {})
+
     logger.success(
       `Attaching to tmux session "${launch.sessionName}" on ${launch.host}${launch.runtimeLabel}`,
     )
@@ -165,6 +173,11 @@ export async function runRunCommand({
     'status',
     'on',
   ]).catch(() => {})
+
+  // If the session is held alive but its agent has exited (a dead pane, e.g. one kept by a
+  // dashboard's remain-on-exit), respawn it so `quimby run` always delivers a *running* agent
+  // rather than dropping the user onto a corpse. Recovery therefore never leaves `quimby run`.
+  await reviveIfDead(['-L', quimbyTmuxSocket], launch.sessionName)
 
   logger.success(`Attaching to tmux session "${launch.sessionName}"${launch.runtimeLabel}`)
   try {
@@ -349,6 +362,28 @@ function insideQuimbyTmux(): boolean {
   return socketPath.slice(socketPath.lastIndexOf('/') + 1) === quimbyTmuxSocket
 }
 
+// Respawn an agent whose session is alive but whose process has exited (a dead pane held open
+// by remain-on-exit). respawn-window -k replays the exact command quimby launched the pane
+// with, so reviving stays inside quimby's launch path — the user never reconstructs it. The
+// pane_dead guard is essential: it means a *live* agent is left untouched (never restarted out
+// from under running work). A no-op when the session is absent (display-message throws) or the
+// pane is alive.
+async function reviveIfDead(tmux: string[], session: string): Promise<void> {
+  const dead = await execa('tmux', [
+    ...tmux,
+    'display-message',
+    '-p',
+    '-t',
+    session,
+    '#{pane_dead}',
+  ])
+    .then((r) => r.stdout.trim() === '1')
+    .catch(() => false)
+  if (dead) {
+    await execa('tmux', [...tmux, 'respawn-window', '-k', '-t', session]).catch(() => {})
+  }
+}
+
 // Add the requested agents to the current dashboard session as tabs, then select the last
 // one — the safe in-dashboard equivalent of `quimby run <agent>`. It never attaches (we are
 // already attached) and never kills a session, so it can't trip the dashboard's
@@ -382,7 +417,11 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
   let selected: string | null = null
   for (const name of names) {
     const agent = state.agents[name]
-    if (!existing.has(name)) {
+    if (existing.has(name)) {
+      // Already a tab: revive its underlying session if the agent has exited, so selecting the
+      // tab lands on a running agent (SSH tabs are ssh-attach windows, revived on reconnect).
+      if (!isSSH(agent.location)) await reviveIfDead(TMUX, tmuxSessionName(agent.id))
+    } else {
       if (isSSH(agent.location)) {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
@@ -419,7 +458,11 @@ async function ensureLocalAgentSession(
     () => true,
     () => false,
   )
-  if (!running) {
+  if (running) {
+    // Reused session: revive it if the agent has exited, so a linked tab shows a running
+    // agent rather than a corpse — the dashboard/jump equivalent of `quimby run`'s revive.
+    await reviveIfDead(tmux, launch.sessionName)
+  } else {
     await execa('tmux', [
       ...tmux,
       '-f',

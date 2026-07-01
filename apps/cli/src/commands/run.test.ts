@@ -1,7 +1,11 @@
 import { tmuxSessionName } from '@quimbyhq/paths'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const h = vi.hoisted(() => ({ calls: [] as string[][], sessions: new Set<string>() }))
+const h = vi.hoisted(() => ({
+  calls: [] as string[][],
+  sessions: new Set<string>(),
+  dead: false,
+}))
 
 vi.mock('execa', () => ({
   execa: vi.fn(async (_cmd: string, args: string[] = []) => {
@@ -13,9 +17,12 @@ vi.mock('execa', () => ({
     }
     if (args.includes('new-session')) h.sessions.add(after('-s'))
     if (args.includes('kill-session')) h.sessions.delete(after('-t'))
-    // The within-dashboard jump asks for the current session name and its window list.
-    if (args.includes('display-message'))
+    if (args.includes('display-message')) {
+      // reviveIfDead asks for #{pane_dead}; the within-dashboard jump asks for the session name.
+      const fmt = args[args.length - 1]
+      if (fmt === '#{pane_dead}') return { stdout: h.dead ? '1' : '', stderr: '', exitCode: 0 }
       return { stdout: 'qb-dash-proj-id', stderr: '', exitCode: 0 }
+    }
     if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
     return { stdout: '', stderr: '', exitCode: 0 }
   }),
@@ -66,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   h.calls.length = 0
   h.sessions.clear()
+  h.dead = false
   if (savedTmux === undefined) delete process.env.TMUX
   else process.env.TMUX = savedTmux
 })
@@ -126,6 +134,24 @@ describe('run', () => {
       .filter((c) => c.includes('new-session'))
       .map((c) => c[c.indexOf('-s') + 1])
     expect(created).toEqual([tmuxSessionName('id-a')])
+  })
+
+  it('revives a dead-held agent before attaching, so recovery stays inside `quimby run`', async () => {
+    h.sessions.add(tmuxSessionName('id-a')) // session held alive...
+    h.dead = true // ...but its agent process has exited (a dead pane)
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    // respawn-window replays quimby's own launch command in place — no tmux key, no user
+    // reconstruction; `quimby run` alone delivers a running agent.
+    expect(h.calls.some((c) => c.includes('respawn-window'))).toBe(true)
+  })
+
+  it('never respawns a live agent (a running agent is left untouched)', async () => {
+    h.sessions.add(tmuxSessionName('id-a'))
+    h.dead = false // agent still running
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    expect(h.calls.some((c) => c.includes('respawn-window'))).toBe(false)
   })
 
   it('reuses a running per-agent session instead of restarting it', async () => {
