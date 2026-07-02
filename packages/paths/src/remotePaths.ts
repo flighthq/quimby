@@ -39,6 +39,23 @@ export function dashboardSessionName(projectId: string): string {
 }
 
 /**
+ * Shared name prefix for the ephemeral tab-group ("view") sessions of one panel dashboard.
+ * The bubble-up teardown sweeps the whole group by matching this prefix (agents live under
+ * the separate `qb-<agentId>` namespace, so they are never swept).
+ */
+export function dashboardViewPrefix(projectId: string): string {
+  return `qbv-${projectId.slice(0, 8)}-`
+}
+
+/**
+ * Ephemeral "view" session backing one pane of a panel dashboard — a tabbed session that
+ * link-windows the agents of that pane. Keyed by project id + pane index.
+ */
+export function dashboardViewSessionName(projectId: string, index: number): string {
+  return `${dashboardViewPrefix(projectId)}${index}`
+}
+
+/**
  * tmux session name derived from the agent's stable id — unaffected by quimby rename.
  * The agent id is globally unique, so it alone names the session; the human-facing
  * label is the tmux *window* title (set to the agent's display name on `run`).

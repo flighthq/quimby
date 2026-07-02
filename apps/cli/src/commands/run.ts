@@ -2,6 +2,9 @@ import { configureRemoteAgentIdentity } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import {
   dashboardSessionName,
+  dashboardViewPrefix,
+  dashboardViewSessionName,
+  getQuimbyDir,
   getTmuxConfigPath,
   quimbyTmuxSocket,
   remoteAgentDir,
@@ -19,13 +22,18 @@ import { logger, writeText } from '@quimbyhq/utils'
 import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
+import { join } from 'pathe'
 
 import { prepareLocalTmuxLaunch, prepareSshLaunch } from '../launch'
+import type { LayoutNode } from '../layout'
+import { collectLayoutAgents, isLayoutExpr, parseLayout } from '../layout'
 
 export default defineCommand({
   meta: {
     name: 'run',
-    description: 'Launch an agent interactively (multiple names opens a tabbed dashboard)',
+    description:
+      'Launch an agent interactively (multiple names opens a tabbed dashboard; a layout ' +
+      'expression like "a b | c d" opens a multi-panel dashboard)',
   },
   args: {
     name: {
@@ -57,6 +65,22 @@ export async function runRunCommand({
 }: {
   args: { name: string; _?: string[]; cmd?: string; runtime?: string; host?: boolean }
 }) {
+  // A layout expression (uses `|` `/` `(` `)`) opens a multi-panel dashboard — split panes,
+  // each a tabbed view over the retained agent sessions. Purely additive: bare `run a b`
+  // (no operators) stays the flat tabbed dashboard below.
+  if (isLayoutExpr(args.name)) {
+    if (insideQuimbyTmux()) {
+      throw new QuimbyError(
+        'Run a panel layout from outside a quimby session — it builds its own dashboard.',
+      )
+    }
+    if (args.cmd || args.runtime) {
+      throw new QuimbyError('--cmd/--runtime apply to a single agent; omit them for a panel layout')
+    }
+    await runPanelDashboard(args.name)
+    return
+  }
+
   // citty puts every positional in `args._` (including the one bound to `name`), so a
   // plain concat would duplicate the first agent — dedupe, as `sync` does.
   const names = [
@@ -223,6 +247,12 @@ export async function runRunCommand({
 const HOST_WINDOW = 'host'
 const HOST_TAB_NAME = '$'
 const DASH_PLACEHOLDER = '__quimby__'
+
+// A host shell slot is written either as the reserved word `host` or the `$` layout token;
+// both open a plain login shell in the repo root, and either may appear more than once.
+function isHostToken(name: string): boolean {
+  return name === HOST_WINDOW || name === HOST_TAB_NAME
+}
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Color
 // tracks *attention*, not just state: an agent going quiet (silence → settled, likely waiting
@@ -736,3 +766,210 @@ async function styleDashboard(
   // Select the first tab.
   await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`])
 }
+
+// ── Panel dashboard mode ────────────────────────────────────────────────────────
+// A layout expression (`quimby run "a b | c d"`) opens a THREE-layer nesting (see
+// design-decisions.md): each agent is its own retained session (unchanged); each tab group
+// is an ephemeral "view" session that link-windows those agents (exactly the flat dashboard
+// above, minus the attach); and the wrapper session `D` splits its one window into panes,
+// each pane nesting-attaching a view. `D` grabs no prefix (C-b passes to the tab layer);
+// pane nav is on root chords + mouse; and any child's death bubbles up to tear the whole
+// ephemeral group down (agents survive), so orphaned views are impossible.
+
+async function runPanelDashboard(expr: string): Promise<void> {
+  const layout = parseLayout(expr) // throws QuimbyError on malformed input
+  const { state, repoRoot } = await resolveWorkspace()
+
+  for (const name of collectLayoutAgents(layout)) {
+    if (!isHostToken(name) && !state.agents[name]) {
+      throw new QuimbyError(`Agent "${name}" not found`)
+    }
+  }
+
+  const TMUX = ['-L', quimbyTmuxSocket]
+  const tmuxConf = getTmuxConfigPath(repoRoot)
+  await writeText(tmuxConf, renderTmuxConfig())
+
+  // Each leaf (tab group) becomes one ephemeral view session, indexed in tree order.
+  const leaves = collectLeaves(layout)
+  const viewOf = new Map<LayoutNode, string>()
+  let enrolled = false
+  for (let i = 0; i < leaves.length; i++) {
+    const view = dashboardViewSessionName(state.id, i)
+    viewOf.set(leaves[i], view)
+    if (await buildViewSession(TMUX, tmuxConf, view, leaves[i].names, state, repoRoot)) {
+      enrolled = true
+    }
+  }
+  if (enrolled) await saveState(repoRoot, state)
+
+  // Bubble-up teardown, written to disk to avoid a nested-quoting nightmare in the pane
+  // command. It sweeps the view group by name prefix, then kills the wrapper LAST; it is
+  // always invoked detached (`run-shell -b`) so it survives its own host pane dying.
+  const teardownPath = join(getQuimbyDir(repoRoot), 'panel-teardown.sh')
+  await writeText(teardownPath, PANEL_TEARDOWN_SH)
+  const viewPrefix = dashboardViewPrefix(state.id)
+  const dash = dashboardSessionName(state.id)
+  const teardown = `tmux -L ${quimbyTmuxSocket} run-shell -b "sh '${teardownPath}' '${quimbyTmuxSocket}' '${viewPrefix}' '${dash}'"`
+
+  // Rebuild the wrapper from scratch (it owns no durable state; the views/agents are separate).
+  await execa('tmux', [...TMUX, 'kill-session', '-t', dash]).catch(() => {})
+  await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', dash, '-c', repoRoot])
+  const { stdout: firstPaneOut } = await execa('tmux', [...TMUX, 'list-panes', '-t', dash, '-F', '#{pane_id}']) // prettier-ignore
+  const firstPane = firstPaneOut.split('\n').filter(Boolean)[0]
+
+  // A leaf pane clears $TMUX (or tmux refuses to nest and the pane dies instantly), attaches
+  // its view, and on return fires the detached teardown so any exit collapses the group.
+  const leafCmd = (node: Readonly<LayoutNode>): string =>
+    `TMUX= tmux -L ${quimbyTmuxSocket} attach -t ${viewOf.get(node)}; ${teardown}`
+  await layoutInto(TMUX, layout, firstPane, repoRoot, leafCmd)
+
+  await stylePanelDashboard(TMUX, dash, teardown)
+  logger.success(`Panel dashboard "${dash}" — ${expr}`)
+
+  try {
+    await execa('tmux', [...TMUX, 'attach', '-t', dash], { stdio: 'inherit' })
+  } catch (err) {
+    const e = err as { exitCode?: number }
+    if (e.exitCode !== undefined && e.exitCode !== 0) process.exit(e.exitCode)
+  }
+}
+
+// Leaf (tab-group) nodes in tree (left-to-right / top-to-bottom) order.
+function collectLeaves(node: Readonly<LayoutNode>): Extract<LayoutNode, { type: 'tabs' }>[] {
+  const out: Extract<LayoutNode, { type: 'tabs' }>[] = []
+  const walk = (n: Readonly<LayoutNode>): void => {
+    if (n.type === 'tabs') out.push(n)
+    else for (const c of n.children) walk(c)
+  }
+  walk(node)
+  return out
+}
+
+// Recursively split `paneId` to realize `node`'s geometry, giving each leaf its command.
+// A k-way split peels the first child into the current pane and the remaining (k-1) into a
+// new pane sized (k-1)/k, recursively — which yields evenly-sized panes.
+async function layoutInto(
+  TMUX: string[],
+  node: Readonly<LayoutNode>,
+  paneId: string,
+  cwd: string,
+  leafCmd: (n: Readonly<LayoutNode>) => string,
+): Promise<void> {
+  if (node.type === 'tabs') {
+    await execa('tmux', [...TMUX, 'respawn-pane', '-k', '-t', paneId, 'sh', '-c', leafCmd(node)])
+    return
+  }
+  const dir = node.type === 'cols' ? '-h' : '-v'
+  const children = node.children
+  let cur = paneId
+  for (let i = 0; i < children.length; i++) {
+    if (i < children.length - 1) {
+      const restPct = Math.round(((children.length - 1 - i) / (children.length - i)) * 100)
+      const { stdout } = await execa('tmux', [...TMUX, 'split-window', dir, '-d', '-t', cur, '-l', `${restPct}%`, '-c', cwd, '-P', '-F', '#{pane_id}']) // prettier-ignore
+      const restPane = stdout.trim()
+      await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
+      cur = restPane
+    } else {
+      await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
+    }
+  }
+}
+
+// Build one ephemeral tab-group ("view") session: link each local agent's window in, add SSH
+// / host tabs, style the tab strip, and leave its status bar ON (this is the per-pane strip)
+// with C-b as its prefix (the tab layer owns the prefix). Returns whether it enrolled a new
+// agent into tmux. This mirrors the flat dashboard's tab loop, but produces a named session
+// to be nested rather than attached.
+async function buildViewSession(
+  TMUX: string[],
+  tmuxConf: string,
+  session: string,
+  names: readonly string[],
+  state: QuimbyState,
+  repoRoot: string,
+): Promise<boolean> {
+  await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
+  await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', session, '-n', DASH_PLACEHOLDER, '-c', repoRoot]) // prettier-ignore
+
+  let enrolled = false
+  for (const name of names) {
+    if (isHostToken(name)) {
+      await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', HOST_TAB_NAME, '-c', repoRoot, 'bash', '-l']) // prettier-ignore
+    } else {
+      const agent = state.agents[name]
+      if (isSSH(agent.location)) {
+        const w = await buildSSHWindow(name, agent, state, repoRoot)
+        const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+        await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
+      } else {
+        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+        if (!agent.tmux) {
+          state.agents[name].tmux = true
+          enrolled = true
+        }
+        await execa('tmux', [...TMUX, 'link-window', '-a', '-s', `${srcSession}:${name}`, '-t', `${session}:`]) // prettier-ignore
+      }
+    }
+  }
+  await execa('tmux', [...TMUX, 'kill-window', '-t', `${session}:${DASH_PLACEHOLDER}`]).catch(() => {}) // prettier-ignore
+
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
+  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session]).catch(() => {})
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
+
+  const { stdout: winList } = await execa('tmux', [...TMUX, 'list-windows', '-t', session, '-F', '#{window_index} #{window_name}']) // prettier-ignore
+  for (const line of winList.split('\n').filter(Boolean)) {
+    const idx = line.slice(0, line.indexOf(' '))
+    const wname = line.slice(line.indexOf(' ') + 1)
+    const target = `${session}:${idx}`
+    if (wname === HOST_TAB_NAME) {
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename-format', '$ #{pane_current_command}']) // prettier-ignore
+    } else {
+      await styleAgentTab(TMUX, target)
+    }
+  }
+  await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`]).catch(() => {})
+  return enrolled
+}
+
+// Style the wrapper: invisible (status off), grabs no prefix (C-b flows to the tab layer),
+// pane nav on root chords + mouse, and a detached bubble-up teardown on detach so leaving
+// the dashboard sweeps every ephemeral view (agents survive). The pane-nav binds are
+// server-global but re-set on each run, so they reflect the current dashboard's intent.
+async function stylePanelDashboard(TMUX: string[], dash: string, teardown: string): Promise<void> {
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'select-pane', '-L'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'select-pane', '-R'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Up', 'select-pane', '-U'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Down', 'select-pane', '-D'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-z', 'resize-pane', '-Z']).catch(() => {})
+
+  // Highlight a pane's tab strip when its agent goes quiet/active (global, mirrors the flat
+  // dashboard). The strips live on the inner view sessions; these hooks drive them.
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
+  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
+  await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-activity', 'set-window-option monitor-silence 30']) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-silence', 'set-window-option monitor-silence 0']) // prettier-ignore
+
+  // Detaching the wrapper (e.g. C-b d in a pane collapses inward to here) sweeps the group.
+  // run-shell -b so the sweep outlives the wrapper it is about to kill.
+  await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'client-detached', teardown])
+}
+
+// Bubble-up teardown, args: <socket> <view-prefix> <wrapper-session>. Kills every ephemeral
+// view (matched by prefix) first, then the wrapper LAST so the sweep is never aborted by its
+// own host dying. Agents live under a different namespace, so they are never matched.
+const PANEL_TEARDOWN_SH = `sock="$1"; prefix="$2"; dash="$3"
+for s in $(tmux -L "$sock" list-sessions -F '#{session_name}' 2>/dev/null | grep "^$prefix"); do
+  tmux -L "$sock" kill-session -t "$s" 2>/dev/null
+done
+tmux -L "$sock" kill-session -t "$dash" 2>/dev/null
+`
