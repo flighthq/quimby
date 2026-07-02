@@ -15,7 +15,13 @@ import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
-import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
+import {
+  ensureWorkspace,
+  loadState,
+  removeAgentFromSubscriptions,
+  renameAgentInSubscriptions,
+  saveState,
+} from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
@@ -146,6 +152,9 @@ export async function removeAgent(repoRoot: string, name: string): Promise<void>
   }
 
   delete state.agents[name]
+  // Scrub the removed name from the subscription map so the server never routes to a ghost
+  // and `list` never prints a dead name.
+  removeAgentFromSubscriptions(state, name)
   await saveState(repoRoot, state)
 }
 
@@ -174,6 +183,10 @@ export async function renameAgent(
   agent.name = newName
   delete state.agents[oldName]
   state.agents[newName] = agent
+
+  // Subscriptions are keyed by display name, so the relabel has to follow the name through
+  // both the subscriber keys and every target list.
+  renameAgentInSubscriptions(state, oldName, newName)
 
   await saveState(repoRoot, state)
 }
