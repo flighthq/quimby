@@ -70,11 +70,14 @@ describe('renderTmuxConfig', () => {
     expect(conf).toContain('status-style')
   })
 
-  it('enables system-clipboard copy and binds drag/Ctrl+C to copy, right-click to paste', () => {
+  it('pipes selections to the OS clipboard and binds drag/Ctrl+C to copy, right-click to paste', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('set-clipboard on')
-    expect(conf).toContain('MouseDragEnd1Pane send-keys -X copy-selection-and-cancel')
-    expect(conf).toContain('C-c send-keys -X copy-selection-and-cancel')
+    // pipe straight to a real clipboard binary so copy works without OSC 52 (nested dashboard)
+    expect(conf).toContain('copy-command')
+    expect(conf).toMatch(/pbcopy.*wl-copy.*xclip/)
+    expect(conf).toContain('MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel')
+    expect(conf).toContain('C-c send-keys -X copy-pipe-and-cancel')
     expect(conf).toContain('MouseDown3Pane paste-buffer')
   })
 
