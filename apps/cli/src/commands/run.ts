@@ -264,10 +264,12 @@ const AGENT_WINDOW_FMT =
 const HOST_WINDOW_FMT =
   '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour248] #W }}'
 const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
-// Shortcut hint shown on each pane's tab strip in a panel dashboard (the wrapper itself has
-// no status bar), replacing tmux's default date/time.
+// The panel dashboard's single status bar lives on the wrapper (the full-width bottom row):
+// "quimby" branding on the left, the shortcut hint + clock on the right. The per-pane tab
+// strips carry only their tabs, so nothing is squished or repeated across panes.
+const PANEL_STATUS_LEFT = '#[fg=colour109,bold] quimby #[fg=colour240]│ '
 const PANEL_STATUS_RIGHT =
-  '#[fg=colour240]alt+←→ tabs · shift+alt+←→ panes · ^b d close  #[fg=colour245]%H:%M '
+  '#[fg=colour240]alt+←→ tabs · shift+alt+←→ panes · alt+z zoom · ^b d close  #[fg=colour245]%H:%M '
 
 interface WindowSpec {
   name: string
@@ -933,10 +935,10 @@ async function buildViewSession(
   await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
-  // Replace tmux's default date/time status-right with the panel shortcut hint (the wrapper
-  // has no status bar of its own, so this per-pane strip is where the hints must live).
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right-length', '80'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right', PANEL_STATUS_RIGHT])
+  // This per-pane strip shows only its tabs — the "quimby" branding, hint, and clock live
+  // once on the wrapper's full-width bar rather than repeated (and squished) on every pane.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-left', ''])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right', ''])
 
   const { stdout: winList } = await execa('tmux', [...TMUX, 'list-windows', '-t', session, '-F', '#{window_index} #{window_name}']) // prettier-ignore
   for (const line of winList.split('\n').filter(Boolean)) {
@@ -965,9 +967,18 @@ async function stylePanelDashboard(
   dash: string,
   teardownCmd: string,
 ): Promise<void> {
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
+  // The wrapper owns the dashboard's single status bar (full terminal width): "quimby" on
+  // the left, hint + clock on the right. Its window is all panes with no tabs of its own, so
+  // the middle (window-status) is blanked; the per-pane strips below carry the tabs.
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'on'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-left-length', '40'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-left', PANEL_STATUS_LEFT])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right-length', '80'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right', PANEL_STATUS_RIGHT])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'window-status-format', ''])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'window-status-current-format', ''])
   // Alt+Arrow switches TABS within the focused pane; Shift+Alt+Arrow moves between PANES.
   // The wrapper intercepts every root key before the inner view sees it, so tab nav can't be
   // a plain inner bind — instead the wrapper forwards the inner view's prefix + prev/next into
