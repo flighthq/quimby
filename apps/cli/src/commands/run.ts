@@ -810,7 +810,11 @@ async function runPanelDashboard(expr: string): Promise<void> {
   await writeText(teardownPath, PANEL_TEARDOWN_SH)
   const viewPrefix = dashboardViewPrefix(state.id)
   const dash = dashboardSessionName(state.id)
-  const teardown = `tmux -L ${quimbyTmuxSocket} run-shell -b "sh '${teardownPath}' '${quimbyTmuxSocket}' '${viewPrefix}' '${dash}'"`
+  // Two forms of the same teardown: `teardownCmd` is a bare tmux command (for a hook, which
+  // runs tmux commands); `teardownShell` prefixes it with `tmux -L …` for a shell context
+  // (the pane command, run via `sh -c` after the attach returns).
+  const teardownCmd = `run-shell -b "sh '${teardownPath}' '${quimbyTmuxSocket}' '${viewPrefix}' '${dash}'"`
+  const teardownShell = `tmux -L ${quimbyTmuxSocket} ${teardownCmd}`
 
   // Rebuild the wrapper from scratch (it owns no durable state; the views/agents are separate).
   await execa('tmux', [...TMUX, 'kill-session', '-t', dash]).catch(() => {})
@@ -821,10 +825,10 @@ async function runPanelDashboard(expr: string): Promise<void> {
   // A leaf pane clears $TMUX (or tmux refuses to nest and the pane dies instantly), attaches
   // its view, and on return fires the detached teardown so any exit collapses the group.
   const leafCmd = (node: Readonly<LayoutNode>): string =>
-    `TMUX= tmux -L ${quimbyTmuxSocket} attach -t ${viewOf.get(node)}; ${teardown}`
+    `TMUX= tmux -L ${quimbyTmuxSocket} attach -t ${viewOf.get(node)}; ${teardownShell}`
   await layoutInto(TMUX, layout, firstPane, repoRoot, leafCmd)
 
-  await stylePanelDashboard(TMUX, dash, teardown)
+  await stylePanelDashboard(TMUX, dash, teardownCmd)
   logger.success(`Panel dashboard "${dash}" — ${expr}`)
 
   try {
@@ -942,7 +946,11 @@ async function buildViewSession(
 // pane nav on root chords + mouse, and a detached bubble-up teardown on detach so leaving
 // the dashboard sweeps every ephemeral view (agents survive). The pane-nav binds are
 // server-global but re-set on each run, so they reflect the current dashboard's intent.
-async function stylePanelDashboard(TMUX: string[], dash: string, teardown: string): Promise<void> {
+async function stylePanelDashboard(
+  TMUX: string[],
+  dash: string,
+  teardownCmd: string,
+): Promise<void> {
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
@@ -961,7 +969,7 @@ async function stylePanelDashboard(TMUX: string[], dash: string, teardown: strin
 
   // Detaching the wrapper (e.g. C-b d in a pane collapses inward to here) sweeps the group.
   // run-shell -b so the sweep outlives the wrapper it is about to kill.
-  await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'client-detached', teardown])
+  await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'client-detached', teardownCmd])
 }
 
 // Bubble-up teardown, args: <socket> <view-prefix> <wrapper-session>. Kills every ephemeral
