@@ -259,11 +259,13 @@ async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {
 }
 
 function validateAgentName(name: string): void {
-  // Dots are excluded: tmux target syntax uses `.` as the pane separator
-  // (`session:window.pane`), so a dot in a window name breaks `send-keys -t`.
+  // The whitelist keeps names free of characters that carry meaning elsewhere: `.` is tmux's
+  // pane separator (`session:window.pane`, so a dot breaks `send-keys -t`), and `:` is the
+  // dashboard layout weight sigil (`agent:70`), which stays unambiguous only if a name can
+  // never contain one.
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) {
     throw new QuimbyError(
-      `Invalid agent name "${name}". Use letters, numbers, hyphens, and underscores (no dots).`,
+      `Invalid agent name "${name}". Use letters, numbers, hyphens, and underscores (no dots or colons).`,
     )
   }
   // `host` is the reserved sender of a host → agent handoff and the reserved

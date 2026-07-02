@@ -26,7 +26,7 @@ import { join } from 'pathe'
 
 import { prepareLocalTmuxLaunch, prepareSshLaunch } from '../launch'
 import type { LayoutNode } from '../layout'
-import { collectLayoutAgents, isLayoutExpr, parseLayout } from '../layout'
+import { collectLayoutAgents, isLayoutExpr, layoutWeights, parseLayout } from '../layout'
 
 export default defineCommand({
   meta: {
@@ -856,7 +856,9 @@ function collectLeaves(node: Readonly<LayoutNode>): Extract<LayoutNode, { type: 
 
 // Recursively split `paneId` to realize `node`'s geometry, giving each leaf its command.
 // A k-way split peels the first child into the current pane and the remaining (k-1) into a
-// new pane sized (k-1)/k, recursively — which yields evenly-sized panes.
+// new pane, recursively. Each child's share of the split comes from `layoutWeights` (`:N`
+// weights; unsized siblings split the remainder), so the peeled-off pane is sized by the
+// weight of everything still to place — reducing to an even split when nothing is weighted.
 async function layoutInto(
   TMUX: string[],
   node: Readonly<LayoutNode>,
@@ -870,10 +872,14 @@ async function layoutInto(
   }
   const dir = node.type === 'cols' ? '-h' : '-v'
   const children = node.children
+  const weights = layoutWeights(children)
   let cur = paneId
   for (let i = 0; i < children.length; i++) {
     if (i < children.length - 1) {
-      const restPct = Math.round(((children.length - 1 - i) / (children.length - i)) * 100)
+      const rest = weights.slice(i + 1).reduce((a, b) => a + b, 0)
+      const remaining = weights.slice(i).reduce((a, b) => a + b, 0)
+      // Clamp to [1, 99]: `-l 0%`/`100%` is degenerate, and tmux enforces its own pane minimum.
+      const restPct = Math.min(99, Math.max(1, Math.round((rest / remaining) * 100)))
       const { stdout } = await execa('tmux', [...TMUX, 'split-window', dir, '-d', '-t', cur, '-l', `${restPct}%`, '-c', cwd, '-P', '-F', '#{pane_id}']) // prettier-ignore
       const restPane = stdout.trim()
       await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
