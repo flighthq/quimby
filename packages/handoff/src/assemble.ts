@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto'
-import { readdir } from 'node:fs/promises'
-import { rm } from 'node:fs/promises'
+import { readdir, rm } from 'node:fs/promises'
 
 import { HandoffError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -10,77 +8,48 @@ import {
   QUIMBY_DIRNAME,
   remoteAgentRepoDir,
 } from '@quimbyhq/paths'
+import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentLocation, CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
+import type { AgentLocation, HandoffMeta, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
+
+import {
+  assembleParcel,
+  type AssembleParcelOptions,
+  contentDigest,
+  parcelName,
+  type RepoAssembleOps,
+} from './assembleParcel'
 
 /** Reserved sender name for a host → agent handoff (the host is not an agent). */
 export const HOST_SENDER = 'host'
 
 /**
- * Assemble a parcel in the host staging area from a local code source's diff and/or a
- * note. Carries whichever halves exist — code-only, note-only, or both — and writes
- * `meta.yaml` last so a complete parcel is unambiguous. Throws when neither half exists.
+ * Assemble a parcel from a local code source's diff and/or note (git CLI backend).
  */
-export async function assembleHandoff(opts: {
-  repoRoot: string
-  from: string
-  codeSource?: string
-  /** Stable id of the code-source agent — keys its on-disk repo directory. */
-  codeSourceId: string
-  to?: string
-  note?: string
-  description?: string
-  suggestedMessage?: string
-  name?: string
-}): Promise<HandoffMeta> {
-  const { repoRoot, from } = opts
-  const codeSource = opts.codeSource ?? from
-  const repoDir = getAgentRepoDir(repoRoot, opts.codeSourceId)
+export async function assembleHandoff(
+  opts: AssembleParcelOptions & { codeSourceId: string },
+): Promise<HandoffMeta> {
+  return assembleParcel(opts, localAssembleOps(getAgentRepoDir(opts.repoRoot, opts.codeSourceId)))
+}
 
-  const seedCommit = await git.revParse(repoDir, 'quimby/seed')
-  const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
-  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed', {
-    binary: true,
-    exclude: CAPTURE_EXCLUDE,
-  })
-  const hasCode = squashedDiff.trim().length > 0
-  if (!hasCode && !opts.note) {
-    throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
-  }
-
-  const name = opts.name ?? parcelName(from, contentDigest([squashedDiff, opts.note ?? '']))
-  const dir = getStagingHandoffDir(repoRoot, name)
-  await rm(dir, { recursive: true, force: true })
-  await ensureDir(dir)
-
-  let commits: CommitMeta[] = []
-  if (hasCode) {
-    await writeText(join(dir, 'squashed.diff'), squashedDiff)
-    if (subjects.length > 0) {
-      // Committed history (for `apply --commits`), plus the uncommitted remainder so
-      // that mode loses nothing of the working tree.
-      const commitsDir = join(dir, 'commits')
-      await ensureDir(commitsDir)
-      const patchFiles = await git.formatPatch(repoDir, 'quimby/seed', commitsDir)
-      commits = parseCommits(
-        await git.log(repoDir, 'quimby/seed..HEAD'),
-        patchFiles.map((p) => p.split('/').pop() ?? ''),
-      )
-      const remainder = await git.diffWorkingTree(repoDir, 'HEAD', {
-        binary: true,
-        exclude: CAPTURE_EXCLUDE,
-      })
-      if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
-    }
-  }
-  if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
-
-  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
-  await writeYaml(join(dir, 'meta.yaml'), meta)
-  return meta
+/** SSH counterpart of {@link assembleHandoff}: the code source is a remote agent. */
+export async function assembleRemoteHandoff(
+  opts: AssembleParcelOptions & {
+    codeSourceId: string
+    codeSourceLocation: Readonly<SSHLocation>
+    projectId: string
+  },
+): Promise<HandoffMeta> {
+  const transport = getSSHTransport(opts.codeSourceLocation)
+  const rRepoDir = remoteAgentRepoDir(
+    opts.projectId,
+    opts.codeSourceId,
+    opts.codeSourceLocation.base,
+  )
+  return assembleParcel(opts, remoteAssembleOps(transport, rRepoDir))
 }
 
 /**
@@ -139,71 +108,6 @@ export async function assembleHostHandoff(opts: {
   return meta
 }
 
-/** SSH counterpart of {@link assembleHandoff}: the code source is a remote agent. */
-export async function assembleRemoteHandoff(opts: {
-  repoRoot: string
-  from: string
-  codeSource?: string
-  /** Stable id of the code-source agent — keys its remote repo directory. */
-  codeSourceId: string
-  codeSourceLocation: Readonly<SSHLocation>
-  projectId: string
-  to?: string
-  note?: string
-  description?: string
-  suggestedMessage?: string
-  name?: string
-}): Promise<HandoffMeta> {
-  const { repoRoot, from, codeSourceLocation, projectId } = opts
-  const codeSource = opts.codeSource ?? from
-  const transport = getSSHTransport(codeSourceLocation)
-  const rRepoDir = remoteAgentRepoDir(projectId, opts.codeSourceId, codeSourceLocation.base)
-
-  const seedCommit = (await transport.exec(`git rev-parse quimby/seed`, { cwd: rRepoDir })).trim()
-  const subjects = (
-    await transport.exec(`git log quimby/seed..HEAD --format=%s`, { cwd: rRepoDir })
-  )
-    .split('\n')
-    .filter(Boolean)
-
-  const squashedDiff = await remoteWorkingTreeDiff(transport, rRepoDir, 'quimby/seed')
-  const hasCode = squashedDiff.trim().length > 0
-  if (!hasCode && !opts.note) {
-    throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
-  }
-
-  const name = opts.name ?? parcelName(from, contentDigest([squashedDiff, opts.note ?? '']))
-  const dir = getStagingHandoffDir(repoRoot, name)
-  await rm(dir, { recursive: true, force: true })
-  await ensureDir(dir)
-
-  let commits: CommitMeta[] = []
-  if (hasCode) {
-    await writeText(join(dir, 'squashed.diff'), squashedDiff)
-    if (subjects.length > 0) {
-      const commitsDir = join(dir, 'commits')
-      await ensureDir(commitsDir)
-      const rTmpDir = `/tmp/quimby-handoff-${name}`
-      await transport.exec(`mkdir -p ${rTmpDir}`, { cwd: rRepoDir })
-      await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, { cwd: rRepoDir })
-      await transport.rsyncFrom(rTmpDir, commitsDir)
-      await transport.exec(`rm -rf ${rTmpDir}`)
-      const fullLog = await transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, {
-        cwd: rRepoDir,
-      })
-      const patchFiles = (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
-      commits = parseCommits(fullLog, patchFiles)
-      const remainder = await remoteWorkingTreeDiff(transport, rRepoDir, 'HEAD')
-      if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
-    }
-  }
-  if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
-
-  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
-  await writeYaml(join(dir, 'meta.yaml'), meta)
-  return meta
-}
-
 /**
  * Compute the parcel name an agent's *current* working tree would produce — the same
  * `<from>-<hash>` identity {@link assembleHandoff} assigns, but without staging anything.
@@ -238,15 +142,42 @@ export async function getWorkingParcelName(opts: {
   }
 }
 
-// A parcel's name is its origin and contents: <from>-<short-hash>, where the hash is
-// over the parcel's payload (diff + note). Content-derived, so it needs no counter,
-// dedupes identical sends, and reads back as "from whom".
-function parcelName(from: string, hash: string): string {
-  return `${from}-${hash.slice(0, 8)}`
+/** Assemble ops backed by the git CLI against a local agent clone. */
+function localAssembleOps(repoDir: string): RepoAssembleOps {
+  return {
+    resolveSeed: () => git.revParse(repoDir, 'quimby/seed'),
+    commitSubjects: async () =>
+      (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean),
+    workingTreeDiff: (base) =>
+      git.diffWorkingTree(repoDir, base, { binary: true, exclude: CAPTURE_EXCLUDE }),
+    formatPatches: async (commitsDir) =>
+      (await git.formatPatch(repoDir, 'quimby/seed', commitsDir)).map(
+        (p) => p.split('/').pop() ?? '',
+      ),
+    fullCommitLog: () => git.log(repoDir, 'quimby/seed..HEAD'),
+  }
 }
 
-function contentDigest(parts: readonly string[]): string {
-  return createHash('sha256').update(parts.join('\0')).digest('hex')
+/** Assemble ops backed by `git` over transport against an SSH agent's remote clone. */
+function remoteAssembleOps(transport: SSHTransport, rRepoDir: string): RepoAssembleOps {
+  const cwd = { cwd: rRepoDir }
+  return {
+    resolveSeed: async () => (await transport.exec(`git rev-parse quimby/seed`, cwd)).trim(),
+    commitSubjects: async () =>
+      (await transport.exec(`git log quimby/seed..HEAD --format=%s`, cwd))
+        .split('\n')
+        .filter(Boolean),
+    workingTreeDiff: (base) => remoteWorkingTreeDiff(transport, rRepoDir, base),
+    formatPatches: async (commitsDir) => {
+      const rTmpDir = `/tmp/quimby-handoff-${crypto.randomUUID()}`
+      await transport.exec(`mkdir -p ${rTmpDir}`, cwd)
+      await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, cwd)
+      await transport.rsyncFrom(rTmpDir, commitsDir)
+      await transport.exec(`rm -rf ${rTmpDir}`)
+      return (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
+    },
+    fullCommitLog: () => transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, cwd),
+  }
 }
 
 // Capture a remote agent's full working tree (committed + uncommitted + untracked)
@@ -254,7 +185,7 @@ function contentDigest(parts: readonly string[]): string {
 // GIT_INDEX_FILE prefix must stay on one &&-chained exec so it survives across the
 // read-tree/add/write-tree steps (a fresh ssh shell per exec would lose it).
 async function remoteWorkingTreeDiff(
-  transport: ReturnType<typeof getSSHTransport>,
+  transport: SSHTransport,
   rRepoDir: string,
   base: string,
 ): Promise<string> {
@@ -276,56 +207,6 @@ async function remoteWorkingTreeDiff(
   const diff = await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
   await transport.exec(`rm -f ${idx}`)
   return diff
-}
-
-function parseCommits(fullLog: string, patchFiles: readonly string[]): CommitMeta[] {
-  return fullLog
-    .split('\n')
-    .filter(Boolean)
-    .map((line, i) => {
-      const [hash, message, author, date] = line.split('|')
-      return { hash, message, author, date, patchFile: patchFiles[i] ?? '' }
-    })
-}
-
-function buildMeta(opts: {
-  from: string
-  codeSource: string
-  to?: string
-  note?: string
-  name: string
-  seedCommit?: string
-  subjects: readonly string[]
-  commits: CommitMeta[]
-  description?: string
-  suggestedMessage?: string
-}): HandoffMeta {
-  const { from, codeSource, subjects, note } = opts
-  // Prefer the agent's own commit subjects; fall back to the note's first line; and
-  // finally a generated default so `apply` always has a message and never prompts.
-  const hasCommits = subjects.length > 0
-  const firstLine = (note ?? '').split('\n').find(Boolean)
-  const description =
-    opts.description ?? (hasCommits ? subjects.join('; ') : (firstLine ?? `Work from ${from}`))
-  const suggestedMessage =
-    opts.suggestedMessage ??
-    (hasCommits
-      ? subjects.length === 1
-        ? subjects[0]
-        : subjects[subjects.length - 1]
-      : (firstLine ?? `Apply work from ${from}`))
-  return {
-    name: opts.name,
-    from,
-    to: opts.to,
-    codeSource: codeSource !== from ? codeSource : undefined,
-    seedCommit: opts.seedCommit,
-    note,
-    description,
-    suggestedMessage,
-    createdAt: new Date().toISOString(),
-    commits: opts.commits,
-  }
 }
 
 // Quimby's own state dir is never carried: excluded from every working-tree capture

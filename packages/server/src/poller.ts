@@ -1,10 +1,12 @@
 import { stat } from 'node:fs/promises'
 
 import { getAgentDir, getAgentInboxStatusDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
+import type { Reporter } from '@quimbyhq/reporter'
+import { silentReporter } from '@quimbyhq/reporter'
 import { getTransport } from '@quimbyhq/transport'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { ensureDir, exists, logger, readText, writeText } from '@quimbyhq/utils'
+import { ensureDir, exists, readText, writeText } from '@quimbyhq/utils'
 import { loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
@@ -18,6 +20,7 @@ export async function pollAgentStatus(
   state: QuimbyState,
   name: string,
   cache: Map<string, StatusSnapshot>,
+  reporter: Reporter = silentReporter,
 ): Promise<void> {
   const agent = state.agents[name]
   const previous = cache.get(name)
@@ -50,7 +53,7 @@ export async function pollAgentStatus(
   // First time we've seen this agent's status — seed the cache without routing.
   if (!previous) return
 
-  logger.info(`[${name}] Status changed`)
+  reporter.info(`[${name}] Status changed`)
 
   const subs = state.subscriptions ?? {}
   const statusPayload = `# Status: ${name}\n\nUpdated: ${new Date().toISOString()}\n\n${content}\n`
@@ -70,7 +73,7 @@ export async function pollAgentStatus(
       await ensureDir(inboxStatusDir)
       await writeText(join(inboxStatusDir, `${name}.md`), statusPayload)
     }
-    logger.info(`  → routed to ${subscriber}`)
+    reporter.info(`  → routed to ${subscriber}`)
   }
 }
 

@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const handoffWork = vi.hoisted(() => vi.fn())
+const nudgeAgentSession = vi.hoisted(() => vi.fn(async (_opts: Record<string, unknown>) => {}))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -7,6 +10,18 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
     repoRoot: '/fake/root',
   })),
 }))
+// Default handoffWork to the real implementation so the existing "not found" validation
+// tests keep exercising real behavior; behavioral tests override per-call.
+vi.mock('@quimbyhq/handoff', async (importOriginal) => {
+  const actual = (await importOriginal()) as { handoffWork: typeof handoffWork }
+  handoffWork.mockImplementation(actual.handoffWork as never)
+  return { ...actual, handoffWork }
+})
+vi.mock('@quimbyhq/session', () => ({ nudgeAgentSession }))
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('run', () => {
   it('is a function', async () => {
@@ -41,5 +56,25 @@ describe('run', () => {
     const args = cmd.args as Record<string, { type: string; default?: unknown }>
     expect(args.nudge.type).toBe('boolean')
     expect(args.nudge.default).toBeUndefined()
+  })
+
+  it('nudges the recipient with the returned text when nudgeText is set', async () => {
+    handoffWork.mockResolvedValueOnce({ to: 'review', nudgeText: 'inbox: review this' } as never)
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', rebase: false, clear: false } } as never)
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
+    expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
+      displayName: 'review',
+      text: 'inbox: review this',
+    })
+    // The reporter is threaded through to the session layer.
+    expect((nudgeAgentSession.mock.calls[0][0] as { reporter: unknown }).reporter).toBeDefined()
+  })
+
+  it('does not nudge when nudgeText is null', async () => {
+    handoffWork.mockResolvedValueOnce({ to: 'review', nudgeText: null } as never)
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', rebase: false, clear: false } } as never)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
   })
 })

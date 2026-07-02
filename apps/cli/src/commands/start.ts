@@ -1,4 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import { localNewSessionArgs, prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import { getAgentSessionState } from '@quimbyhq/session'
@@ -9,7 +10,7 @@ import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
-import { prepareLocalTmuxLaunch, prepareSshLaunch } from '../launch'
+import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -59,20 +60,15 @@ export async function runStartCommand({
     return
   }
 
-  // ── SSH agent ──────────────────────────────────────────────────────────────
   if (isSSH(agent.location)) {
-    const launch = await prepareSshLaunch({
-      state,
-      repoRoot,
-      agent,
-      location: agent.location,
-      cmd: args.cmd,
-      runtime: args.runtime,
-    })
+    const launch = await prepareSshLaunch(
+      { state, repoRoot, agent, location: agent.location, cmd: args.cmd, runtime: args.runtime },
+      consolaReporter,
+    )
 
     // `new-session -A -d`: create detached if missing, never attach — so it can't steal
-    // the terminal or disturb an existing session. cwd/config are unquoted so the remote
-    // shell expands `~`; the session/window/command are quoted.
+    // the terminal. cwd/config are unquoted so the remote shell expands `~`; the
+    // session/window/command are quoted.
     const cmd = [
       'tmux',
       '-L',
@@ -99,7 +95,6 @@ export async function runStartCommand({
     return
   }
 
-  // ── Local agent ──────────────────────────────────────────────────────────────
   // A detached session is inherently a tmux session, so a local agent that never opted
   // into tmux is enrolled now (persisted) — otherwise `run`/`nudge`/`list` wouldn't
   // recognize the very session `start` just created.
@@ -117,26 +112,7 @@ export async function runStartCommand({
     runtime: args.runtime,
   })
 
-  await execa('tmux', [
-    '-L',
-    quimbyTmuxSocket,
-    '-f',
-    launch.tmuxConf,
-    'new-session',
-    '-A',
-    '-d',
-    '-s',
-    launch.sessionName,
-    '-n',
-    launch.windowName,
-    '-c',
-    launch.cwd,
-    ...launch.envArgs,
-    'bash',
-    '-l',
-    '-c',
-    launch.shellCmd,
-  ])
+  await execa('tmux', localNewSessionArgs(launch, { detached: true }))
 
   reportStarted(args.name, launch.sessionName, undefined, launch.runtimeLabel)
 }

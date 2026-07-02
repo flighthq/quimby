@@ -21,6 +21,7 @@
   "dependencies": {
     "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
+    "@quimbyhq/reporter": "*",
     "@quimbyhq/session": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",

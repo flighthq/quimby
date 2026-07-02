@@ -9,6 +9,9 @@
       "path": "../paths"
     },
     {
+      "path": "../reporter"
+    },
+    {
       "path": "../transport"
     },
     {

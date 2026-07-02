@@ -1,12 +1,10 @@
-import { readdir } from 'node:fs/promises'
-
 import { getAgentPendingWork, getAgentSyncStatus } from '@quimbyhq/agent'
-import { getAgentOutboxDir, tmuxSessionName } from '@quimbyhq/paths'
+import { readOutboxRecipients } from '@quimbyhq/handoff'
+import { tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { getAgentSessionState } from '@quimbyhq/session'
 import type { AgentSessionState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { exists } from '@quimbyhq/utils'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -50,14 +48,7 @@ export async function runListCommand() {
           targetCommit: '',
         })),
         getAgentPendingWork(repoRoot, state.id, agent),
-        (async () => {
-          const outboxDir = getAgentOutboxDir(repoRoot, agent.id)
-          if (!(await exists(outboxDir))) return 0
-          const drafts = (await readdir(outboxDir, { withFileTypes: true })).filter(
-            (e) => e.isDirectory() && !e.name.startsWith('.'),
-          )
-          return drafts.length
-        })(),
+        readOutboxRecipients(repoRoot, agent.id).then((r) => r.length),
         getAgentSessionState(agent).catch((): AgentSessionState => 'stopped'),
       ])
 

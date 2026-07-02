@@ -1,6 +1,6 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
+import { addSubscriptionToState, resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -36,17 +36,10 @@ export async function runSubscribeCommand({ args }: { args: { agent: string; tar
     throw new QuimbyError('An agent cannot subscribe to itself')
   }
 
-  const subs = state.subscriptions ?? {}
-  const targets = subs[args.agent] ?? []
-
-  if (targets.includes(args.target)) {
+  if (!addSubscriptionToState(state, args.agent, args.target)) {
     logger.info(`"${args.agent}" already subscribed to "${args.target}"`)
     return
   }
-
-  targets.push(args.target)
-  subs[args.agent] = targets
-  state.subscriptions = subs
   await saveState(repoRoot, state)
 
   logger.success(`"${args.agent}" now receives status updates from "${args.target}"`)

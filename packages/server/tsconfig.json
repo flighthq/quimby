@@ -12,6 +12,9 @@
       "path": "../paths"
     },
     {
+      "path": "../reporter"
+    },
+    {
       "path": "../session"
     },
     {

@@ -16,7 +16,7 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { dispatchOutbox } from './dispatch'
+import { dispatchOutbox, dispatchOutboxes } from './dispatch'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
   const actual = await importOriginal()
@@ -195,5 +195,67 @@ describe('dispatchOutbox', () => {
 
     expect(results).toHaveLength(2)
     expect(results.every((r) => r.status === 'delivered')).toBe(true)
+  })
+})
+
+describe('dispatchOutboxes', () => {
+  it('throws when neither an agent nor --all is given', async () => {
+    await expect(
+      dispatchOutboxes({ state: stateWith('review'), repoRoot: dir, all: false }),
+    ).rejects.toThrow(/Specify an agent/)
+  })
+
+  it('throws when the named agent does not exist', async () => {
+    await expect(
+      dispatchOutboxes({ state: stateWith('review'), repoRoot: dir, agent: 'ghost', all: false }),
+    ).rejects.toThrow(/not found/)
+  })
+
+  it('reports totalQueued 0 and no senders when the outbox is empty', async () => {
+    await setupAgentRepo(dir, 'review')
+    const result = await dispatchOutboxes({
+      state: stateWith('review'),
+      repoRoot: dir,
+      agent: 'review',
+      all: false,
+    })
+    expect(result).toEqual({ senders: [], totalQueued: 0 })
+  })
+
+  it('dispatches a single named agent and counts the queued parcels', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await stageDraft(dir, 'review', 'builder', 'fix it')
+
+    const result = await dispatchOutboxes({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      agent: 'review',
+      all: false,
+    })
+
+    expect(result.totalQueued).toBe(1)
+    expect(result.senders).toHaveLength(1)
+    expect(result.senders[0].sender).toBe('review')
+    expect(result.senders[0].results[0]).toMatchObject({
+      recipient: 'builder',
+      status: 'delivered',
+    })
+  })
+
+  it('with --all, sweeps every sender and omits agents whose outbox is empty', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await setupAgentRepo(dir, 'idle')
+    await stageDraft(dir, 'review', 'builder', 'fix it')
+
+    const result = await dispatchOutboxes({
+      state: stateWith('review', 'builder', 'idle'),
+      repoRoot: dir,
+      all: true,
+    })
+
+    expect(result.totalQueued).toBe(1)
+    expect(result.senders.map((s) => s.sender)).toEqual(['review'])
   })
 })

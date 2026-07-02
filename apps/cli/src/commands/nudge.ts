@@ -6,6 +6,8 @@ import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { consolaReporter } from '../reporter'
+
 // Sent when no message is given: the lightest possible kick — tell the agent to
 // pick back up. Agent-agnostic and harmless to a paused or idle session.
 const DEFAULT_NUDGE = 'continue'
@@ -81,6 +83,7 @@ export async function runNudgeCommand({
         displayName: name,
         text,
         dashboardSession: dashSession,
+        reporter: consolaReporter,
       })
     }
     return
@@ -101,5 +104,6 @@ export async function runNudgeCommand({
     displayName: args.name,
     text,
     dashboardSession: dashSession,
+    reporter: consolaReporter,
   })
 }

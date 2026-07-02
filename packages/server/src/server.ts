@@ -1,21 +1,32 @@
 import { unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 
 import { getQuimbyDir } from '@quimbyhq/paths'
+import type { Reporter } from '@quimbyhq/reporter'
+import { silentReporter } from '@quimbyhq/reporter'
 import type { QuimbyState } from '@quimbyhq/types'
-import { logger, writeText } from '@quimbyhq/utils'
-import { loadState, saveState } from '@quimbyhq/workspace'
+import { writeText } from '@quimbyhq/utils'
+import {
+  addSubscriptionToState,
+  loadState,
+  removeSubscriptionFromState,
+  saveState,
+} from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
+import { countSubscriptions, routeRequest } from './router'
 
 export interface ServerOptions {
   repoRoot: string
   port?: number
   pollInterval?: number
   autoDispatch?: boolean
+  /** Where the server narrates lifecycle + poll activity; the CLI passes a consola-backed one. */
+  reporter?: Reporter
 }
 
 export interface ServerInfo {
@@ -31,11 +42,14 @@ export interface QuimbyServerHandle {
 
 export async function startServer(opts: ServerOptions): Promise<QuimbyServerHandle> {
   const { repoRoot, port = 7749, pollInterval = 5000, autoDispatch = true } = opts
+  const reporter = opts.reporter ?? silentReporter
 
   const statusCache = new Map<string, StatusSnapshot>()
   const outboxTracker = createOutboxDispatchTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
+  // The actual bound port; equals `port` unless it was 0 (OS-assigned ephemeral).
+  let boundPort = port
 
   const server = createServer(async (req, res) => {
     try {
@@ -47,71 +61,28 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   })
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
-    const url = new URL(req.url!, `http://localhost:${port}`)
-    const path = url.pathname
+    const url = new URL(req.url!, `http://localhost:${boundPort}`)
+    const body = req.method === 'POST' ? await readBody(req) : ''
 
-    if (req.method === 'GET' && path === '/api/status') {
-      json(res, {
-        pid: process.pid,
-        port,
-        uptime: process.uptime(),
-        agents: Object.keys(state.agents).length,
-        subscriptions: countSubscriptions(state),
-      })
-      return
+    const result = routeRequest({
+      method: req.method ?? 'GET',
+      path: url.pathname,
+      body,
+      state,
+      statusCache,
+      meta: { pid: process.pid, port: boundPort, uptime: process.uptime() },
+    })
+
+    if (result.mutation) {
+      const { type, subscriber, target } = result.mutation
+      state =
+        type === 'subscribe'
+          ? await addSubscription(repoRoot, state, subscriber, target)
+          : await removeSubscription(repoRoot, state, subscriber, target)
     }
 
-    if (req.method === 'GET' && path === '/api/agents') {
-      const agents: Record<string, unknown> = {}
-      for (const [name, agent] of Object.entries(state.agents)) {
-        const cached = statusCache.get(name)
-        agents[name] = { ...agent, currentStatus: cached?.content ?? null }
-      }
-      json(res, agents)
-      return
-    }
-
-    if (req.method === 'GET' && path.startsWith('/api/agents/')) {
-      const name = path.split('/')[3]
-      if (!state.agents[name]) {
-        res.writeHead(404, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Agent "${name}" not found` }))
-        return
-      }
-      const cached = statusCache.get(name)
-      json(res, { ...state.agents[name], currentStatus: cached?.content ?? null })
-      return
-    }
-
-    if (req.method === 'GET' && path === '/api/subscriptions') {
-      json(res, state.subscriptions ?? {})
-      return
-    }
-
-    if (req.method === 'POST' && path === '/api/subscriptions') {
-      const body = await readBody(req)
-      const { subscriber, target } = JSON.parse(body)
-      if (!subscriber || !target) {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'subscriber and target required' }))
-        return
-      }
-      state = await addSubscription(repoRoot, state, subscriber, target)
-      json(res, { ok: true })
-      return
-    }
-
-    if (req.method === 'DELETE' && path.startsWith('/api/subscriptions/')) {
-      const parts = path.split('/')
-      const subscriber = decodeURIComponent(parts[3])
-      const target = decodeURIComponent(parts[4])
-      state = await removeSubscription(repoRoot, state, subscriber, target)
-      json(res, { ok: true })
-      return
-    }
-
-    res.writeHead(404, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Not found' }))
+    res.writeHead(result.status, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result.body))
   }
 
   const poller = setInterval(async () => {
@@ -121,19 +92,17 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       if (newMtime !== null) stateMtime = newMtime
 
       for (const name of Object.keys(state.agents)) {
-        await pollAgentStatus(repoRoot, state, name, statusCache)
+        await pollAgentStatus(repoRoot, state, name, statusCache, reporter)
       }
-      if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker)
+      if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter)
     } catch (err) {
-      logger.error(`Poll error: ${err}`)
+      reporter.error(`Poll error: ${err}`)
     }
   }, pollInterval)
 
-  await writeServerInfo(repoRoot, port)
-
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      logger.error(`Port ${port} is already in use. Is another server running?`)
+      reporter.error(`Port ${port} is already in use. Is another server running?`)
       process.exit(1)
     }
     throw err
@@ -141,17 +110,20 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
 
   await new Promise<void>((resolve) => {
     server.listen(port, '127.0.0.1', () => {
-      logger.success(`Server listening on http://127.0.0.1:${port}`)
-      logger.info(`Polling every ${pollInterval / 1000}s`)
-      logger.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
-      if (autoDispatch) logger.info('Auto-dispatching outboxes on change')
+      boundPort = (server.address() as AddressInfo | null)?.port ?? port
+      reporter.success(`Server listening on http://127.0.0.1:${boundPort}`)
+      reporter.info(`Polling every ${pollInterval / 1000}s`)
+      reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
+      if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
       const subCount = countSubscriptions(state)
       if (subCount > 0) {
-        logger.info(`${subCount} active subscription(s)`)
+        reporter.info(`${subCount} active subscription(s)`)
       }
       resolve()
     })
   })
+
+  await writeServerInfo(repoRoot, boundPort)
 
   let stopped = false
   const stop = async (): Promise<void> => {
@@ -162,7 +134,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     await removeServerInfo(repoRoot)
   }
 
-  return { port, stop }
+  return { port: boundPort, stop }
 }
 
 async function addSubscription(
@@ -171,12 +143,7 @@ async function addSubscription(
   subscriber: string,
   target: string,
 ): Promise<QuimbyState> {
-  const subs = state.subscriptions ?? {}
-  const targets = subs[subscriber] ?? []
-  if (!targets.includes(target)) {
-    targets.push(target)
-    subs[subscriber] = targets
-    state.subscriptions = subs
+  if (addSubscriptionToState(state, subscriber, target)) {
     await saveState(repoRoot, state)
   }
   return state
@@ -188,19 +155,10 @@ async function removeSubscription(
   subscriber: string,
   target: string,
 ): Promise<QuimbyState> {
-  const subs = state.subscriptions ?? {}
-  if (subs[subscriber]) {
-    subs[subscriber] = subs[subscriber].filter((t) => t !== target)
-    if (subs[subscriber].length === 0) delete subs[subscriber]
-    state.subscriptions = subs
+  if (removeSubscriptionFromState(state, subscriber, target)) {
     await saveState(repoRoot, state)
   }
   return state
-}
-
-function countSubscriptions(state: QuimbyState): number {
-  const subs = state.subscriptions ?? {}
-  return Object.values(subs).reduce((sum, targets) => sum + targets.length, 0)
 }
 
 async function writeServerInfo(repoRoot: string, port: number): Promise<void> {
@@ -216,11 +174,6 @@ async function removeServerInfo(repoRoot: string): Promise<void> {
   try {
     await unlink(join(getQuimbyDir(repoRoot), 'server.json'))
   } catch {}
-}
-
-function json(res: ServerResponse, data: unknown): void {
-  res.writeHead(200, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(data))
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

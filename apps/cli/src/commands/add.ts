@@ -2,11 +2,12 @@ import { addAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { runtimeTypes } from '@quimbyhq/runtimes'
+import { buildSSHLocation } from '@quimbyhq/transport'
 import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { defineCommand } from 'citty'
 
-import { buildSSHLocation, runAgentWalkthrough } from '../walkthrough'
+import { runAgentWalkthrough } from '../walkthrough'
 
 export default defineCommand({
   meta: {

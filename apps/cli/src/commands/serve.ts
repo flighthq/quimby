@@ -6,6 +6,8 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { consolaReporter } from '../reporter'
+
 export default defineCommand({
   meta: {
     name: 'serve',
@@ -60,7 +62,13 @@ export async function runServeCommand({
   const pollInterval = args.poll ? parseInt(args.poll, 10) * 1000 : undefined
   const autoDispatch = args.dispatch !== false
 
-  const handle = await startServer({ repoRoot, port, pollInterval, autoDispatch })
+  const handle = await startServer({
+    repoRoot,
+    port,
+    pollInterval,
+    autoDispatch,
+    reporter: consolaReporter,
+  })
 
   if (args.interactive || args.tty) {
     await runInteractiveShell(handle)

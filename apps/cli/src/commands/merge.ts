@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { syncAgent } from '@quimbyhq/agent'
+import { rebaseAgentOntoBase, syncAgent } from '@quimbyhq/agent'
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
@@ -10,6 +10,7 @@ import {
   discardHandoff,
   getWorkingParcelName,
   readHandoff,
+  stageParcel,
 } from '@quimbyhq/handoff'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
 import type { AgentState, QuimbyState } from '@quimbyhq/types'
@@ -20,8 +21,8 @@ import { colors } from 'consola/utils'
 import { execa } from 'execa'
 import { join, resolve } from 'pathe'
 
-import { stageParcel } from '../courier'
 import { getQuimbySuccessQuip } from '../quips'
+import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -121,7 +122,9 @@ export async function runMergeCommand({
           repoRoot,
           from: args.agent,
           message: args.message,
-          rebase: args.rebase,
+          beforeStage: args.rebase
+            ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
+            : undefined,
         })
       ).name
     : args.agent

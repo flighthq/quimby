@@ -69,4 +69,19 @@ describe('renderTmuxConfig', () => {
     expect(conf).toContain('#W')
     expect(conf).toContain('status-style')
   })
+
+  it('enables system-clipboard copy and binds drag/Ctrl+C to copy, right-click to paste', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('set-clipboard on')
+    expect(conf).toContain('MouseDragEnd1Pane send-keys -X copy-selection-and-cancel')
+    expect(conf).toContain('C-c send-keys -X copy-selection-and-cancel')
+    expect(conf).toContain('MouseDown3Pane paste-buffer')
+  })
+
+  it('sets clipboard copy after sourcing the user config so it always wins', () => {
+    const conf = renderTmuxConfig()
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.indexOf('set-clipboard on'),
+    )
+  })
 })

@@ -1,6 +1,7 @@
 import { setAgentDefaults, setAgentLocation, setAgentSyncRef } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { runtimeTypes } from '@quimbyhq/runtimes'
+import { mergeSSHLocation } from '@quimbyhq/transport'
 import type { RuntimeType } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
@@ -88,26 +89,14 @@ export async function runSetCommand({
   }
 
   if (args.host || args.port) {
-    const current = state.agents[args.name].location
-    const colonSlash = args.host ? args.host.indexOf(':/') : -1
-    const sshHost = args.host
-      ? colonSlash >= 0
-        ? args.host.slice(0, colonSlash)
-        : args.host
-      : (current as { host?: string })?.host
-    const base = args.host && colonSlash >= 0 ? args.host.slice(colonSlash + 1) : undefined
-    const port = args.port ? parseInt(args.port, 10) : (current as { port?: number })?.port
-
-    if (!sshHost) {
+    const location = mergeSSHLocation(state.agents[args.name].location, {
+      hostSpec: args.host,
+      port: args.port ? parseInt(args.port, 10) : undefined,
+    })
+    if (!location) {
       throw new QuimbyError('Agent has no SSH host — provide --host to set one')
     }
-
-    await setAgentLocation(repoRoot, args.name, {
-      type: 'ssh',
-      host: sshHost,
-      ...(port ? { port } : {}),
-      ...(base ? { base } : {}),
-    })
+    await setAgentLocation(repoRoot, args.name, location)
   }
 
   logger.success(`Agent "${args.name}" updated`)

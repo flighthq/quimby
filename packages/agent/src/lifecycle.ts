@@ -4,15 +4,13 @@ import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
   getAgentDir,
-  getAgentOutboxDir,
   getAgentRepoDir,
   remoteAgentDir,
   remoteAgentRepoDir,
   remoteProjectRoot,
-  remoteQuimbyDir,
 } from '@quimbyhq/paths'
 import { renderAgentClaudeMd } from '@quimbyhq/template'
-import type { Transport } from '@quimbyhq/transport'
+import type { SSHTransport, Transport } from '@quimbyhq/transport'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -64,25 +62,17 @@ export async function addAgent(
     return agentState
   }
 
-  // Local agent: create dirs, clone, tag, write files. Directories are keyed by the
-  // agent's stable UUID so a later rename never moves them.
+  // Local agent: clone + seed the repo, then scaffold the agent dir. Directories are
+  // keyed by the agent's stable UUID so a later rename never moves them.
   const agentDir = getAgentDir(repoRoot, agentState.id)
   const repoDir = getAgentRepoDir(repoRoot, agentState.id)
 
-  await ensureDir(join(agentDir, 'inbox', 'status'))
-  await ensureDir(getAgentOutboxDir(repoRoot, agentState.id))
-
-  await git.clone(repoRoot, repoDir, { ref: state.sourceRef })
-  await git.tag(repoDir, 'quimby/seed')
-  await configureAgentIdentity(repoRoot, repoDir, name)
-
-  agentState.seedCommit = await git.getCurrentRef(repoDir)
-
-  await writeText(join(agentDir, 'assignment.md'), '')
-  await writeText(join(agentDir, 'status.md'), 'idle')
-
-  const claudeMd = renderAgentClaudeMd({ agentName: name, agentId: agentState.id })
-  await writeText(join(agentDir, 'CLAUDE.md'), claudeMd)
+  agentState.seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, state.sourceRef)
+  await writeAgentScaffold(agentDir, {
+    agentName: name,
+    agentId: agentState.id,
+    withClaudeMd: true,
+  })
 
   state.agents[name] = agentState
   await saveState(repoRoot, state)
@@ -102,23 +92,22 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
     const rRoot = remoteProjectRoot(state.id, agent.location.base)
-    const rQuimby = remoteQuimbyDir(state.id, agent.location.base)
     const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
     const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
     await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/inbox ${rAgentDir}/outbox`)
-    await transport.ensureDir(`${rAgentDir}/inbox/status`)
-    await transport.ensureDir(`${rAgentDir}/outbox`)
-    await transport.exec(`git clone ${rRoot} ${rRepoDir}`, { cwd: rQuimby })
-    await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
-    await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)
-    const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
-
-    await transport.writeFile(`${rAgentDir}/assignment.md`, '')
-    await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
-
-    state.agents[name].seedCommit = seedCommit
+    state.agents[name].seedCommit = await cloneAndSeedRemoteAgentRepo(transport, {
+      rRoot,
+      rRepoDir,
+      agentName: name,
+      hostRepoRoot: repoRoot,
+    })
+    await writeRemoteAgentScaffold(transport, rAgentDir, {
+      agentName: name,
+      agentId: agent.id,
+      withClaudeMd: false,
+    })
     await saveState(repoRoot, state)
     return
   }
@@ -127,25 +116,15 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   const repoDir = getAgentRepoDir(repoRoot, agent.id)
 
   await rm(repoDir, { recursive: true, force: true })
-
   const currentRef = await getCurrentBranchOrRef(repoRoot)
-  await git.clone(repoRoot, repoDir, { ref: currentRef })
-  await git.tag(repoDir, 'quimby/seed')
-  await configureAgentIdentity(repoRoot, repoDir, name)
-
-  const seedCommit = await git.getCurrentRef(repoDir)
-
-  state.agents[name].seedCommit = seedCommit
+  state.agents[name].seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, currentRef)
   await saveState(repoRoot, state)
 
-  // Clear the mailbox too — a rebuilt agent is a fresh start, so stale parcels and
-  // a prior task shouldn't carry over.
+  // A rebuilt agent is a fresh start — clear the mailbox so stale parcels and a prior
+  // task don't carry over, then re-scaffold. CLAUDE.md is left in place.
   await rm(join(agentDir, 'inbox'), { recursive: true, force: true })
-  await ensureDir(join(agentDir, 'inbox', 'status'))
   await rm(join(agentDir, 'outbox'), { recursive: true, force: true })
-  await ensureDir(join(agentDir, 'outbox'))
-  await writeText(join(agentDir, 'assignment.md'), '')
-  await writeText(join(agentDir, 'status.md'), 'idle')
+  await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id, withClaudeMd: false })
 }
 
 export async function removeAgent(repoRoot: string, name: string): Promise<void> {
@@ -219,6 +198,41 @@ export async function configureRemoteAgentIdentity(
 }
 
 /**
+ * Clone a remote agent's repo from the rsynced project root, tag `quimby/seed`, set its
+ * git identity, and return the seed commit — the remote twin of the local clone+seed.
+ * Shared by `rebuildAgent` (SSH) and the first-run init in `prepareSshLaunch`.
+ */
+export async function cloneAndSeedRemoteAgentRepo(
+  transport: SSHTransport,
+  opts: { rRoot: string; rRepoDir: string; agentName: string; hostRepoRoot: string },
+): Promise<string> {
+  await transport.exec(`git clone ${opts.rRoot} ${opts.rRepoDir}`)
+  await transport.exec(`git tag quimby/seed`, { cwd: opts.rRepoDir })
+  await configureRemoteAgentIdentity(transport, opts.rRepoDir, opts.agentName, opts.hostRepoRoot)
+  return (await transport.exec(`git rev-parse HEAD`, { cwd: opts.rRepoDir })).trim()
+}
+
+/**
+ * Create a remote agent's mailbox dirs and baseline files (assignment/status, optionally
+ * CLAUDE.md) over transport — the remote twin of {@link writeAgentScaffold}. Shared by
+ * `rebuildAgent` (SSH) and the first-run init in `prepareSshLaunch`.
+ */
+export async function writeRemoteAgentScaffold(
+  transport: SSHTransport,
+  rAgentDir: string,
+  opts: { agentName: string; agentId: string; withClaudeMd: boolean },
+): Promise<void> {
+  await transport.ensureDir(`${rAgentDir}/inbox/status`)
+  await transport.ensureDir(`${rAgentDir}/outbox`)
+  await transport.writeFile(`${rAgentDir}/assignment.md`, '')
+  await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
+  if (opts.withClaudeMd) {
+    const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
+    await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
+  }
+}
+
+/**
  * Configure git identity in a local agent clone so the agent never has to set
  * git globals before its first commit. Inherits the host repo's identity when
  * present, else falls back to a quimby-scoped identity.
@@ -245,6 +259,34 @@ async function resolveAgentIdentity(
   return {
     name: (await git.getConfig(hostRepoRoot, 'user.name')) ?? `quimby-${agentName}`,
     email: (await git.getConfig(hostRepoRoot, 'user.email')) ?? `quimby+${agentName}@local`,
+  }
+}
+
+/** Clone the host repo into a local agent dir, tag the seed, set identity; return the seed. */
+async function cloneAndSeedAgentRepo(
+  repoRoot: string,
+  repoDir: string,
+  agentName: string,
+  ref: string,
+): Promise<string> {
+  await git.clone(repoRoot, repoDir, { ref })
+  await git.tag(repoDir, 'quimby/seed')
+  await configureAgentIdentity(repoRoot, repoDir, agentName)
+  return git.getCurrentRef(repoDir)
+}
+
+/** Create a local agent's mailbox dirs and baseline files (assignment/status, optional CLAUDE.md). */
+async function writeAgentScaffold(
+  agentDir: string,
+  opts: { agentName: string; agentId: string; withClaudeMd: boolean },
+): Promise<void> {
+  await ensureDir(join(agentDir, 'inbox', 'status'))
+  await ensureDir(join(agentDir, 'outbox'))
+  await writeText(join(agentDir, 'assignment.md'), '')
+  await writeText(join(agentDir, 'status.md'), 'idle')
+  if (opts.withClaudeMd) {
+    const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
+    await writeText(join(agentDir, 'CLAUDE.md'), claudeMd)
   }
 }
 

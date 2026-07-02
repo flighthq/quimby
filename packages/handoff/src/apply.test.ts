@@ -380,6 +380,95 @@ describe('applyHandoff', () => {
     }
   })
 
+  it('commits mode replays each agent commit as its own commit', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'a.txt'), 'a\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'first change')
+    await writeFile(join(agentRepoDir, 'b.txt'), 'b\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'second change')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      const { stdout } = await execa('git', ['log', '--format=%s'], { cwd: targetDir })
+      const subjects = stdout.split('\n')
+      // both commits land as distinct commits (git am), not a single squashed one
+      expect(subjects).toContain('first change')
+      expect(subjects).toContain('second change')
+      expect(await exists(join(targetDir, 'a.txt'))).toBe(true)
+      expect(await exists(join(targetDir, 'b.txt'))).toBe(true)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('commits mode replays commits and leaves the uncommitted remainder loose in the working tree', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    // Uncommitted work on top of the commit — captured as the remainder.
+    await writeFile(join(agentRepoDir, 'remainder.txt'), 'still in progress\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
+      expect(await exists(join(targetDir, 'remainder.txt'))).toBe(true)
+      // The agent's commit is replayed…
+      const { stdout: subjects } = await execa('git', ['log', '--format=%s'], { cwd: targetDir })
+      expect(subjects.split('\n')).toContain('add feature')
+      // …but with no -m the remainder stays uncommitted (quimby doesn't invent a commit
+      // the agent never drew): it shows as a dirty working-tree entry, not a log entry.
+      expect(subjects).not.toMatch(/Uncommitted work/)
+      const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: targetDir })
+      expect(status).toMatch(/remainder\.txt/)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('commits mode falls back to a squashed commit when the parcel has no per-commit patches', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    // Only uncommitted work (HEAD is still at the seed) — no commits to format as patches.
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
+      // Landed as a single fallback commit carrying the parcel's suggested message,
+      // not an "Uncommitted work from …" commit (that path only runs alongside patches).
+      const { stdout } = await execa('git', ['log', '-1', '--format=%s'], { cwd: targetDir })
+      expect(stdout.trim()).toBe(meta.suggestedMessage)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('merges settled files cleanly when agent is behind', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)

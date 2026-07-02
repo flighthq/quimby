@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@quimbyhq/paths": "*",
+    "@quimbyhq/reporter": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",

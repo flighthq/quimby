@@ -25,28 +25,29 @@ CLI tool for orchestrating multiple AI agents working on a single project in iso
 
 An npm-workspace monorepo. The domain is split into one package per capability so each can mature independently; `apps/cli` is a thin command layer over them. No catch-all `core` package — name packages by capability.
 
-- `apps/cli/` — the `quimby` binary; commands only
+- `apps/cli/` — the `quimby` binary; commands only. A command parses args, calls **one operation** in a capability package, then renders the result and enacts CLI-only side effects (tmux `execa`, `process.exit`, the live-session nudge). The domain logic — assign/handoff/merge/sync/dispatch flows, tmux launch — lives in the packages, not here
   - `src/cli.ts` — entry point (citty root command, flat subcommands; intercepts `help`/`-h`/`--help`)
   - `src/index.ts` — public API (type re-exports)
   - `src/commands/` — one file per command (add, config, run, start, stop, list, status, assign, nudge, diff, handoff, dispatch, apply, merge, sync, rebuild, rename, remove, set, serve, subscribe, unsubscribe)
-  - `src/courier.ts` — shared `stageParcel` (optional rebase → assemble a commit-free working-tree parcel), reused by apply and handoff
-  - `src/launch.ts` — shared tmux launch prep (`prepareLocalTmuxLaunch`, `prepareSshLaunch`): SSH sync + lazy init, runtime spec, bundled tmux config; reused by run (attach) and start (detached)
+  - `src/reporter.ts` — `consolaReporter`: the one binding of consola to the `@quimbyhq/reporter` `Reporter` contract; passed into operations so packages narrate progress without importing consola
   - `src/banner.ts` — colored wordmark on root help; `src/help.ts` — grouped root-help renderer; `src/walkthrough.ts` — interactive agent config (`@clack/prompts`)
 - `packages/types/` — `@quimbyhq/types` — shared types, **one PascalCase file per interface** (`QuimbyState.ts`, `AgentState.ts`, `AgentSessionState.ts`, `HandoffMeta.ts`, `CommitMeta.ts`, `AgentLocation.ts`, `LocalLocation.ts`, `SSHLocation.ts`, `RuntimeAdapter.ts`, `RuntimeContext.ts`, `RunSpec.ts`, `RuntimeType.ts`); `index.ts` is the barrel
 - `packages/errors/` — `@quimbyhq/errors` — error taxonomy (QuimbyError, GitError, AgentError, HandoffError, ConflictError)
-- `packages/utils/` — `@quimbyhq/utils` — tiny generic helpers only: fs, yaml, logger
+- `packages/utils/` — `@quimbyhq/utils` — tiny generic helpers only: fs, yaml, logger (the consola primitive; only `apps/cli` consumes it)
 - `packages/paths/` — `@quimbyhq/paths` — quimby on-disk + remote layout (getAgentDir, remote\*, tmuxSessionName, getTmuxConfigPath, `quimbyTmuxSocket`)
+- `packages/reporter/` — `@quimbyhq/reporter` — the `Reporter` progress-sink contract (start/success/info/warn/error) + `silentReporter` + `collectingReporter` (tests). Operations take a `Reporter` so package logic never imports consola; the consola-backed impl lives in `apps/cli`
 - `packages/template/` — `@quimbyhq/template` — generated text: agent CLAUDE.md (renderAgentClaudeMd) and the bundled tmux config (renderTmuxConfig)
 - `packages/git/` — `@quimbyhq/git` — typed wrapper over the git CLI
-- `packages/transport/` — `@quimbyhq/transport` — LocalTransport / SSHTransport abstraction (`sq`, getTransport, getSSHTransport)
+- `packages/transport/` — `@quimbyhq/transport` — LocalTransport / SSHTransport abstraction (`sq`, getTransport, getSSHTransport) + SSHLocation parsing primitives (parseSSHHostSpec, buildSSHLocation, mergeSSHLocation)
 - `packages/runtimes/` — `@quimbyhq/runtimes` — execution adapters (local, sbx, openshell) + registry + buildContext
 - `packages/session/` — `@quimbyhq/session` — a live agent's tmux session: waking it (nudgeAgentSession, hasAgentSession) and reading its state (getAgentSessionState → running/attached/stopped); reused by the CLI nudge/assign/dispatch/handoff/start/stop/list and the server's auto-dispatch
-- `packages/workspace/` — `@quimbyhq/workspace` — `.quimby/` state lifecycle (resolve/ensure/load/save, migrations)
-- `packages/agent/` — `@quimbyhq/agent` — agent lifecycle (add, remove, rename, sync, rebuild, sync targets)
-- `packages/handoff/` — `@quimbyhq/handoff` — parcel lifecycle + apply, the boundary (assemble, deliver, apply, discard, readOutbox\*, markHandoffSent, dispatchOutbox — the shared outbox-enact core reused by the CLI `dispatch` and the server)
-- `packages/server/` — `@quimbyhq/server` — HTTP server + status poller + outbox auto-dispatch + client (CLI → server API)
+- `packages/workspace/` — `@quimbyhq/workspace` — `.quimby/` state lifecycle (resolve/ensure/load/save, migrations) + subscription mutations (addSubscriptionToState/removeSubscriptionFromState, shared by the CLI and the server)
+- `packages/agent/` — `@quimbyhq/agent` — agent lifecycle (add, remove, rename, rebuild, sync targets) + operations: `assignAgentTask` (write→sync→nudge directive), `syncAgents` (multi-agent sync with outcome classification), `rebaseAgentOntoBase` (the `--rebase` beforeStage seam). `syncAgent` drives the pure `runSyncAlgorithm` (in `syncAlgorithm.ts`) over a `RepoSyncOps` backend — local (git CLI) and SSH (git over transport) share one stash/rebase/reset/tag algorithm, tested against a fake. Agent provisioning is factored into primitives too: `cloneAndSeedAgentRepo`/`writeAgentScaffold` (local) and the exported `cloneAndSeedRemoteAgentRepo`/`writeRemoteAgentScaffold` (SSH, reused by `@quimbyhq/launch`'s `prepareSshLaunch`), so `addAgent`/`rebuildAgent`/first-run init share one clone+seed+scaffold path
+- `packages/handoff/` — `@quimbyhq/handoff` — parcel lifecycle + the boundary. Primitives (assemble, deliver, apply, discard, readOutbox\*, markHandoffSent, dispatchOutbox) plus the command-level operations: `handoffWork` (direct carry, host-vs-agent), `mergeAgentWork` (stage→apply→discard, conflict as a thrown `ConflictError`), `dispatchOutboxes` (multi-sender), `stageParcel`, `inboxNoticeText`. `assembleHandoff`/`assembleRemoteHandoff` are thin adapters over the pure `assembleParcel` (in `assembleParcel.ts`) driven by a `RepoAssembleOps` backend — one assembly algorithm for local + SSH, tested against a fake
+- `packages/launch/` — `@quimbyhq/launch` — tmux launch orchestration for run/start/dashboard: `resolveRuntimeSelection`, `prepareLocalTmuxLaunch`/`localNewSessionArgs`, `prepareSshLaunch` (SSH sync + lazy init, one place), `buildForegroundLaunch`, `buildDashboardWindows`/`buildDashboardPlan`. Returns specs/arg-vectors; the CLI does the `execa`/`process.exit`
+- `packages/server/` — `@quimbyhq/server` — HTTP server + status poller + outbox auto-dispatch + client (CLI → server API); takes a `Reporter` for all output
 
-Dependency flow is a DAG: leaves (types, errors, utils, paths, template) → git/transport/runtimes/session → workspace → agent/handoff → server → apps/cli.
+Dependency flow is a DAG: leaves (types, errors, utils, paths, reporter, template) → git/transport/runtimes/session → workspace → agent/handoff → launch → server → apps/cli.
 
 ## Development
 

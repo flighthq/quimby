@@ -1,10 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises'
 
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import type { Reporter } from '@quimbyhq/reporter'
+import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { logger } from '@quimbyhq/utils'
 import { execa } from 'execa'
 
 // Every quimby tmux command targets the dedicated `-L quimby` server, or it would look
@@ -78,15 +79,20 @@ export async function nudgeAgentSession(opts: {
   displayName: string
   text: string
   dashboardSession?: string
+  reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, text, dashboardSession } = opts
+  const reporter = opts.reporter ?? silentReporter
 
   if (!isSSH(agent.location) && !agent.tmux) {
     // Local non-tmux agent — try dashboard window before giving up.
-    if (dashboardSession && (await nudgeWindowInSession(dashboardSession, displayName, text))) {
+    if (
+      dashboardSession &&
+      (await nudgeWindowInSession(dashboardSession, displayName, text, reporter))
+    ) {
       return
     }
-    logger.info(
+    reporter.info(
       `"${displayName}" isn't a tmux/SSH agent — it'll see it on its next run ` +
         `(enable tmux via \`quimby config ${displayName}\` for live nudges).`,
     )
@@ -98,12 +104,7 @@ export async function nudgeAgentSession(opts: {
   try {
     if (isSSH(agent.location)) {
       const transport = getSSHTransport(agent.location)
-      // `sleep` between the two lines gives `/clear` time to process before the nudge.
-      const clearInject = clear
-        ? `${sendKeysInject(session, CLEAR_COMMAND)} && sleep ${CLEAR_SETTLE_MS / 1000} && `
-        : ''
-      const inject = `${clearInject}${sendKeysInject(session, text)}`
-      await transport.exec(`${TMUX_CMD} has-session -t ${sq(session)} 2>/dev/null && ${inject}`)
+      await transport.exec(buildRemoteNudgeCommand(session, text, Boolean(clear)))
     } else {
       await execa('tmux', [...TMUX, 'has-session', '-t', session])
       if (clear) {
@@ -113,17 +114,20 @@ export async function nudgeAgentSession(opts: {
       await sendKeysLocal(session, text)
     }
     const cleared = clear ? ' (cleared context first)' : ''
-    logger.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
+    reporter.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
     return
   } catch {
     // Per-agent session not found — try dashboard window before reporting.
   }
 
-  if (dashboardSession && (await nudgeWindowInSession(dashboardSession, displayName, text))) {
+  if (
+    dashboardSession &&
+    (await nudgeWindowInSession(dashboardSession, displayName, text, reporter))
+  ) {
     return
   }
 
-  logger.warn(
+  reporter.warn(
     `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
       `(it'll see it on its next run; start it with \`quimby run ${displayName}\`).`,
   )
@@ -150,16 +154,32 @@ async function nudgeWindowInSession(
   session: string,
   windowName: string,
   text: string,
+  reporter: Reporter,
 ): Promise<boolean> {
   const target = `${session}:=${windowName}`
   try {
     await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-l', text])
     await execa('tmux', [...TMUX, 'send-keys', '-t', target, 'Enter'])
-    logger.success(`Nudged "${windowName}" in dashboard "${session}"`)
+    reporter.success(`Nudged "${windowName}" in dashboard "${session}"`)
     return true
   } catch {
     return false
   }
+}
+
+/**
+ * The one-shot remote shell command that nudges an SSH agent: guard on the session
+ * existing (so a stopped agent is a silent no-op), optionally type `/clear` + a settle
+ * beat first, then type the literal text and submit it. Pure string building — all the
+ * escaping (`sq`) and the clear/nudge sequencing live here, testable without a host.
+ */
+export function buildRemoteNudgeCommand(session: string, text: string, clear: boolean): string {
+  // `sleep` between the two lines gives `/clear` time to process before the nudge.
+  const clearInject = clear
+    ? `${sendKeysInject(session, CLEAR_COMMAND)} && sleep ${CLEAR_SETTLE_MS / 1000} && `
+    : ''
+  const inject = `${clearInject}${sendKeysInject(session, text)}`
+  return `${TMUX_CMD} has-session -t ${sq(session)} 2>/dev/null && ${inject}`
 }
 
 // Two send-keys as a shell fragment (for SSH transport): `-l` types the literal text

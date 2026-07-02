@@ -8,7 +8,17 @@ const execa = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({})))
 
 vi.mock('execa', () => ({ execa }))
 vi.mock('@quimbyhq/session', () => ({ getAgentSessionState: sessionState }))
-vi.mock('../launch', () => ({ prepareLocalTmuxLaunch, prepareSshLaunch }))
+vi.mock('@quimbyhq/launch', () => ({
+  prepareLocalTmuxLaunch,
+  prepareSshLaunch,
+  localNewSessionArgs: (launch: { sessionName: string }, opts: { detached: boolean }) => [
+    'new-session',
+    '-A',
+    ...(opts.detached ? ['-d'] : []),
+    '-s',
+    launch.sessionName,
+  ],
+}))
 
 function workspace(agents: Record<string, unknown>) {
   return {

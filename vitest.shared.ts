@@ -11,6 +11,7 @@ const PACKAGES = [
   'errors',
   'utils',
   'paths',
+  'reporter',
   'template',
   'git',
   'transport',
@@ -19,6 +20,7 @@ const PACKAGES = [
   'workspace',
   'agent',
   'handoff',
+  'launch',
   'server',
 ]
 

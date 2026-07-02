@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildSSHLocation, runAgentWalkthrough } from './walkthrough'
+import { runAgentWalkthrough } from './walkthrough'
 
 const h = vi.hoisted(() => {
   const CANCEL = Symbol('cancel')
@@ -17,24 +17,6 @@ vi.mock('@clack/prompts', () => ({
   text: () => h.next(),
   confirm: () => h.next(),
 }))
-
-describe('buildSSHLocation', () => {
-  it('parses a bare user@host', () => {
-    expect(buildSSHLocation('me@box')).toEqual({ type: 'ssh', host: 'me@box' })
-  })
-
-  it('splits a remote base path on :/', () => {
-    expect(buildSSHLocation('me@box:/srv/work')).toEqual({
-      type: 'ssh',
-      host: 'me@box',
-      base: '/srv/work',
-    })
-  })
-
-  it('includes the port when provided', () => {
-    expect(buildSSHLocation('me@box', 2222)).toEqual({ type: 'ssh', host: 'me@box', port: 2222 })
-  })
-})
 
 describe('runAgentWalkthrough', () => {
   beforeEach(() => {

@@ -1,12 +1,10 @@
-import { QuimbyError } from '@quimbyhq/errors'
-import { assembleHostHandoff, deliverHandoff, discardHandoff, HOST_SENDER } from '@quimbyhq/handoff'
+import { rebaseAgentOntoBase } from '@quimbyhq/agent'
+import { handoffWork } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import type { AgentState } from '@quimbyhq/types'
-import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { stageParcel } from '../courier'
+import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -68,82 +66,29 @@ export async function runHandoffCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  // The recipient is the last positional; a leading positional overrides the
-  // default source (the host). So `handoff B` is host → B and `handoff A B` is A → B.
-  const recipient = args.to ?? args.from
-  const fromHost = args.to === undefined
-
-  const recip = state.agents[recipient]
-  if (!recip) {
-    throw new QuimbyError(`Agent "${recipient}" not found`)
-  }
-
-  // A handoff is often pure data (a diff with no note); the note is the instruction
-  // half, so by default nudge only when one is present. --nudge / --no-nudge override.
-  const shouldNudge = args.nudge ?? Boolean(args.message)
-
-  if (fromHost) {
-    const meta = await assembleHostHandoff({
+  const result = await handoffWork(
+    {
+      state,
       repoRoot,
-      to: recipient,
-      base: recip.seedCommit,
-      note: args.message,
+      from: args.from,
+      to: args.to,
+      message: args.message,
+      attach: args.attach,
+      nudge: args.nudge,
+      beforeStage: args.rebase
+        ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
+        : undefined,
+    },
+    consolaReporter,
+  )
+
+  if (result.nudgeText !== null) {
+    await nudgeAgentSession({
+      agent: state.agents[result.to],
+      clear: args.clear,
+      displayName: result.to,
+      text: result.nudgeText,
+      reporter: consolaReporter,
     })
-    await deliverHandoff({
-      repoRoot,
-      name: meta.name,
-      to: recipient,
-      toId: recip.id,
-      toLocation: recip.location,
-      projectId: state.id,
-    })
-    await discardHandoff(repoRoot, meta.name)
-    logger.success(`Handed off from ${HOST_SENDER} to "${recipient}"`)
-    if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message, args.clear)
-    return
   }
-
-  const source = args.from
-  if (!state.agents[source]) {
-    throw new QuimbyError(`Agent "${source}" not found`)
-  }
-
-  const meta = await stageParcel({
-    state,
-    repoRoot,
-    from: source,
-    to: recipient,
-    note: args.message,
-    attach: args.attach,
-    rebase: args.rebase,
-  })
-  await deliverHandoff({
-    repoRoot,
-    name: meta.name,
-    to: recipient,
-    toId: recip.id,
-    toLocation: recip.location,
-    projectId: state.id,
-  })
-  await discardHandoff(repoRoot, meta.name)
-  logger.success(`Handed off from "${source}" to "${recipient}"`)
-  if (shouldNudge) await nudgeRecipient(recip, recipient, meta.name, args.message, args.clear)
-}
-
-async function nudgeRecipient(
-  recip: Readonly<AgentState>,
-  displayName: string,
-  parcelName: string,
-  message?: string,
-  clear?: boolean,
-): Promise<void> {
-  const text = message
-    ? `Please review: @inbox/${parcelName}/\n\n${message}`
-    : `New handoff in your inbox: @inbox/${parcelName}/ — please review.`
-  await nudgeAgentSession({
-    agent: recip,
-    clear,
-    displayName,
-    text,
-  })
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import { getAgentDir, getAgentRepoDir, getStagingHandoffDir } from '@quimbyhq/paths'
+import { getSSHTransport } from '@quimbyhq/transport'
 import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
@@ -197,8 +198,69 @@ describe('assembleHostHandoff', () => {
 })
 
 describe('assembleRemoteHandoff', () => {
-  it('is a function', () => {
-    expect(typeof assembleRemoteHandoff).toBe('function')
+  function recordingTransport(): {
+    transport: ReturnType<typeof getSSHTransport>
+    calls: string[]
+  } {
+    const calls: string[] = []
+    const transport = {
+      exec: vi.fn(async (cmd: string) => {
+        calls.push(cmd)
+        return ''
+      }),
+      readFile: vi.fn(async () => ''),
+      writeFile: vi.fn(),
+      fileExists: vi.fn(async () => false),
+      ensureDir: vi.fn(),
+      rsyncFrom: vi.fn(),
+      rsyncTo: vi.fn(),
+    } as unknown as ReturnType<typeof getSSHTransport>
+    return { transport, calls }
+  }
+
+  const sshLocation = { type: 'ssh', host: 'user@box', base: '~' } as const
+
+  it('assembles a note-only parcel over transport when the remote has no diff', async () => {
+    const repoRoot = await setupRepoRoot()
+    const { transport } = recordingTransport()
+    vi.mocked(getSSHTransport).mockReturnValue(transport)
+
+    const meta = await assembleRemoteHandoff({
+      repoRoot,
+      from: 'remote',
+      codeSourceId: 'remote-id',
+      codeSourceLocation: sshLocation,
+      projectId: 'proj',
+      note: 'take a look',
+    })
+
+    expect(meta.name).toMatch(/^remote-[0-9a-f]{8}$/)
+    expect(meta.note).toBe('take a look')
+    expect(await exists(join(getStagingHandoffDir(repoRoot, meta.name), 'README.md'))).toBe(true)
+    await rm(repoRoot, { recursive: true, force: true })
+  })
+
+  it('issues the expected remote git reads (seed, subjects, working-tree diff)', async () => {
+    const repoRoot = await setupRepoRoot()
+    const { transport, calls } = recordingTransport()
+    vi.mocked(getSSHTransport).mockReturnValue(transport)
+
+    await assembleRemoteHandoff({
+      repoRoot,
+      from: 'remote',
+      codeSourceId: 'remote-id',
+      codeSourceLocation: sshLocation,
+      projectId: 'proj',
+      note: 'n',
+    })
+
+    expect(calls).toContain('git rev-parse quimby/seed')
+    expect(calls).toContain('git log quimby/seed..HEAD --format=%s')
+    // the commit-free working-tree capture uses a throwaway index
+    expect(calls.some((c) => c.includes('git read-tree') && c.includes('GIT_INDEX_FILE'))).toBe(
+      true,
+    )
+    await rm(repoRoot, { recursive: true, force: true })
   })
 })
 

@@ -20,37 +20,72 @@ vi.mock('@quimbyhq/utils', async (importOriginal) => ({
   writeText,
 }))
 
+import { localNewSessionArgs, prepareLocalTmuxLaunch } from './local'
+
 function state(): QuimbyState {
   return { id: 'proj', sourceRef: 'main', agents: {}, subscriptions: {} } as QuimbyState
 }
 
+const sampleAgent = { id: 'a1', name: 'builder', location: { type: 'local' } } as never
+
+describe('localNewSessionArgs', () => {
+  const launch = {
+    sessionName: 'qb-proj-a1',
+    tmuxConf: '/repo/.quimby/tmux.conf',
+    cwd: '/agent/dir',
+    envArgs: ['-e', 'FOO=bar'],
+    shellCmd: 'run claude',
+    windowName: 'builder',
+    runtimeLabel: '',
+  }
+
+  it('builds an attach invocation (-A, no -d) for run', () => {
+    const args = localNewSessionArgs(launch, { detached: false })
+    expect(args).toContain('-A')
+    expect(args).not.toContain('-d')
+    expect(args.slice(0, 2)).toEqual(['-L', 'quimby'])
+    expect(args).toEqual(
+      expect.arrayContaining(['-s', 'qb-proj-a1', '-n', 'builder', '-c', '/agent/dir']),
+    )
+    expect(args.at(-1)).toBe('run claude')
+  })
+
+  it('adds -d for a detached (headless) start, right after -A', () => {
+    const args = localNewSessionArgs(launch, { detached: true })
+    const at = args.indexOf('-A')
+    expect(args[at + 1]).toBe('-d')
+  })
+
+  it('threads env args through as -e pairs', () => {
+    const args = localNewSessionArgs(launch, { detached: false })
+    expect(args).toEqual(expect.arrayContaining(['-e', 'FOO=bar']))
+  })
+})
+
 describe('prepareLocalTmuxLaunch', () => {
   it('builds a shell command with the entrypoint quoted and writes the tmux config', async () => {
     writeText.mockClear()
-    const { prepareLocalTmuxLaunch } = await import('./launch')
     const launch = await prepareLocalTmuxLaunch({
       state: state(),
       repoRoot: '/repo',
-      agent: { id: 'a1', name: 'builder', location: { type: 'local' } } as never,
+      agent: sampleAgent,
       runtime: 'sbx',
     })
 
     expect(launch.sessionName).toContain('qb-')
     expect(launch.windowName).toBe('builder')
     expect(launch.runtimeLabel).toBe(' [sbx]')
-    // rename-window keeps the label tracking renames; the entrypoint is present.
     expect(launch.shellCmd).toContain('rename-window')
     expect(launch.shellCmd).toContain('claude')
     expect(writeText).toHaveBeenCalledOnce()
   })
 
   it('rejects an unknown runtime', async () => {
-    const { prepareLocalTmuxLaunch } = await import('./launch')
     await expect(
       prepareLocalTmuxLaunch({
         state: state(),
         repoRoot: '/repo',
-        agent: { id: 'a1', name: 'builder', location: { type: 'local' } } as never,
+        agent: sampleAgent,
         runtime: 'bogus',
       }),
     ).rejects.toThrow('Unknown runtime')

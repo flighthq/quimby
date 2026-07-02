@@ -51,6 +51,17 @@ export function renderTmuxConfig(): string {
       'set -g  history-limit 50000',
       'set -g  automatic-rename off',
       'set -g  allow-rename off',
+      '',
+      '# Copy to the system clipboard (OSC 52) so selections leave the tmux pane:',
+      '# drag-select or Ctrl+C while selecting copies and returns to the shell; a',
+      '# double/triple-click selects word/line. Right-click pastes. Hold Shift to',
+      "# bypass tmux entirely and use the terminal's own selection.",
+      'set -g  set-clipboard on',
+      'bind -T copy-mode    MouseDragEnd1Pane send-keys -X copy-selection-and-cancel',
+      'bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-selection-and-cancel',
+      'bind -T copy-mode    C-c send-keys -X copy-selection-and-cancel',
+      'bind -T copy-mode-vi C-c send-keys -X copy-selection-and-cancel',
+      'bind -n MouseDown3Pane paste-buffer',
     ].join('\n') + '\n'
   )
 }

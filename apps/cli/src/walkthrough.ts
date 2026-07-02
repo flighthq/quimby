@@ -1,5 +1,6 @@
 import { cancel, confirm, intro, isCancel, outro, select, text } from '@clack/prompts'
 import { runtimeTypes } from '@quimbyhq/runtimes'
+import { buildSSHLocation } from '@quimbyhq/transport'
 import type { AgentLocation, RuntimeType, SSHLocation } from '@quimbyhq/types'
 
 export interface AgentConfig {
@@ -16,20 +17,6 @@ export interface WalkthroughSeed {
   location?: AgentLocation
   syncRef?: string
   tmux?: boolean
-}
-
-// Parse a `user@host` or `user@host:/remote/path` spec (plus optional port) into
-// an SSHLocation. Shared shape with the flag-driven path in add/set.
-export function buildSSHLocation(host: string, port?: number): SSHLocation {
-  const colonSlash = host.indexOf(':/')
-  const sshHost = colonSlash >= 0 ? host.slice(0, colonSlash) : host
-  const base = colonSlash >= 0 ? host.slice(colonSlash + 1) : undefined
-  return {
-    type: 'ssh',
-    host: sshHost,
-    ...(port ? { port } : {}),
-    ...(base ? { base } : {}),
-  }
 }
 
 // Interactive, arrow-key walkthrough that collects an agent's full configuration.

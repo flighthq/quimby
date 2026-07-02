@@ -2,7 +2,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
+import type { SSHTransport } from '@quimbyhq/transport'
+import { getSSHTransport } from '@quimbyhq/transport'
 import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace, loadState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
@@ -25,6 +27,31 @@ vi.mock('@quimbyhq/git', async (importOriginal) => {
     }),
   }
 })
+
+vi.mock('@quimbyhq/transport', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  getSSHTransport: vi.fn(),
+}))
+
+const mockedGetSSH = vi.mocked(getSSHTransport)
+
+// A recording SSH transport: every remote command is captured in `calls`, and
+// `git rev-parse HEAD` yields a fixed seed so the persisted seedCommit is assertable.
+function fakeSSHTransport(): { transport: SSHTransport; calls: string[] } {
+  const calls: string[] = []
+  const transport = {
+    exec: vi.fn(async (cmd: string) => {
+      calls.push(cmd)
+      if (cmd.includes('rev-parse HEAD')) return 'remoteseed1234'
+      return ''
+    }),
+    syncProjectTo: vi.fn(async () => {}),
+    ensureDir: vi.fn(async () => {}),
+    writeFile: vi.fn(async () => {}),
+    checkCapabilities: vi.fn(async () => {}),
+  } as unknown as SSHTransport
+  return { transport, calls }
+}
 
 let dir: string
 
@@ -97,6 +124,23 @@ describe('addAgent', () => {
   it('throws QuimbyError for the reserved name "host"', async () => {
     await expect(addAgent(dir, 'host')).rejects.toThrow('reserved')
   })
+
+  it('records HEAD as seed and does not clone locally for an SSH agent (lazy init)', async () => {
+    const agent = await addAgent(dir, 'remote', {
+      location: { type: 'ssh', host: 'user@box', base: '~' },
+    })
+
+    // The remote is initialized lazily on first run, so no local repo dir exists yet.
+    expect(await exists(getAgentDir(dir, agent.id))).toBe(false)
+    expect(await exists(getAgentRepoDir(dir, agent.id))).toBe(false)
+    // The current host HEAD is recorded as the intended seed baseline.
+    expect(agent.seedCommit).toHaveLength(40)
+
+    const state = await loadState(dir)
+    expect(state.agents.remote).toBeDefined()
+    expect(state.agents.remote.seedCommit).toBe(agent.seedCommit)
+    expect(state.agents.remote.location).toEqual({ type: 'ssh', host: 'user@box', base: '~' })
+  })
 })
 
 describe('rebuildAgent', () => {
@@ -113,6 +157,29 @@ describe('rebuildAgent', () => {
 
   it('throws QuimbyError if agent does not exist', async () => {
     await expect(rebuildAgent(dir, 'nonexistent')).rejects.toThrow('not found')
+  })
+
+  it('issues the remote rebuild sequence and persists the seed for an SSH agent', async () => {
+    const { transport, calls } = fakeSSHTransport()
+    mockedGetSSH.mockReturnValue(transport)
+    // addAgent for SSH is lazy (no transport), so registering it first is safe.
+    await addAgent(dir, 'remote', { location: { type: 'ssh', host: 'user@box', base: '~' } })
+
+    await rebuildAgent(dir, 'remote')
+
+    expect(transport.syncProjectTo).toHaveBeenCalled()
+    expect(calls.some((c) => c.startsWith('rm -rf'))).toBe(true)
+    expect(transport.ensureDir).toHaveBeenCalled()
+    expect(calls.some((c) => c.startsWith('git clone'))).toBe(true)
+    expect(calls).toContain('git tag quimby/seed')
+    // git identity is configured in the remote clone
+    expect(calls.some((c) => c.includes('git config user.name'))).toBe(true)
+    // scaffolding files are written back
+    expect(transport.writeFile).toHaveBeenCalledWith(expect.stringContaining('assignment.md'), '')
+    expect(transport.writeFile).toHaveBeenCalledWith(expect.stringContaining('status.md'), 'idle')
+    // the remote HEAD becomes the persisted seed
+    const state = await loadState(dir)
+    expect(state.agents.remote.seedCommit).toBe('remoteseed1234')
   })
 })
 
@@ -133,6 +200,18 @@ describe('removeAgent', () => {
 
   it('throws QuimbyError if agent does not exist', async () => {
     await expect(removeAgent(dir, 'nonexistent')).rejects.toThrow('not found')
+  })
+
+  it('removes the remote agent dir and deletes the state entry for an SSH agent', async () => {
+    const { transport, calls } = fakeSSHTransport()
+    mockedGetSSH.mockReturnValue(transport)
+    await addAgent(dir, 'remote', { location: { type: 'ssh', host: 'user@box', base: '~' } })
+
+    await removeAgent(dir, 'remote')
+
+    expect(calls.some((c) => c.startsWith('rm -rf'))).toBe(true)
+    const state = await loadState(dir)
+    expect(state.agents.remote).toBeUndefined()
   })
 })
 

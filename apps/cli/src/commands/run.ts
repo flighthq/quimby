@@ -1,5 +1,6 @@
 import { configureRemoteAgentIdentity } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
+import { prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
 import {
   dashboardSessionName,
   dashboardViewPrefix,
@@ -24,7 +25,6 @@ import { defineCommand } from 'citty'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
-import { prepareLocalTmuxLaunch, prepareSshLaunch } from '../launch'
 import type { LayoutNode } from '../layout'
 import { collectLayoutAgents, isLayoutExpr, layoutWeights, parseLayout } from '../layout'
 

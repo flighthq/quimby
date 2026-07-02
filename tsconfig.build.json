@@ -5,6 +5,7 @@
     { "path": "./packages/errors" },
     { "path": "./packages/utils" },
     { "path": "./packages/paths" },
+    { "path": "./packages/reporter" },
     { "path": "./packages/template" },
     { "path": "./packages/git" },
     { "path": "./packages/transport" },
@@ -13,6 +14,7 @@
     { "path": "./packages/workspace" },
     { "path": "./packages/agent" },
     { "path": "./packages/handoff" },
+    { "path": "./packages/launch" },
     { "path": "./packages/server" }
   ]
 }

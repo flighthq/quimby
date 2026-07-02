@@ -1,15 +1,9 @@
-import { getAgentSyncStatus, syncAgent } from '@quimbyhq/agent'
-import { QuimbyError } from '@quimbyhq/errors'
-import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
+import { assignAgentTask } from '@quimbyhq/agent'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import { getSSHTransport } from '@quimbyhq/transport'
-import { isSSH } from '@quimbyhq/types'
-import { logger, readText, writeText } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-import { join } from 'pathe'
 
-const NUDGE_TEXT = "Here's your assignment: @assignment.md"
+import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -55,59 +49,25 @@ export async function runAssignCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
-  if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
-  }
+  const result = await assignAgentTask(
+    {
+      state,
+      repoRoot,
+      name: args.name,
+      message: args.message,
+      sync: args.sync,
+      nudge: args.nudge,
+    },
+    consolaReporter,
+  )
 
-  let taskContent = args.message ?? ''
-  if (taskContent.startsWith('@')) {
-    taskContent = await readText(taskContent.slice(1))
-  }
-  if (!taskContent) {
-    throw new QuimbyError('Provide a message with -m (use `quimby handoff` to deliver work)')
-  }
-
-  if (isSSH(agent.location)) {
-    const transport = getSSHTransport(agent.location)
-    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
-    await transport.writeFile(`${rAgentDir}/assignment.md`, taskContent)
-  } else {
-    const agentDir = getAgentDir(repoRoot, agent.id)
-    await writeText(join(agentDir, 'assignment.md'), taskContent)
-  }
-
-  logger.success(`Assignment set for "${args.name}"`)
-
-  let syncFailed = false
-  if (args.sync) {
-    const { behind, syncRef } = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
-    if (behind > 0) {
-      logger.start(`"${args.name}" is ${behind} commit(s) behind ${syncRef} — syncing`)
-      try {
-        const result = await syncAgent(repoRoot, args.name)
-        if (result.rebased) {
-          logger.success(
-            `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
-          )
-        } else {
-          logger.success(`Synced to ${result.newSeed.slice(0, 8)}`)
-        }
-      } catch (err) {
-        syncFailed = true
-        const message = err instanceof Error ? err.message : String(err)
-        logger.warn(`Sync failed — ${message}`)
-        logger.warn('Assignment written, but the agent is stale. Resolve and run `quimby sync`.')
-      }
-    }
-  }
-
-  if (args.nudge && !syncFailed) {
+  if (result.nudgeText !== null) {
     await nudgeAgentSession({
-      agent,
+      agent: state.agents[args.name],
       clear: args.clear,
       displayName: args.name,
-      text: NUDGE_TEXT,
+      text: result.nudgeText,
+      reporter: consolaReporter,
     })
   }
 }

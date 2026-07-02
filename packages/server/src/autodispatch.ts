@@ -1,10 +1,16 @@
 import { readdir, stat } from 'node:fs/promises'
 
-import { dispatchOutbox, pickupRemoteOutbox, readOutboxRecipients } from '@quimbyhq/handoff'
+import {
+  dispatchOutbox,
+  inboxNoticeText,
+  pickupRemoteOutbox,
+  readOutboxRecipients,
+} from '@quimbyhq/handoff'
 import { getAgentOutboxDraftDir } from '@quimbyhq/paths'
+import type { Reporter } from '@quimbyhq/reporter'
+import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { QuimbyState } from '@quimbyhq/types'
-import { logger } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
 export interface OutboxDispatchTracker {
@@ -16,6 +22,7 @@ export async function autoDispatchOutboxes(
   repoRoot: string,
   state: Readonly<QuimbyState>,
   tracker: OutboxDispatchTracker,
+  reporter: Reporter = silentReporter,
 ): Promise<void> {
   for (const sender of Object.keys(state.agents)) {
     const senderAgent = state.agents[sender]
@@ -47,23 +54,24 @@ export async function autoDispatchOutboxes(
 
     if (stable.length === 0) continue
 
-    logger.info(`[auto-dispatch] "${sender}" → ${stable.join(', ')}`)
+    reporter.info(`[auto-dispatch] "${sender}" → ${stable.join(', ')}`)
     const results = await dispatchOutbox({ state, repoRoot, sender, recipients: stable })
     for (const result of results) {
       if (result.status === 'delivered') {
-        logger.success(`  delivered "${sender}" → "${result.recipient}" (${result.parcelName})`)
+        reporter.success(`  delivered "${sender}" → "${result.recipient}" (${result.parcelName})`)
         const recip = state.agents[result.recipient]
-        if (recip) {
+        if (recip && result.parcelName) {
           await nudgeAgentSession({
             agent: recip,
             displayName: result.recipient,
-            text: `New handoff in your inbox: @inbox/${result.parcelName}/ — please review.`,
+            text: inboxNoticeText(result.parcelName),
+            reporter,
           })
         }
       } else if (result.status === 'unknown') {
-        logger.warn(`  "${result.recipient}" is not an agent — left in "${sender}" outbox to fix`)
+        reporter.warn(`  "${result.recipient}" is not an agent — left in "${sender}" outbox to fix`)
       } else {
-        logger.warn(`  failed "${sender}" → "${result.recipient}": ${result.error}`)
+        reporter.warn(`  failed "${sender}" → "${result.recipient}": ${result.error}`)
       }
     }
   }

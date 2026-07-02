@@ -1,11 +1,11 @@
-import { syncAgent } from '@quimbyhq/agent'
-import { QuimbyError } from '@quimbyhq/errors'
-import { dispatchOutbox, pickupRemoteOutbox } from '@quimbyhq/handoff'
+import { rebaseAgentOntoBase } from '@quimbyhq/agent'
+import { dispatchOutboxes, inboxNoticeText } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import type { QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
+
+import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -45,21 +45,40 @@ export async function runDispatchCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!args.all && !args.agent) {
-    throw new QuimbyError('Specify an agent, or --all to dispatch every outbox.')
-  }
-  if (!args.all && !state.agents[args.agent as string]) {
-    throw new QuimbyError(`Agent "${args.agent}" not found`)
-  }
+  const { senders, totalQueued } = await dispatchOutboxes(
+    {
+      state,
+      repoRoot,
+      agent: args.agent,
+      all: args.all,
+      beforeStage: args.rebase
+        ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
+        : undefined,
+    },
+    consolaReporter,
+  )
 
-  const senders = args.all ? Object.keys(state.agents) : [args.agent as string]
-
-  let totalQueued = 0
-  for (const sender of senders) {
-    totalQueued += await dispatchSenderOutbox(state, repoRoot, sender, {
-      rebase: args.rebase,
-      nudge: args.nudge,
-    })
+  for (const { sender, results } of senders) {
+    for (const result of results) {
+      if (result.status === 'delivered') {
+        logger.success(`Delivered "${sender}" → "${result.recipient}"`)
+        if (args.nudge && result.parcelName) {
+          const recip = state.agents[result.recipient]
+          if (recip) {
+            await nudgeAgentSession({
+              agent: recip,
+              displayName: result.recipient,
+              text: inboxNoticeText(result.parcelName),
+              reporter: consolaReporter,
+            })
+          }
+        }
+      } else if (result.status === 'unknown') {
+        logger.warn(`Skipping "${result.recipient}" — no such agent (left in outbox to fix)`)
+      } else {
+        logger.warn(`Failed to deliver to "${result.recipient}" (left in outbox): ${result.error}`)
+      }
+    }
   }
 
   if (totalQueued === 0) {
@@ -68,53 +87,5 @@ export async function runDispatchCommand({
         ? 'No queued parcels in any outbox.'
         : `Agent "${args.agent}" has no queued parcels.`,
     )
-  }
-}
-
-async function dispatchSenderOutbox(
-  state: Readonly<QuimbyState>,
-  repoRoot: string,
-  sender: string,
-  opts: { rebase: boolean; nudge: boolean },
-): Promise<number> {
-  const beforeStage = opts.rebase
-    ? (codeSourceName: string) => rebaseOntoHead(repoRoot, codeSourceName)
-    : undefined
-
-  // SSH agents author their outbox on the remote host; pick it up before reading.
-  await pickupRemoteOutbox(repoRoot, state.agents[sender], state.id)
-  const results = await dispatchOutbox({ state, repoRoot, sender, beforeStage })
-  if (results.length === 0) return 0
-
-  logger.start(`Dispatching "${sender}" → ${results.length} recipient(s)…`)
-  for (const result of results) {
-    if (result.status === 'delivered') {
-      logger.success(`Delivered "${sender}" → "${result.recipient}"`)
-      if (opts.nudge) {
-        const recip = state.agents[result.recipient]
-        if (recip) {
-          await nudgeAgentSession({
-            agent: recip,
-            displayName: result.recipient,
-            text: `New handoff in your inbox: @inbox/${result.parcelName}/ — please review.`,
-          })
-        }
-      }
-    } else if (result.status === 'unknown') {
-      logger.warn(`Skipping "${result.recipient}" — no such agent (left in outbox to fix)`)
-    } else {
-      logger.warn(`Failed to deliver to "${result.recipient}" (left in outbox): ${result.error}`)
-    }
-  }
-  return results.length
-}
-
-async function rebaseOntoHead(repoRoot: string, agentName: string): Promise<void> {
-  logger.start(`Syncing "${agentName}" onto its base`)
-  const result = await syncAgent(repoRoot, agentName)
-  if (result.rebased) {
-    logger.success(`Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`)
-  } else {
-    logger.info(`Already based on host HEAD (${result.newSeed.slice(0, 8)})`)
   }
 }

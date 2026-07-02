@@ -42,6 +42,8 @@ export class ConflictError extends QuimbyError {
   constructor(
     message: string,
     public conflicts: string[],
+    /** The staged parcel's name, so a caller can point the user at the kept staging dir. */
+    public parcelName?: string,
   ) {
     super(message, 'CONFLICT')
     this.name = 'ConflictError'

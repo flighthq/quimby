@@ -1,5 +1,5 @@
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
+import { removeSubscriptionFromState, resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -25,15 +25,10 @@ export default defineCommand({
 export async function runUnsubscribeCommand({ args }: { args: { agent: string; target: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const subs = state.subscriptions ?? {}
-  if (!subs[args.agent] || !subs[args.agent].includes(args.target)) {
+  if (!removeSubscriptionFromState(state, args.agent, args.target)) {
     logger.info(`"${args.agent}" is not subscribed to "${args.target}"`)
     return
   }
-
-  subs[args.agent] = subs[args.agent].filter((t) => t !== args.target)
-  if (subs[args.agent].length === 0) delete subs[args.agent]
-  state.subscriptions = subs
   await saveState(repoRoot, state)
 
   logger.success(`"${args.agent}" unsubscribed from "${args.target}"`)

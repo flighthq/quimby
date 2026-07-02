@@ -25,6 +25,8 @@
       "@quimbyhq/utils/*": ["./packages/utils/src/*"],
       "@quimbyhq/paths": ["./packages/paths/src/index.ts"],
       "@quimbyhq/paths/*": ["./packages/paths/src/*"],
+      "@quimbyhq/reporter": ["./packages/reporter/src/index.ts"],
+      "@quimbyhq/reporter/*": ["./packages/reporter/src/*"],
       "@quimbyhq/template": ["./packages/template/src/index.ts"],
       "@quimbyhq/template/*": ["./packages/template/src/*"],
       "@quimbyhq/git": ["./packages/git/src/index.ts"],
@@ -41,6 +43,8 @@
       "@quimbyhq/agent/*": ["./packages/agent/src/*"],
       "@quimbyhq/handoff": ["./packages/handoff/src/index.ts"],
       "@quimbyhq/handoff/*": ["./packages/handoff/src/*"],
+      "@quimbyhq/launch": ["./packages/launch/src/index.ts"],
+      "@quimbyhq/launch/*": ["./packages/launch/src/*"],
       "@quimbyhq/server": ["./packages/server/src/index.ts"],
       "@quimbyhq/server/*": ["./packages/server/src/*"]
     }
