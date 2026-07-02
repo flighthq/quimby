@@ -1,5 +1,3 @@
-import { spawn } from 'node:child_process'
-
 import { getAgentWorkSummary } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -11,6 +9,7 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { page } from '../pager'
 import { formatWorkSummary } from '../workSummary'
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
@@ -84,27 +83,6 @@ async function getCommitSubjects(
   } catch {
     return []
   }
-}
-
-// Page output through the user's pager when attached to a TTY, so a large diff
-// doesn't scroll off the terminal history. Falls back to printing when piped.
-async function page(text: string): Promise<void> {
-  if (!process.stdout.isTTY) {
-    console.log(text)
-    return
-  }
-  const pager = process.env.GIT_PAGER || process.env.PAGER || 'less -RFX'
-  await new Promise<void>((resolve) => {
-    const child = spawn(pager, { stdio: ['pipe', 'inherit', 'inherit'], shell: true })
-    child.on('error', () => {
-      console.log(text)
-      resolve()
-    })
-    child.on('close', () => resolve())
-    child.stdin.on('error', () => {}) // user quit the pager early — ignore EPIPE
-    child.stdin.write(text)
-    child.stdin.end()
-  })
 }
 
 export default defineCommand({

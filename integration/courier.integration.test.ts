@@ -70,15 +70,28 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     expect(assignment).toContain('implement the parser')
   })
 
-  it('diff previews the agent working tree; status reports agent-written status', async () => {
+  it('diff frames the patch with merge-state; status inspects overview + per-agent digest', async () => {
     await addAgentAndCommitIgnore('builder')
     await agentEdit(dir, 'builder', { 'feature.txt': 'new feature\n' }, 'add feature')
+
+    // diff shows the patch, now framed by a merge-state header computed from tree-vs-seed.
     const diff = await run(['diff', 'builder'])
     expect(diff.output).toContain('feature.txt')
+    expect(diff.output).toContain('not yet merged')
 
     await writeFile(`${await agentDir(dir, 'builder')}/status.md`, 'halfway through the parser')
-    const status = await run(['status', 'builder'])
-    expect(status.output).toContain('halfway through the parser')
+
+    // Overview lists the agent with its live merge-state signal.
+    const overview = await run(['status'])
+    expect(overview.exitCode, overview.output).toBe(0)
+    expect(overview.output).toContain('builder')
+    expect(overview.output).toContain('not yet merged')
+
+    // Deep-dive is a digest: the work summary + a status.md excerpt (never a raw dump).
+    const deep = await run(['status', 'builder'])
+    expect(deep.exitCode, deep.output).toBe(0)
+    expect(deep.output).toMatch(/1 file.*1 commit/)
+    expect(deep.output).toContain('halfway through the parser')
   })
 
   it('handoff carries an agent parcel (note + diff) into the recipient inbox', async () => {
