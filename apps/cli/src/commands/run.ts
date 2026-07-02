@@ -967,11 +967,12 @@ async function stylePanelDashboard(
 ): Promise<void> {
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
-  // The whole-dashboard bar carries only the hint + clock — no background and no branding, so
-  // it sits transparently below the panes ("quimby" lives on the per-pane strips). Its window
-  // is all panes with no tabs of its own, so status-left and the window list are blanked.
+  // The whole-dashboard bar carries only the hint + clock — no branding. Its background is a
+  // hair darker than the per-pane strips (colour234 vs the tabs' colour235) so it reads as a
+  // distinct-but-receding band rather than matching or floating. Its window is all panes with
+  // no tabs of its own, so status-left and the window list are blanked.
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'on'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-style', 'bg=default'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-style', 'bg=colour234,fg=colour245']) // prettier-ignore
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-left', ''])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right-length', '80'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right', PANEL_STATUS_RIGHT])
