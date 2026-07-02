@@ -23,6 +23,11 @@ describe('renderAgentClaudeMd', () => {
     expect(output).toContain('assignment.md')
   })
 
+  it('frames status.md as a handoff to a successor after a reset', () => {
+    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
+    expect(output).toContain('successor')
+  })
+
   it('includes status section', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
     expect(output).toContain('status.md')
