@@ -1,7 +1,15 @@
 import { join } from 'pathe'
 
+/**
+ * The name of Quimby's on-disk state directory at a project root. Quimby's own
+ * control-plane state lives here, so it must never cross the boundary: work
+ * capture excludes it structurally (not merely via `.gitignore`, which a fresh
+ * project may lack) so a diff/handoff/apply can never carry `.quimby` itself.
+ */
+export const QUIMBY_DIRNAME = '.quimby'
+
 export function getQuimbyDir(repoRoot: string): string {
-  return join(repoRoot, '.quimby')
+  return join(repoRoot, QUIMBY_DIRNAME)
 }
 
 export function getStatePath(repoRoot: string): string {

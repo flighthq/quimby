@@ -60,17 +60,35 @@ export async function diffStaged(cwd: string, baseRef: string): Promise<string> 
  * and diffs `base` against that tree. This is how work is captured for handoff/apply:
  * the source's history and index are left untouched, so frequent use never litters it.
  * `base` of `HEAD` yields exactly the uncommitted+untracked remainder.
+ *
+ * `exclude` names paths kept out of the capture regardless of `.gitignore` — each is
+ * matched at the repo root, so passing `.quimby` guarantees Quimby's own state never
+ * enters a diff even in a repo whose `.gitignore` lacks the entry.
  */
 export async function diffWorkingTree(
   cwd: string,
   base: string,
-  opts?: { binary?: boolean },
+  opts?: { binary?: boolean; exclude?: readonly string[] },
 ): Promise<string> {
   const indexFile = join(tmpdir(), `quimby-index-${crypto.randomUUID()}`)
   const env = { ...process.env, GIT_INDEX_FILE: indexFile }
   try {
     await execa('git', ['read-tree', base], { cwd, env })
     await execa('git', ['add', '-A'], { cwd, env })
+    // Drop excluded paths from the throwaway index so they never enter the diff. A
+    // pathspec on `add` can't do this — it makes git error on an ignored match — so we
+    // stage all, then unstage. Bare `add -A` already skips gitignored paths; the
+    // unstage also removes a path a fresh project hasn't ignored yet (the leak this
+    // guards). Skipped when the path is part of `base`, so a genuinely tracked path is
+    // left in place rather than shown as a spurious deletion.
+    for (const path of opts?.exclude ?? []) {
+      const inBase = await execa('git', ['ls-tree', base, '--', path], { cwd, env })
+      if (inBase.stdout.trim()) continue
+      await execa('git', ['rm', '-r', '--cached', '--quiet', '--ignore-unmatch', '--', path], {
+        cwd,
+        env,
+      })
+    }
     const { stdout: tree } = await execa('git', ['write-tree'], {
       cwd,
       env,

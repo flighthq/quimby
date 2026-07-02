@@ -4,7 +4,12 @@ import { rm } from 'node:fs/promises'
 
 import { HandoffError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import { getAgentRepoDir, getStagingHandoffDir, remoteAgentRepoDir } from '@quimbyhq/paths'
+import {
+  getAgentRepoDir,
+  getStagingHandoffDir,
+  QUIMBY_DIRNAME,
+  remoteAgentRepoDir,
+} from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentLocation, CommitMeta, HandoffMeta, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -37,7 +42,10 @@ export async function assembleHandoff(opts: {
 
   const seedCommit = await git.revParse(repoDir, 'quimby/seed')
   const subjects = (await git.log(repoDir, 'quimby/seed..HEAD', '%s')).split('\n').filter(Boolean)
-  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed', { binary: true })
+  const squashedDiff = await git.diffWorkingTree(repoDir, 'quimby/seed', {
+    binary: true,
+    exclude: CAPTURE_EXCLUDE,
+  })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
@@ -61,7 +69,10 @@ export async function assembleHandoff(opts: {
         await git.log(repoDir, 'quimby/seed..HEAD'),
         patchFiles.map((p) => p.split('/').pop() ?? ''),
       )
-      const remainder = await git.diffWorkingTree(repoDir, 'HEAD', { binary: true })
+      const remainder = await git.diffWorkingTree(repoDir, 'HEAD', {
+        binary: true,
+        exclude: CAPTURE_EXCLUDE,
+      })
       if (remainder.trim()) await writeText(join(dir, 'uncommitted.diff'), remainder)
     }
   }
@@ -96,7 +107,10 @@ export async function assembleHostHandoff(opts: {
     base = 'HEAD'
   }
 
-  const squashedDiff = await git.diffWorkingTree(repoRoot, base, { binary: true })
+  const squashedDiff = await git.diffWorkingTree(repoRoot, base, {
+    binary: true,
+    exclude: CAPTURE_EXCLUDE,
+  })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
@@ -214,7 +228,10 @@ export async function getWorkingParcelName(opts: {
       return parcelName(opts.from, contentDigest([diff, '']))
     }
     const repoDir = getAgentRepoDir(opts.repoRoot, opts.codeSourceId)
-    const diff = await git.diffWorkingTree(repoDir, 'quimby/seed', { binary: true })
+    const diff = await git.diffWorkingTree(repoDir, 'quimby/seed', {
+      binary: true,
+      exclude: CAPTURE_EXCLUDE,
+    })
     return parcelName(opts.from, contentDigest([diff, '']))
   } catch {
     return null
@@ -242,9 +259,17 @@ async function remoteWorkingTreeDiff(
   base: string,
 ): Promise<string> {
   const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
+  // Stage all, then unstage Quimby's own state dir so it never enters the diff — the
+  // remote twin of git.diffWorkingTree's `exclude`. A pathspec on `add` can't do this
+  // (git errors on an ignored match); the unstage is guarded on `base` so a path that
+  // is genuinely tracked isn't shown as a spurious deletion.
+  const g = `GIT_INDEX_FILE=${idx}`
+  const excludeQuimby =
+    `test -n "$(${g} git ls-tree ${base} -- ${QUIMBY_DIRNAME})" || ` +
+    `${g} git rm -r --cached --quiet --ignore-unmatch -- ${QUIMBY_DIRNAME}`
   const tree = (
     await transport.exec(
-      `GIT_INDEX_FILE=${idx} git read-tree ${base} && GIT_INDEX_FILE=${idx} git add -A && GIT_INDEX_FILE=${idx} git write-tree`,
+      `${g} git read-tree ${base} && ${g} git add -A && { ${excludeQuimby}; } && ${g} git write-tree`,
       { cwd: rRepoDir },
     )
   ).trim()
@@ -302,3 +327,8 @@ function buildMeta(opts: {
     commits: opts.commits,
   }
 }
+
+// Quimby's own state dir is never carried: excluded from every working-tree capture
+// structurally, so a fresh project whose `.gitignore` lacks the entry can't leak
+// `.quimby` into a handoff/apply.
+const CAPTURE_EXCLUDE: readonly string[] = [QUIMBY_DIRNAME]

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 
 import * as git from '@quimbyhq/git'
-import { getAgentRepoDir, remoteAgentRepoDir } from '@quimbyhq/paths'
+import { getAgentRepoDir, QUIMBY_DIRNAME, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
 import type { AgentLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -54,8 +54,8 @@ async function getDiff(
     return stdout
   }
   // Full working tree (committed + uncommitted + untracked) — the same view a
-  // handoff or apply would carry.
-  return git.diffWorkingTree(repoPath, 'quimby/seed')
+  // handoff or apply would carry, including their exclusion of Quimby's own state.
+  return git.diffWorkingTree(repoPath, 'quimby/seed', { exclude: [QUIMBY_DIRNAME] })
 }
 
 // Page output through the user's pager when attached to a TTY, so a large diff

@@ -159,6 +159,55 @@ describe('diffWorkingTree', () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await expect(diffWorkingTree(dir, 'nonexistent-sha')).rejects.toThrow()
   })
+
+  it('omits exclude paths from the capture even when not gitignored', async () => {
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await mkdir(join(dir, '.quimby', 'agents'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x\n')
+    await writeFile(join(dir, 'feature.txt'), 'new work\n')
+
+    const output = await diffWorkingTree(dir, 'quimby/seed', { exclude: ['.quimby'] })
+    expect(output).toContain('feature.txt')
+    expect(output).not.toContain('.quimby')
+    expect(output).not.toContain('state.yaml')
+  })
+
+  it('excludes a gitignored path without erroring on the ignored match', async () => {
+    await writeFile(join(dir, '.gitignore'), '.quimby\n')
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x\n')
+    await writeFile(join(dir, 'feature.txt'), 'new work\n')
+
+    const output = await diffWorkingTree(dir, 'quimby/seed', { exclude: ['.quimby'] })
+    expect(output).toContain('feature.txt')
+    expect(output).not.toContain('state.yaml')
+  })
+
+  it('leaves an excluded path that is part of the baseline (no spurious deletion)', async () => {
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'committed\n')
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await writeFile(join(dir, 'feature.txt'), 'new work\n')
+
+    const output = await diffWorkingTree(dir, 'quimby/seed', { exclude: ['.quimby'] })
+    expect(output).toContain('feature.txt')
+    expect(output).not.toContain('deleted file')
+    expect(output).not.toContain('state.yaml')
+  })
+
+  it('excludes the path only at the repo root, not a same-named nested dir', async () => {
+    await makeCommit(dir, 'base.txt', 'base\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await mkdir(join(dir, 'pkg', '.quimby'), { recursive: true })
+    await writeFile(join(dir, 'pkg', '.quimby', 'keep.txt'), 'legit\n')
+
+    const output = await diffWorkingTree(dir, 'quimby/seed', { exclude: ['.quimby'] })
+    expect(output).toContain('pkg/.quimby/keep.txt')
+  })
 })
 
 describe('formatPatch', () => {
