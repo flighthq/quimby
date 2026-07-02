@@ -51,7 +51,7 @@ export async function dispatchOutboxes(
   if (!opts.all && !opts.agent) {
     throw new QuimbyError('Specify an agent, or --all to dispatch every outbox.')
   }
-  if (!opts.all && !state.agents[opts.agent as string]) {
+  if (!opts.all && !Object.hasOwn(state.agents, opts.agent as string)) {
     throw new QuimbyError(`Agent "${opts.agent}" not found`)
   }
 
@@ -94,7 +94,7 @@ export async function dispatchOutbox(opts: {
 
   const results: DispatchOutboxResult[] = []
   for (const recipient of recipients) {
-    const recip = state.agents[recipient]
+    const recip = Object.hasOwn(state.agents, recipient) ? state.agents[recipient] : undefined
     if (!recip) {
       results.push({ recipient, status: 'unknown' })
       continue
@@ -102,7 +102,9 @@ export async function dispatchOutbox(opts: {
     try {
       const draft = await readOutboxDraft(repoRoot, senderId, recipient)
       const codeSourceName = draft.attach ?? sender
-      const codeSource = state.agents[codeSourceName]
+      const codeSource = Object.hasOwn(state.agents, codeSourceName)
+        ? state.agents[codeSourceName]
+        : undefined
       if (!codeSource) {
         results.push({
           recipient,

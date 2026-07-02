@@ -8,7 +8,7 @@ export async function setAgentDefaults(
   updates: { runtime?: string; entrypoint?: string },
 ): Promise<void> {
   const state = await loadState(repoRoot)
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
   state.agents[name].defaults = { ...state.agents[name].defaults, ...updates }
@@ -21,7 +21,7 @@ export async function setAgentLocation(
   location: AgentLocation,
 ): Promise<void> {
   const state = await loadState(repoRoot)
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
   state.agents[name].location = location
@@ -34,7 +34,7 @@ export async function setAgentSyncRef(
   syncRef: string,
 ): Promise<void> {
   const state = await loadState(repoRoot)
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
   state.agents[name].syncRef = syncRef
@@ -43,7 +43,7 @@ export async function setAgentSyncRef(
 
 export async function setAgentTmux(repoRoot: string, name: string, tmux: boolean): Promise<void> {
   const state = await loadState(repoRoot)
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
   if (tmux) {

@@ -1,7 +1,8 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import * as git from '@quimbyhq/git'
 import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
@@ -113,6 +114,16 @@ describe('addAgent', () => {
     await expect(addAgent(dir, 'charlie')).rejects.toThrow('already exists')
   })
 
+  // The existence check uses Object.hasOwn, so a name that collides with an Object.prototype
+  // key (constructor, toString, __proto__, …) is not mistaken for an already-registered agent.
+  it('allows an agent named after an Object.prototype key', async () => {
+    const agent = await addAgent(dir, 'constructor')
+    expect(agent.name).toBe('constructor')
+    expect((await loadState(dir)).agents['constructor'].id).toBe(agent.id)
+    // A genuine duplicate of that same name is still rejected.
+    await expect(addAgent(dir, 'constructor')).rejects.toThrow('already exists')
+  })
+
   it('throws QuimbyError for an agent name containing dots', async () => {
     await expect(addAgent(dir, 'my.agent')).rejects.toThrow('Invalid agent name')
   })
@@ -141,6 +152,44 @@ describe('addAgent', () => {
     expect(state.agents.remote.seedCommit).toBe(agent.seedCommit)
     expect(state.agents.remote.location).toEqual({ type: 'ssh', host: 'user@box', base: '~' })
   })
+
+  // Exercises the private resolveAgentIdentity fallback: with no host identity readable,
+  // the agent clone commits under a quimby-scoped name/email instead of a stray default.
+  it('configures a quimby-scoped git identity when the host has none', async () => {
+    const spy = vi.spyOn(git, 'getConfig').mockResolvedValue(undefined)
+    try {
+      const agent = await addAgent(dir, 'noident')
+      const repoDir = getAgentRepoDir(dir, agent.id)
+      const { stdout: name } = await execa('git', ['config', '--get', 'user.name'], {
+        cwd: repoDir,
+      })
+      const { stdout: email } = await execa('git', ['config', '--get', 'user.email'], {
+        cwd: repoDir,
+      })
+      expect(name.trim()).toBe('quimby-noident')
+      expect(email.trim()).toBe('quimby+noident@local')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  // Exercises the private getCurrentBranchOrRef: a detached host HEAD has no branch name,
+  // so the default syncRef falls through to the current commit SHA.
+  it('records the commit SHA as syncRef when the host is on a detached HEAD', async () => {
+    const sha = await git.getCurrentRef(dir)
+    await execa('git', ['checkout', sha], { cwd: dir })
+    const agent = await addAgent(dir, 'detached')
+    expect(agent.syncRef).toBe(sha)
+  })
+
+  // The getCurrentBranchOrRef catch arm: with the host branch unreadable, syncRef is "main".
+  it('falls back to "main" as syncRef when the host branch cannot be read', async () => {
+    // The workspace already exists (beforeEach), so addAgent short-circuits ensureWorkspace;
+    // removing .git makes the branch probe fail without breaking workspace resolution.
+    await rm(join(dir, '.git'), { recursive: true, force: true })
+    const agent = await addAgent(dir, 'orphan')
+    expect(agent.syncRef).toBe('main')
+  })
 })
 
 describe('rebuildAgent', () => {
@@ -153,6 +202,27 @@ describe('rebuildAgent', () => {
     expect(state.agents.alice.seedCommit).toHaveLength(40)
     expect(typeof state.agents.alice.seedCommit).toBe('string')
     void firstSeed
+  })
+
+  it('clears the mailbox and resets assignment/status on rebuild', async () => {
+    const agent = await addAgent(dir, 'alice')
+    const agentDir = getAgentDir(dir, agent.id)
+    // A delivered inbox parcel, a queued outbox draft, and a dirtied task/status.
+    await mkdir(join(agentDir, 'inbox', 'review-abc123'), { recursive: true })
+    await writeFile(join(agentDir, 'inbox', 'review-abc123', 'README.md'), 'please review')
+    await mkdir(join(agentDir, 'outbox', 'builder'), { recursive: true })
+    await writeFile(join(agentDir, 'outbox', 'builder', 'README.md'), 'a reply')
+    await writeFile(join(agentDir, 'assignment.md'), 'do the thing')
+    await writeFile(join(agentDir, 'status.md'), 'working hard')
+
+    await rebuildAgent(dir, 'alice')
+
+    // The mailbox is wiped (parcels gone) but re-scaffolded, and the task/status are reset.
+    expect(await exists(join(agentDir, 'inbox', 'review-abc123'))).toBe(false)
+    expect(await exists(join(agentDir, 'outbox', 'builder'))).toBe(false)
+    expect(await exists(join(agentDir, 'inbox', 'status'))).toBe(true)
+    expect(await readFile(join(agentDir, 'assignment.md'), 'utf-8')).toBe('')
+    expect(await readFile(join(agentDir, 'status.md'), 'utf-8')).toBe('idle')
   })
 
   it('throws QuimbyError if agent does not exist', async () => {

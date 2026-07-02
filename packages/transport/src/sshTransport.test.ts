@@ -1,6 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import type { SSHLocation } from '@quimbyhq/types'
+import { exists } from '@quimbyhq/utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getSSHTransport, sq, toRsyncExcludeList } from './sshTransport'
+import { getSSHTransport, sq, SSHTransport, toRsyncExcludeList } from './sshTransport'
+
+const execa = vi.hoisted(() => vi.fn())
+vi.mock('execa', () => ({ execa }))
+
+// A port pins the -p/-P flag and a ControlPath suffix; using one throughout lets each
+// test assert the exact flag vector the wire format depends on.
+const LOC: SSHLocation = { type: 'ssh', host: 'user@box', port: 2222 }
+const CONTROL_PATH = 'ControlPath=/tmp/qb_user@box_2222'
+
+/** The ssh/scp calls made to a given binary, in order. */
+function callsTo(bin: string): unknown[][] {
+  return execa.mock.calls.filter((c) => c[0] === bin)
+}
+
+beforeEach(() => {
+  execa.mockReset()
+  execa.mockResolvedValue({ stdout: '' })
+})
 
 describe('getSSHTransport', () => {
   it('returns an SSHTransport for a given SSH location', () => {
@@ -26,6 +46,170 @@ describe('sq', () => {
 
   it('handles strings with spaces', () => {
     expect(sq('hello world')).toBe("'hello world'")
+  })
+})
+
+describe('SSHTransport', () => {
+  it('readFile ssh-cats the path through the ControlMaster flags', async () => {
+    execa.mockResolvedValueOnce({ stdout: 'file body' })
+    const out = await new SSHTransport(LOC).readFile('/remote/f.txt')
+    expect(out).toBe('file body')
+    const [, args] = callsTo('ssh')[0] as [string, string[]]
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-o',
+        'ControlMaster=auto',
+        '-o',
+        CONTROL_PATH,
+        '-o',
+        'ControlPersist=60s',
+        '-o',
+        'ConnectTimeout=5',
+      ]),
+    )
+    // The remote command and host are the final two positionals.
+    expect(args[args.length - 1]).toBe('cat /remote/f.txt')
+    expect(args[args.length - 2]).toBe('user@box')
+  })
+
+  it('writeFile ensures the parent dir and pipes content via stdin', async () => {
+    await new SSHTransport(LOC).writeFile('/remote/dir/f.txt', 'hello')
+    const [, args, opts] = callsTo('ssh')[0] as [string, string[], { input?: string }]
+    expect(args[args.length - 1]).toBe('mkdir -p /remote/dir && cat > /remote/dir/f.txt')
+    expect(opts).toEqual(expect.objectContaining({ input: 'hello' }))
+  })
+
+  it('fileExists returns true when the remote test succeeds', async () => {
+    expect(await new SSHTransport(LOC).fileExists('/remote/f')).toBe(true)
+    const [, args] = callsTo('ssh')[0] as [string, string[]]
+    expect(args[args.length - 1]).toBe('test -e /remote/f')
+  })
+
+  it('fileExists returns false when the remote test fails', async () => {
+    execa.mockRejectedValueOnce(new Error('exit 1'))
+    expect(await new SSHTransport(LOC).fileExists('/remote/nope')).toBe(false)
+  })
+
+  it('ensureDir mkdir -p the remote path', async () => {
+    await new SSHTransport(LOC).ensureDir('/remote/deep/dir')
+    const [, args] = callsTo('ssh')[0] as [string, string[]]
+    expect(args[args.length - 1]).toBe('mkdir -p /remote/deep/dir')
+  })
+
+  it('exec prefixes cwd and passes the large maxBuffer without stripping newlines', async () => {
+    execa.mockResolvedValueOnce({ stdout: 'result\n' })
+    const out = await new SSHTransport(LOC).exec('ls -la', { cwd: '/work' })
+    expect(out).toBe('result\n')
+    const [, args, opts] = callsTo('ssh')[0] as [string, string[], object]
+    expect(args[args.length - 1]).toBe('cd /work && ls -la')
+    expect(opts).toEqual(
+      expect.objectContaining({ maxBuffer: 256 * 1024 * 1024, stripFinalNewline: false }),
+    )
+  })
+
+  it('exec runs the raw command when no cwd is given', async () => {
+    await new SSHTransport(LOC).exec('whoami')
+    const [, args] = callsTo('ssh')[0] as [string, string[]]
+    expect(args[args.length - 1]).toBe('whoami')
+  })
+
+  it('scpTo uses the -P (uppercase) port flag and host:path target', async () => {
+    await new SSHTransport(LOC).scpTo('/local/f', '/remote/f')
+    const [bin, args] = callsTo('scp')[0] as [string, string[]]
+    expect(bin).toBe('scp')
+    expect(args).toContain('-P')
+    expect(args).not.toContain('-p')
+    expect(args).toEqual(expect.arrayContaining(['-P', '2222', CONTROL_PATH]))
+    expect(args[args.length - 1]).toBe('user@box:/remote/f')
+    expect(args[args.length - 2]).toBe('/local/f')
+  })
+
+  it('exec uses the -p (lowercase) port flag — distinct from scp', async () => {
+    await new SSHTransport(LOC).exec('whoami')
+    const [, args] = callsTo('ssh')[0] as [string, string[]]
+    expect(args).toContain('-p')
+    expect(args).toContain('2222')
+    expect(args).not.toContain('-P')
+  })
+
+  it('rsyncFrom pulls remote→local with trailing-slash paths and -e ssh', async () => {
+    await new SSHTransport(LOC).rsyncFrom('/remote/src', '/local/dst')
+    const [bin, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(bin).toBe('rsync')
+    const eIdx = args.indexOf('-e')
+    expect(eIdx).toBeGreaterThanOrEqual(0)
+    // The -e value is a single shell string carrying the ControlPath and port.
+    expect(args[eIdx + 1]).toContain('ssh ')
+    expect(args[eIdx + 1]).toContain('/tmp/qb_user@box_2222')
+    expect(args[eIdx + 1]).toContain('-p 2222')
+    expect(args).toEqual(expect.arrayContaining(['user@box:/remote/src/', '/local/dst/']))
+  })
+
+  it('rsyncTo pushes local→remote with trailing-slash paths', async () => {
+    await new SSHTransport(LOC).rsyncTo('/local/src', '/remote/dst')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toEqual(expect.arrayContaining(['/local/src/', 'user@box:/remote/dst/']))
+  })
+
+  it('checkCapabilities probes each tool and throws when any are missing', async () => {
+    execa.mockImplementation(async (_bin: string, args: string[]) => {
+      if (args[args.length - 1] === 'command -v rsync') throw new Error('not found')
+      return { stdout: '' }
+    })
+    await expect(new SSHTransport(LOC).checkCapabilities(['git', 'rsync'])).rejects.toThrow(
+      /missing required tools: rsync/,
+    )
+    const probes = callsTo('ssh').map((c) => (c[1] as string[])[(c[1] as string[]).length - 1])
+    expect(probes).toContain('command -v git')
+    expect(probes).toContain('command -v rsync')
+  })
+
+  it('checkCapabilities resolves when every tool is present', async () => {
+    await expect(new SSHTransport(LOC).checkCapabilities(['git'])).resolves.toBeUndefined()
+  })
+
+  it('syncProjectTo wires the exclude plumbing and cleans up its temp file', async () => {
+    // git lists an ignored dir, so an --exclude-from temp file is threaded into rsync.
+    execa.mockImplementation(async (bin: string) => {
+      if (bin === 'git') return { stdout: 'node_modules/\0dist/\0' }
+      return { stdout: '' }
+    })
+    await new SSHTransport(LOC).syncProjectTo('/local/root', '/remote/root')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-av',
+        '--delete',
+        '--exclude=.quimby/',
+        '--exclude=node_modules/',
+        '--exclude=dist/',
+        '--exclude=.git/hooks/',
+        '--exclude=flight/',
+        '--from0',
+      ]),
+    )
+    const excludeArg = args.find((a) => a.startsWith('--exclude-from='))
+    expect(excludeArg).toBeDefined()
+    expect(args[args.length - 1]).toBe('user@box:/remote/root/')
+    // The temp exclude file is removed in the finally block.
+    const excludeFile = excludeArg!.slice('--exclude-from='.length)
+    expect(await exists(excludeFile)).toBe(false)
+    // The remote target dir is created before the rsync.
+    const mkdir = callsTo('ssh').map((c) => (c[1] as string[])[(c[1] as string[]).length - 1])
+    expect(mkdir).toContain('mkdir -p /remote/root')
+  })
+
+  it('syncProjectTo omits the exclude-from plumbing when git is unavailable', async () => {
+    execa.mockImplementation(async (bin: string) => {
+      if (bin === 'git') throw new Error('git not found')
+      return { stdout: '' }
+    })
+    await new SSHTransport(LOC).syncProjectTo('/local/root', '/remote/root')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args.some((a) => a.startsWith('--exclude-from='))).toBe(false)
+    expect(args).not.toContain('--from0')
+    // The explicit excludes still apply as the fallback.
+    expect(args).toContain('--exclude=node_modules/')
   })
 })
 

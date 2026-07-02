@@ -42,9 +42,15 @@ export async function applyHandoff(opts: {
   branch?: boolean | string
   message?: string
 }): Promise<ApplyResult> {
-  const { repoRoot, name, targetRepoPath, mode } = opts
+  const { repoRoot, name, mode } = opts
   const dir = getStagingHandoffDir(repoRoot, name)
   const { meta } = await readHandoff(repoRoot, name)
+
+  // Normalize to the repo's top level. `git apply` and `git add` are cwd-relative and ignore
+  // paths outside the cwd, so running the merge from a subdirectory (e.g. `quimby merge`
+  // invoked below the repo root, where targetRepoPath is process.cwd()) would silently apply
+  // nothing. Operating from the toplevel makes the diff land regardless of where it was invoked.
+  const targetRepoPath = (await git.findRoot(opts.targetRepoPath)) ?? opts.targetRepoPath
 
   if (!(await git.isClean(targetRepoPath))) {
     throw new QuimbyError('Target repo has uncommitted changes. Commit or stash first.')
@@ -94,7 +100,7 @@ export async function applyHandoff(opts: {
         const squashedPath = join(dir, 'squashed.diff')
         if (await exists(squashedPath)) {
           await git.apply(targetRepoPath, squashedPath)
-          await git.addAll(targetRepoPath)
+          await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
           // An explicit -m names the landed work; it rides on this commit so it survives a
           // fast-forward (where no merge commit is created to carry it).
           await git.commit(targetRepoPath, opts.message ?? meta.suggestedMessage, {
@@ -119,7 +125,7 @@ export async function applyHandoff(opts: {
           const squashedPath = join(dir, 'squashed.diff')
           if (await exists(squashedPath)) {
             await git.apply(targetRepoPath, squashedPath)
-            await git.addAll(targetRepoPath)
+            await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
             await git.commit(targetRepoPath, opts.message ?? meta.suggestedMessage, {
               skipHooks: true,
             })
@@ -172,7 +178,7 @@ export async function applyHandoff(opts: {
         )
       }
       if (opts.message) {
-        await git.addAll(targetRepoPath)
+        await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
         await git.commit(targetRepoPath, opts.message, { skipHooks: true })
       } else {
         leftUncommitted = true
@@ -181,6 +187,11 @@ export async function applyHandoff(opts: {
 
     // Step 4: Clean up the temp branch.
     await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
+
+    // A `-b` landing parks the work on its own branch and returns the user to where they
+    // started — the branch is a place to keep the work, not a checkout to strand them on.
+    // (Without `-b` the merge already happened on previousRef, so there is nothing to undo.)
+    if (landingBranch) await git.checkout(targetRepoPath, previousRef)
 
     return { mode, tempBranch, conflicts: [], leftUncommitted }
   } catch (err) {

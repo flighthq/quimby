@@ -33,7 +33,7 @@ export async function addAgent(
 
   const state = await ensureWorkspace(repoRoot)
 
-  if (state.agents[name]) {
+  if (Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" already exists`)
   }
 
@@ -83,7 +83,7 @@ export async function addAgent(
 export async function rebuildAgent(repoRoot: string, name: string): Promise<void> {
   const state = await loadState(repoRoot)
 
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
 
@@ -130,7 +130,7 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
 export async function removeAgent(repoRoot: string, name: string): Promise<void> {
   const state = await loadState(repoRoot)
 
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
 
@@ -158,11 +158,11 @@ export async function renameAgent(
 
   const state = await loadState(repoRoot)
 
-  if (!state.agents[oldName]) {
+  if (!Object.hasOwn(state.agents, oldName)) {
     throw new QuimbyError(`Agent "${oldName}" not found`)
   }
 
-  if (state.agents[newName]) {
+  if (Object.hasOwn(state.agents, newName)) {
     throw new QuimbyError(`Agent "${newName}" already exists`)
   }
 

@@ -27,7 +27,10 @@ export function remoteTmuxConfigPath(projectId: string, base?: string): string {
 
 // Quimby runs its tmux sessions on a dedicated server socket, so they never mix with
 // the user's own sessions and Quimby's config never leaks into the default server.
-export const quimbyTmuxSocket = 'quimby'
+// `QUIMBY_TMUX_SOCKET` overrides the socket name — used by the integration harness to run on
+// an isolated `quimby-e2e-<uuid>` server (never the shared default), and available generally
+// for anyone wanting further isolation. Read once at load; a CLI invocation is a single process.
+export const quimbyTmuxSocket = process.env.QUIMBY_TMUX_SOCKET ?? 'quimby'
 
 /**
  * Dashboard session name for multi-agent `quimby run`. Keyed by project id so

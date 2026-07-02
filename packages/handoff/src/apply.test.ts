@@ -2,10 +2,11 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ConflictError } from '@quimbyhq/errors'
+import { ConflictError, QuimbyError } from '@quimbyhq/errors'
+import * as git from '@quimbyhq/git'
 import { addAll, commit, getCurrentBranch, init, tag } from '@quimbyhq/git'
-import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
-import { exists } from '@quimbyhq/utils'
+import { getAgentDir, getAgentRepoDir, getStagingHandoffDir } from '@quimbyhq/paths'
+import { exists, readYaml, writeYaml } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -493,6 +494,232 @@ describe('applyHandoff', () => {
       expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
       expect(await readFile(join(targetDir, 'shipped.txt'), 'utf-8')).toBe('already shipped\n')
     } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('parks work on a fresh -b branch and restores the original checkout', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const branchBefore = await getCurrentBranch(targetDir)
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+        branch: 'feature/land',
+      })
+      // The work is committed on the landing branch…
+      const { stdout: onBranch } = await execa('git', ['ls-tree', '--name-only', 'feature/land'], {
+        cwd: targetDir,
+      })
+      expect(onBranch).toContain('feature.txt')
+      // …and the user's checkout is left exactly where it started (not stranded on the branch).
+      expect(await getCurrentBranch(targetDir)).toBe(branchBefore)
+      const { stdout: onTarget } = await execa('git', ['ls-tree', '--name-only', 'HEAD'], {
+        cwd: targetDir,
+      })
+      expect(onTarget).not.toContain('feature.txt')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('replaces a pre-existing landing branch rather than failing', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const originalBranch = await getCurrentBranch(targetDir)
+      // A stale landing branch carrying a marker that must be gone once it's replaced.
+      await execa('git', ['checkout', '-b', 'feature/land'], { cwd: targetDir })
+      await writeFile(join(targetDir, 'stale.txt'), 'stale\n')
+      await execa('git', ['add', '-A'], { cwd: targetDir })
+      await execa('git', ['commit', '-m', 'stale'], { cwd: targetDir })
+      await execa('git', ['checkout', originalBranch as string], { cwd: targetDir })
+
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+        branch: 'feature/land',
+      })
+
+      // The branch was recreated from the target's HEAD, so the stale commit is gone and
+      // the agent's work is present — the pre-existing branch was replaced, not appended to.
+      const { stdout: onBranch } = await execa('git', ['ls-tree', '--name-only', 'feature/land'], {
+        cwd: targetDir,
+      })
+      expect(onBranch).toContain('feature.txt')
+      expect(onBranch).not.toContain('stale.txt')
+      // The checkout is restored to where it started, even when the branch pre-existed.
+      expect(await getCurrentBranch(targetDir)).toBe(originalBranch)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('throws QuimbyError for a parcel assembled without a seed commit', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    // Strip the seed commit to mimic a parcel assembled before the merge-based apply existed.
+    const metaPath = join(getStagingHandoffDir(dir, meta.name), 'meta.yaml')
+    const raw = await readYaml<Record<string, unknown>>(metaPath)
+    delete raw.seedCommit
+    await writeYaml(metaPath, raw)
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'squashed',
+        }),
+      ).rejects.toThrow(/no seed commit recorded/)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('throws when the commits-mode remainder does not apply cleanly', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    // Committed work that touches only a new file, plus an uncommitted remainder that
+    // edits base.txt — captured as the remainder diff against the agent's committed HEAD.
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    await writeFile(join(agentRepoDir, 'base.txt'), 'edited by agent\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      // The target commits a diverging edit to base.txt, so the remainder's context no
+      // longer matches after the agent's commit merges — the plain `git apply` rejects it.
+      await writeFile(join(targetDir, 'base.txt'), 'edited by target\n')
+      await execa('git', ['add', '-A'], { cwd: targetDir })
+      await execa('git', ['commit', '-m', 'diverge base'], { cwd: targetDir })
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'commits',
+        }),
+      ).rejects.toThrow(/didn't apply cleanly/)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('restores the checkout and reports "Merge failed" when the merge fails without conflicts', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    // Force a merge failure that reports no conflicting paths — the mergeAbort → restore
+    // → "Merge failed" branch, distinct from the ConflictError path.
+    const mergeSpy = vi.spyOn(git, 'merge').mockRejectedValueOnce(new Error('boom'))
+    const conflictsSpy = vi.spyOn(git, 'getConflicts').mockResolvedValueOnce([])
+    try {
+      const branchBefore = await getCurrentBranch(targetDir)
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'squashed',
+        }),
+      ).rejects.toThrow(/Merge failed/)
+      expect(await getCurrentBranch(targetDir)).toBe(branchBefore)
+    } finally {
+      mergeSpy.mockRestore()
+      conflictsSpy.mockRestore()
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('restores a detached HEAD to its SHA when the merge fails', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    const mergeSpy = vi.spyOn(git, 'merge').mockRejectedValueOnce(new Error('boom'))
+    const conflictsSpy = vi.spyOn(git, 'getConflicts').mockResolvedValueOnce([])
+    try {
+      // Detach HEAD: previousRef falls back from getCurrentBranch (undefined) to the SHA.
+      const sha = await git.getCurrentRef(targetDir)
+      await execa('git', ['checkout', sha], { cwd: targetDir })
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'squashed',
+        }),
+      ).rejects.toThrow(/Merge failed/)
+      // getCurrentBranch stays undefined (still detached) and HEAD is back at the SHA.
+      expect(await getCurrentBranch(targetDir)).toBeUndefined()
+      expect(await git.getCurrentRef(targetDir)).toBe(sha)
+    } finally {
+      mergeSpy.mockRestore()
+      conflictsSpy.mockRestore()
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('wraps a non-QuimbyError failure and restores the checkout', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    // A plain (non-Quimby, non-Conflict) failure inside the try block hits the generic
+    // outer catch: the user's checkout is restored and the error is rewrapped.
+    const createSpy = vi.spyOn(git, 'createBranch').mockRejectedValueOnce(new Error('disk full'))
+    try {
+      const branchBefore = await getCurrentBranch(targetDir)
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'squashed',
+        }),
+      ).rejects.toThrow(/Failed to apply handoff/)
+      expect(await getCurrentBranch(targetDir)).toBe(branchBefore)
+    } finally {
+      createSpy.mockRestore()
       await rm(targetDir, { recursive: true, force: true })
       await rm(sourceDir, { recursive: true, force: true })
     }

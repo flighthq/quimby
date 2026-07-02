@@ -73,6 +73,11 @@ describe('LocalTransport', () => {
     expect(output.trim()).toBe(dir)
   })
 
+  it('exec throws when the command exits non-zero', async () => {
+    const transport = new LocalTransport()
+    await expect(transport.exec('exit 3')).rejects.toThrow()
+  })
+
   it('runInteractive runs a non-interactive command to completion', async () => {
     const transport = new LocalTransport()
     await expect(transport.runInteractive('echo', ['done'], dir)).resolves.toBeUndefined()

@@ -56,7 +56,7 @@ export function routeRequest(req: Readonly<RouteRequest>): RouteResult {
 
   if (method === 'GET' && path.startsWith('/api/agents/')) {
     const name = path.split('/')[3]
-    if (!state.agents[name]) {
+    if (!Object.hasOwn(state.agents, name)) {
       return { status: 404, body: { error: `Agent "${name}" not found` } }
     }
     return {

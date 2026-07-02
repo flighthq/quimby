@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { addAgent } from '@quimbyhq/agent'
 import { getAgentRepoDir } from '@quimbyhq/paths'
+import { exists } from '@quimbyhq/utils'
 import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -97,6 +98,13 @@ describe('runMergeCommand', () => {
     const after = (await loadState(host)).agents.alice.seedCommit
     expect(after).toBe(hostHead)
     expect(after).not.toBe(before)
+    // The agent's work actually landed (git apply/add run from the repo toplevel, not the
+    // subdir — a subdir-relative apply would silently drop the change).
+    expect(await exists(join(host, 'feature.txt'))).toBe(true)
+    // Workspace state is never committed into the merge, even though the agent's seed
+    // predates the .gitignore commit.
+    const tracked = await git(host, 'ls-files')
+    expect(tracked).not.toContain('.quimby')
   })
 
   it('leaves the seed alone when landing on a fresh branch (-b)', async () => {

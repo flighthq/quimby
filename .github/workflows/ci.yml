@@ -23,3 +23,10 @@ jobs:
 
       - name: CI
         run: npm run ci
+
+      # End-to-end harness. Each suite self-skips when its dependency is absent, so this is
+      # safe on a bare runner: Suite A (git + built CLI) always runs; Suite B needs tmux;
+      # Suite C needs passwordless loopback sshd. To exercise B and C fully, provision those
+      # tools on the runner (e.g. `apt-get install -y tmux openssh-server` + a loopback key).
+      - name: Integration tests
+        run: npm run test:integration

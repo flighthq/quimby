@@ -24,7 +24,7 @@ const PACKAGES = [
   'server',
 ]
 
-const alias = Object.fromEntries(
+export const alias = Object.fromEntries(
   PACKAGES.map((name) => [
     `@quimbyhq/${name}`,
     fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
@@ -34,8 +34,9 @@ const alias = Object.fromEntries(
 export default defineConfig({
   resolve: { alias },
   test: {
-    // Never collect tests from worker clones under .quimby/, build output, or the
-    // local flight/ reference checkout.
-    exclude: [...configDefaults.exclude, '**/.quimby/**', '**/flight/**'],
+    // Never collect tests from worker clones under .quimby/, build output, the local
+    // flight/ reference checkout, or the slow end-to-end integration lane (which has its
+    // own config and `npm run test:integration` entry point — kept out of default `npm test`).
+    exclude: [...configDefaults.exclude, '**/.quimby/**', '**/flight/**', '**/integration/**'],
   },
 })

@@ -51,7 +51,7 @@ export async function handoffWork(
   const recipient = opts.to ?? opts.from
   const fromHost = opts.to === undefined
 
-  const recip = state.agents[recipient]
+  const recip = Object.hasOwn(state.agents, recipient) ? state.agents[recipient] : undefined
   if (!recip) {
     throw new QuimbyError(`Agent "${recipient}" not found`)
   }
@@ -70,7 +70,7 @@ export async function handoffWork(
     parcelName = meta.name
     sender = HOST_SENDER
   } else {
-    if (!state.agents[opts.from]) {
+    if (!Object.hasOwn(state.agents, opts.from)) {
       throw new QuimbyError(`Agent "${opts.from}" not found`)
     }
     const meta = await stageParcel({

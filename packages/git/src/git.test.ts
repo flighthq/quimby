@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { GitError } from '@quimbyhq/errors'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -10,9 +11,12 @@ import {
   addRemote,
   branchExists,
   checkout,
+  clone,
   commit,
+  countCommits,
   createBranch,
   deleteBranch,
+  fetch,
   findRoot,
   getConfig,
   getCurrentBranch,
@@ -67,6 +71,18 @@ describe('addAll', () => {
     const { stdout } = await execa('git', ['status', '--porcelain'], { cwd: dir })
     expect(stdout).toContain('A  a.txt')
   })
+
+  it('keeps excluded paths out of the index regardless of .gitignore', async () => {
+    await writeFile(join(dir, 'a.txt'), 'hello')
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x')
+    await addAll(dir, { exclude: ['.quimby'] })
+    const { stdout } = await execa('git', ['status', '--porcelain'], { cwd: dir })
+    // a.txt is staged; .quimby stays unstaged (shown untracked), never added to the index.
+    expect(stdout).toContain('A  a.txt')
+    expect(stdout).not.toMatch(/A\s+\.quimby/)
+    expect(stdout).toContain('?? .quimby/')
+  })
 })
 
 describe('addRemote', () => {
@@ -100,6 +116,81 @@ describe('checkout', () => {
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir })
     expect(stdout.trim()).toBe('dev')
   })
+
+  // The `git()` wrapper turns any failed command into a GitError tagged with the
+  // subcommand; checkout of a missing ref is the simplest way to force that path.
+  it('throws a GitError prefixed with the failing subcommand', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    await expect(checkout(dir, 'no-such-ref')).rejects.toThrow(GitError)
+    await expect(checkout(dir, 'no-such-ref')).rejects.toThrow(/^git checkout failed:/)
+  })
+})
+
+describe('clone', () => {
+  async function makeSource(): Promise<string> {
+    const source = join(tmpdir(), `quimby-clone-src-${crypto.randomUUID()}`)
+    await mkdir(source, { recursive: true })
+    await init(source)
+    await configureGit(source)
+    await makeCommit(source, 'file.txt', 'v1', 'first')
+    await makeCommit(source, 'file.txt', 'v2', 'second')
+    return source
+  }
+
+  it('clones a source repo into a new directory', async () => {
+    const source = await makeSource()
+    const dest = join(tmpdir(), `quimby-clone-dest-${crypto.randomUUID()}`)
+    try {
+      await clone(source, dest)
+      expect(await readFile(join(dest, 'file.txt'), 'utf-8')).toBe('v2')
+    } finally {
+      await rm(source, { recursive: true, force: true })
+      await rm(dest, { recursive: true, force: true })
+    }
+  })
+
+  it('honors opts.depth for a shallow clone', async () => {
+    const source = await makeSource()
+    const dest = join(tmpdir(), `quimby-clone-shallow-${crypto.randomUUID()}`)
+    try {
+      // git ignores --depth for bare local-path clones; a file:// URL uses a real
+      // transport so the depth flag actually shallows the history.
+      await clone(`file://${source}`, dest, { depth: 1 })
+      const { stdout } = await execa('git', ['rev-list', '--count', 'HEAD'], { cwd: dest })
+      expect(stdout.trim()).toBe('1')
+    } finally {
+      await rm(source, { recursive: true, force: true })
+      await rm(dest, { recursive: true, force: true })
+    }
+  })
+
+  it('checks out opts.ref via --branch', async () => {
+    const source = await makeSource()
+    await execa('git', ['branch', 'release'], { cwd: source })
+    const dest = join(tmpdir(), `quimby-clone-ref-${crypto.randomUUID()}`)
+    try {
+      await clone(source, dest, { ref: 'release' })
+      const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dest })
+      expect(stdout.trim()).toBe('release')
+    } finally {
+      await rm(source, { recursive: true, force: true })
+      await rm(dest, { recursive: true, force: true })
+    }
+  })
+
+  // clone bypasses the git() wrapper (raw execa), so a failure surfaces as the
+  // unwrapped execa error, not a GitError.
+  it('throws an unwrapped (non-GitError) error when the clone fails', async () => {
+    const dest = join(tmpdir(), `quimby-clone-fail-${crypto.randomUUID()}`)
+    let caught: unknown
+    try {
+      await clone(join(tmpdir(), `not-a-repo-${crypto.randomUUID()}`), dest)
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught).not.toBeInstanceOf(GitError)
+  })
 })
 
 describe('commit', () => {
@@ -109,6 +200,21 @@ describe('commit', () => {
     await commit(dir, 'my test commit')
     const { stdout } = await execa('git', ['log', '--format=%s', '-1'], { cwd: dir })
     expect(stdout.trim()).toBe('my test commit')
+  })
+})
+
+describe('countCommits', () => {
+  it('counts commits in a valid range', async () => {
+    await makeCommit(dir, 'base.txt', 'base', 'base commit')
+    await tag(dir, 'quimby/seed')
+    await makeCommit(dir, 'a.txt', 'a', 'first')
+    await makeCommit(dir, 'b.txt', 'b', 'second')
+    expect(await countCommits(dir, 'quimby/seed..HEAD')).toBe(2)
+  })
+
+  it('returns 0 when an endpoint is unknown rather than throwing', async () => {
+    await makeCommit(dir, 'base.txt', 'base', 'base commit')
+    expect(await countCommits(dir, 'no-such-ref..HEAD')).toBe(0)
   })
 })
 
@@ -138,6 +244,32 @@ describe('deleteBranch', () => {
     await checkout(dir, defaultBranch)
     await deleteBranch(dir, 'to-delete')
     expect(await branchExists(dir, 'to-delete')).toBe(false)
+  })
+})
+
+describe('fetch', () => {
+  it('brings new commits from a remote into remote-tracking refs', async () => {
+    const source = join(tmpdir(), `quimby-fetch-src-${crypto.randomUUID()}`)
+    await mkdir(source, { recursive: true })
+    await init(source)
+    await configureGit(source)
+    await makeCommit(source, 'file.txt', 'v1', 'first')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: source,
+    })
+    const defaultBranch = branch.trim()
+    const dest = join(tmpdir(), `quimby-fetch-dest-${crypto.randomUUID()}`)
+    await clone(source, dest)
+    await configureGit(dest)
+    await makeCommit(source, 'file.txt', 'v2', 'second')
+    const sourceHead = await revParse(source, 'HEAD')
+    try {
+      await fetch(dest, 'origin')
+      expect(await revParse(dest, `origin/${defaultBranch}`)).toBe(sourceHead)
+    } finally {
+      await rm(source, { recursive: true, force: true })
+      await rm(dest, { recursive: true, force: true })
+    }
   })
 })
 
@@ -312,6 +444,20 @@ describe('merge', () => {
     await merge(dir, 'feature', { squash: true, noCommit: true })
     expect(await isClean(dir)).toBe(false)
     expect(await readFile(join(dir, 'new.txt'), 'utf-8')).toBe('new content')
+  })
+
+  // apply.ts relies on this throw to detect conflicts and surface a ConflictError.
+  it('throws when the merge conflicts', async () => {
+    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'file.txt', 'feature change\n', 'feature edit')
+    await checkout(dir, defaultBranch)
+    await makeCommit(dir, 'file.txt', 'main change\n', 'main edit')
+    await expect(merge(dir, 'feature')).rejects.toThrow(GitError)
   })
 })
 

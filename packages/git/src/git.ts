@@ -14,8 +14,17 @@ async function git(args: string[], cwd: string, opts?: { raw?: boolean }): Promi
   }
 }
 
-export async function addAll(cwd: string): Promise<void> {
-  await git(['add', '-A'], cwd)
+export async function addAll(cwd: string, opts?: { exclude?: readonly string[] }): Promise<void> {
+  const args = ['add', '-A']
+  // `:(exclude)` pathspecs keep the named paths out of the index regardless of `.gitignore`
+  // — used to guarantee Quimby's own state never enters a temp-branch commit even when
+  // applying against a seed that predates the workspace `.gitignore`. Both pathspecs are
+  // `top`-anchored (`:/`) so exclusion is repo-root-relative and holds when the command
+  // runs from a subdirectory of the repo, not just its root.
+  if (opts?.exclude?.length) {
+    args.push('--', ':/', ...opts.exclude.map((p) => `:(top,exclude)${p}`))
+  }
+  await git(args, cwd)
 }
 
 export async function addRemote(cwd: string, name: string, url: string): Promise<void> {

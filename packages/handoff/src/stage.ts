@@ -32,11 +32,13 @@ export interface StageParcelOptions {
 export async function stageParcel(opts: Readonly<StageParcelOptions>): Promise<HandoffMeta> {
   const { state, repoRoot, from } = opts
 
-  if (!state.agents[from]) {
+  if (!Object.hasOwn(state.agents, from)) {
     throw new QuimbyError(`Agent "${from}" not found`)
   }
   const codeSourceName = opts.attach ?? from
-  const codeSource = state.agents[codeSourceName]
+  const codeSource = Object.hasOwn(state.agents, codeSourceName)
+    ? state.agents[codeSourceName]
+    : undefined
   if (!codeSource) {
     throw new QuimbyError(`Agent "${codeSourceName}" not found`)
   }

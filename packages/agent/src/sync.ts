@@ -86,7 +86,7 @@ export async function syncAgent(
 ): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
   const state = await loadState(repoRoot)
 
-  if (!state.agents[name]) {
+  if (!Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" not found`)
   }
 

@@ -3,6 +3,6 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["packages/*/src/**/*", "apps/*/src/**/*", "scripts/**/*.ts"],
+  "include": ["packages/*/src/**/*", "apps/*/src/**/*", "scripts/**/*.ts", "integration/**/*.ts"],
   "exclude": ["node_modules", "**/dist", "**/.quimby"]
 }
