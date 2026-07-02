@@ -3,7 +3,7 @@ import { getAgentSyncStatus, getAgentWorkSummary } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { readInboxParcelNames, readOutboxRecipients } from '@quimbyhq/handoff'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
-import { getServerInfo } from '@quimbyhq/server'
+import { deliverStatusSnapshot, formatStatusSnapshot, getServerInfo } from '@quimbyhq/server'
 import { getAgentSessionState } from '@quimbyhq/session'
 import { getTransport } from '@quimbyhq/transport'
 import type { AgentSessionState, AgentState, QuimbyState } from '@quimbyhq/types'
@@ -44,6 +44,11 @@ export default defineCommand({
       description: "Page the agent's full status.md instead of a digest",
       default: false,
     },
+    to: {
+      type: 'string',
+      description:
+        "Push <name>'s current status to this agent's inbox/status (manual twin of subscribe)",
+    },
   },
   run: runStatusCommand,
 })
@@ -51,9 +56,14 @@ export default defineCommand({
 export async function runStatusCommand({
   args,
 }: {
-  args: { name?: string; interactive?: boolean }
+  args: { name?: string; interactive?: boolean; to?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
+
+  if (args.to) {
+    await pushStatus(repoRoot, state, args.name, args.to)
+    return
+  }
 
   if (args.name) {
     await renderDeepDive(repoRoot, state, args.name, args.interactive ?? false)
@@ -66,6 +76,29 @@ export async function runStatusCommand({
     return
   }
   await renderOverview(repoRoot, state, names)
+}
+
+async function pushStatus(
+  repoRoot: string,
+  state: QuimbyState,
+  from: string | undefined,
+  to: string,
+): Promise<void> {
+  if (!from) {
+    throw new QuimbyError('Provide the source agent: quimby status <from> --to <agent>')
+  }
+  const fromAgent = state.agents[from]
+  if (!fromAgent) {
+    throw new QuimbyError(`Agent "${from}" not found`)
+  }
+  const toAgent = state.agents[to]
+  if (!toAgent) {
+    throw new QuimbyError(`Agent "${to}" not found`)
+  }
+  const content = await readAgentFile(repoRoot, state, fromAgent, 'status.md')
+  const payload = formatStatusSnapshot(from, content || '(no status)', new Date().toISOString())
+  await deliverStatusSnapshot({ repoRoot, stateId: state.id, fromName: from, toAgent, payload })
+  logger.success(`Pushed "${from}" status → "${to}" (inbox/status/${from}.md)`)
 }
 
 async function renderOverview(

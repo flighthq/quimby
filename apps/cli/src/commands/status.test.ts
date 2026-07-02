@@ -4,6 +4,12 @@ vi.mock('@quimbyhq/session', () => ({
   getAgentSessionState: vi.fn(async () => 'stopped'),
 }))
 
+const deliverStatusSnapshot = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@quimbyhq/server', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  deliverStatusSnapshot,
+}))
+
 let resolved: unknown
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
@@ -39,5 +45,33 @@ describe('runStatusCommand', () => {
     resolved = workspace({})
     const { default: cmd } = await import('./status')
     await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
+  })
+
+  it('pushes a source agent status to a recipient with --to', async () => {
+    resolved = workspace({
+      builder: { id: 'b1', name: 'builder', location: { type: 'local' } },
+      reviewer: { id: 'r1', name: 'reviewer', location: { type: 'local' } },
+    })
+    deliverStatusSnapshot.mockClear()
+    const { default: cmd } = await import('./status')
+    await cmd.run!({ args: { name: 'builder', to: 'reviewer' } } as never)
+    expect(deliverStatusSnapshot).toHaveBeenCalledTimes(1)
+    expect(deliverStatusSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ fromName: 'builder' }),
+    )
+  })
+
+  it('errors when --to is given without a source agent', async () => {
+    resolved = workspace({ reviewer: { id: 'r1', name: 'reviewer', location: { type: 'local' } } })
+    const { default: cmd } = await import('./status')
+    await expect(cmd.run!({ args: { to: 'reviewer' } } as never)).rejects.toThrow(/source agent/)
+  })
+
+  it('errors when the --to recipient is unknown', async () => {
+    resolved = workspace({ builder: { id: 'b1', name: 'builder', location: { type: 'local' } } })
+    const { default: cmd } = await import('./status')
+    await expect(cmd.run!({ args: { name: 'builder', to: 'ghost' } } as never)).rejects.toThrow(
+      'not found',
+    )
   })
 })

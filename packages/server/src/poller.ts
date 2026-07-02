@@ -1,14 +1,16 @@
 import { stat } from 'node:fs/promises'
 
-import { getAgentDir, getAgentInboxStatusDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
+import { getAgentDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getTransport } from '@quimbyhq/transport'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { ensureDir, exists, readText, writeText } from '@quimbyhq/utils'
+import { exists, readText } from '@quimbyhq/utils'
 import { loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
+
+import { deliverStatusSnapshot, formatStatusSnapshot } from './statusDelivery'
 
 export interface StatusSnapshot {
   content: string
@@ -56,23 +58,19 @@ export async function pollAgentStatus(
   reporter.info(`[${name}] Status changed`)
 
   const subs = state.subscriptions ?? {}
-  const statusPayload = `# Status: ${name}\n\nUpdated: ${new Date().toISOString()}\n\n${content}\n`
+  const statusPayload = formatStatusSnapshot(name, content, new Date().toISOString())
 
   for (const [subscriber, targets] of Object.entries(subs)) {
     if (!targets.includes(name)) continue
     const subAgent = state.agents[subscriber]
     if (!subAgent) continue
-
-    if (isSSH(subAgent.location)) {
-      const transport = getTransport(subAgent.location)
-      const rInboxStatusDir = `${remoteAgentDir(state.id, subAgent.id, subAgent.location.base)}/inbox/status`
-      await transport.ensureDir(rInboxStatusDir)
-      await transport.writeFile(`${rInboxStatusDir}/${name}.md`, statusPayload)
-    } else {
-      const inboxStatusDir = getAgentInboxStatusDir(repoRoot, subAgent.id)
-      await ensureDir(inboxStatusDir)
-      await writeText(join(inboxStatusDir, `${name}.md`), statusPayload)
-    }
+    await deliverStatusSnapshot({
+      repoRoot,
+      stateId: state.id,
+      fromName: name,
+      toAgent: subAgent,
+      payload: statusPayload,
+    })
     reporter.info(`  → routed to ${subscriber}`)
   }
 }

@@ -94,6 +94,19 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     expect(deep.output).toContain('halfway through the parser')
   })
 
+  it('status --to pushes a source agent status into the recipient inbox/status', async () => {
+    await addAgentAndCommitIgnore('builder')
+    await addAgentAndCommitIgnore('reviewer')
+    await writeFile(`${await agentDir(dir, 'builder')}/status.md`, 'builder is halfway')
+
+    const res = await run(['status', 'builder', '--to', 'reviewer'])
+    expect(res.exitCode, res.output).toBe(0)
+
+    const statusFile = `${await agentDir(dir, 'reviewer')}/inbox/status/builder.md`
+    expect(await exists(statusFile)).toBe(true)
+    expect(await readFile(statusFile, 'utf-8')).toContain('builder is halfway')
+  })
+
   it('handoff carries an agent parcel (note + diff) into the recipient inbox', async () => {
     await addAgentAndCommitIgnore('builder')
     await addAgentAndCommitIgnore('reviewer')
