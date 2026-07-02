@@ -87,6 +87,9 @@ async function renderOverview(
       countCell('outbox', snap.outbox.length),
       dim(formatWorkSummary(snap.summary)),
     ]
+    // The seed-vs-base axis, distinct from unmerged work — surfaced so a stale baseline
+    // ("run quimby sync") is visible in the overview, not just the deep-dive.
+    if (snap.behind > 0) cells.push(yellow(`${snap.behind} behind ${snap.syncRef}`))
     console.log(cells.join('  '))
   })
 
@@ -105,11 +108,10 @@ async function renderDeepDive(
     throw new QuimbyError(`Agent "${name}" not found`)
   }
 
-  const [snap, assignment, status, sync] = await Promise.all([
+  const [snap, assignment, status] = await Promise.all([
     gatherSnapshot(repoRoot, state, agent),
     readAgentFile(repoRoot, state, agent, 'assignment.md'),
     readAgentFile(repoRoot, state, agent, 'status.md'),
-    getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => null),
   ])
 
   // `-i` is the escape hatch to the full status.md; the default view is always a digest.
@@ -119,12 +121,11 @@ async function renderDeepDive(
   }
 
   const seed = agent.seedCommit ? agent.seedCommit.slice(0, 8) : '(unseeded)'
-  const syncRef = agent.syncRef ?? state.sourceRef
-  const behind = sync && sync.behind > 0 ? yellow(` · ${sync.behind} behind ${syncRef}`) : ''
+  const behind = snap.behind > 0 ? yellow(` · ${snap.behind} behind ${snap.syncRef}`) : ''
 
   console.log(`${bold(name)}  ${renderSession(snap.sessionState)}`)
   console.log(row('assignment', assignment ? firstLine(assignment) : dim('(none)')))
-  console.log(row('base', `seed ${seed} · tracks ${syncRef}${behind}`))
+  console.log(row('base', `seed ${seed} · tracks ${snap.syncRef}${behind}`))
   console.log(row('work', formatWorkSummary(snap.summary)))
   console.log(row('inbox', renderParcelList(snap.inbox, 'unprocessed')))
   console.log(row('outbox', renderParcelList(snap.outbox, 'queued')))
@@ -143,6 +144,9 @@ interface AgentSnapshot {
   summary: AgentWorkSummary | null
   inbox: string[]
   outbox: string[]
+  /** How far the agent's seed baseline trails the ref it tracks (the `quimby sync` axis). */
+  behind: number
+  syncRef: string
 }
 
 async function gatherSnapshot(
@@ -150,13 +154,21 @@ async function gatherSnapshot(
   state: QuimbyState,
   agent: Readonly<AgentState>,
 ): Promise<AgentSnapshot> {
-  const [sessionState, summary, inbox, outbox] = await Promise.all([
+  const [sessionState, summary, inbox, outbox, sync] = await Promise.all([
     getAgentSessionState(agent).catch((): AgentSessionState => 'stopped'),
     getAgentWorkSummary(repoRoot, state.id, agent),
     readInboxParcelNames(repoRoot, agent.id),
     readOutboxRecipients(repoRoot, agent.id),
+    getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => null),
   ])
-  return { sessionState, summary, inbox, outbox }
+  return {
+    sessionState,
+    summary,
+    inbox,
+    outbox,
+    behind: sync?.behind ?? 0,
+    syncRef: sync?.syncRef ?? agent.syncRef ?? state.sourceRef,
+  }
 }
 
 async function readAgentFile(

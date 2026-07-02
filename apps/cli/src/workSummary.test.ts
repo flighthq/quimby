@@ -21,9 +21,9 @@ describe('formatWorkSummary', () => {
     )
   })
 
-  it('reports synced when nothing sits on the seed', () => {
+  it('reports no unmerged work when the tree matches the seed (never "synced")', () => {
     expect(formatWorkSummary({ files: 0, insertions: 0, deletions: 0, commits: 0 })).toBe(
-      'synced — no unmerged work',
+      'no unmerged work',
     )
   })
 
