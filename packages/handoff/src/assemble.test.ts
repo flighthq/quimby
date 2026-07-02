@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -118,6 +118,21 @@ describe('assembleHandoff', () => {
     expect(await exists(join(parcel, 'squashed.diff'))).toBe(true)
     expect(await exists(join(parcel, 'meta.yaml'))).toBe(true)
     expect(meta.commits).toHaveLength(1)
+  })
+
+  it('never carries the agent repo .quimby dir, even without a .gitignore', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await mkdir(join(agentRepoDir, '.quimby', 'agents'), { recursive: true })
+    await writeFile(join(agentRepoDir, '.quimby', 'state.yaml'), 'id: leaked\n')
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'real work\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const squashed = await readFile(
+      join(getStagingHandoffDir(dir, meta.name), 'squashed.diff'),
+      'utf-8',
+    )
+    expect(squashed).toContain('feature.txt')
+    expect(squashed).not.toContain('.quimby')
+    expect(squashed).not.toContain('state.yaml')
   })
 
   it('stages a note-only parcel when there is no code', async () => {
