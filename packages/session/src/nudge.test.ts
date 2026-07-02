@@ -1,7 +1,7 @@
 import { collectingReporter } from '@quimbyhq/reporter'
 import { sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildRemoteNudgeCommand, hasAgentSession, nudgeAgentSession } from './nudge'
 
@@ -11,11 +11,22 @@ vi.mock('execa', () => ({ execa }))
 // The `/clear` settle delay is real time — collapse it so the clear-path test is fast.
 vi.mock('node:timers/promises', () => ({ setTimeout: vi.fn(async () => {}) }))
 
+let prevTmux: string | undefined
+
 beforeEach(() => {
   execa.mockReset()
   // No quimby tmux server in test: `has-session` (and every tmux call) fails by
   // default, so a nudge warns rather than pretending a live session exists.
   execa.mockRejectedValue(new Error('no tmux server'))
+  // Neutralize the dashboard self-pane guard by default (it only probes when running inside
+  // the quimby tmux server); the dedicated guard test opts back in.
+  prevTmux = process.env.TMUX
+  delete process.env.TMUX
+})
+
+afterEach(() => {
+  if (prevTmux === undefined) delete process.env.TMUX
+  else process.env.TMUX = prevTmux
 })
 
 const localNoTmux: AgentState = {
@@ -160,6 +171,42 @@ describe('nudgeAgentSession', () => {
     expect(events.some((e) => e.level === 'success' && e.message.includes('cleared context'))).toBe(
       true,
     )
+  })
+
+  it('skips the send (dashboard guard) when the target session is the pane we are in', async () => {
+    // We are inside the quimby tmux server, and both "current pane" and the target session's
+    // active pane resolve to the same id — sending would type into the user's own shell.
+    process.env.TMUX = '/tmp/tmux-1000/quimby,4242,0'
+    execa.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('display-message')) return { stdout: '%7\n' }
+      return {}
+    })
+    const { reporter, events } = collectingReporter()
+
+    await expect(
+      nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter }),
+    ).resolves.toBeUndefined()
+
+    // The guard fires before any send-keys, so nothing is typed.
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(false)
+    expect(events.some((e) => e.level === 'warn' && e.message.includes('dashboard'))).toBe(true)
+  })
+
+  it('sends normally when inside tmux but the target pane differs from ours', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,4242,0'
+    execa.mockImplementation(async (_cmd: string, args: string[]) => {
+      // Our pane is %1; the target session's active pane is %7 — distinct, so no self-nudge.
+      if (args.includes('display-message')) return { stdout: args.includes('-t') ? '%7\n' : '%1\n' }
+      return {}
+    })
+    const { reporter, events } = collectingReporter()
+
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(true)
+    expect(events.some((e) => e.level === 'success')).toBe(true)
   })
 
   it('does not throw and warns when has-session fails (agent not running)', async () => {

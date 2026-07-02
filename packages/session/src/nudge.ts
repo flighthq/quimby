@@ -106,6 +106,17 @@ export async function nudgeAgentSession(opts: {
       const transport = getSSHTransport(agent.location)
       await transport.exec(buildRemoteNudgeCommand(session, text, Boolean(clear)))
     } else {
+      // Guard the dashboard hazard: if this command is itself running inside the quimby tmux
+      // server and the target session's active pane is the very pane we're in, send-keys would
+      // type the nudge into the user's own shell (where it gets executed as a command). Skip it.
+      if (await isTargetOurOwnPane(session)) {
+        reporter.warn(
+          `Skipped nudging "${displayName}" — its session's active pane is the one you're in ` +
+            `(you're inside the quimby dashboard). The work is delivered; nudge from outside the ` +
+            `dashboard, or open "${displayName}"'s tab so it isn't the focused pane.`,
+        )
+        return
+      }
       await execa('tmux', [...TMUX, 'has-session', '-t', session])
       if (clear) {
         await sendKeysLocal(session, CLEAR_COMMAND)
@@ -192,4 +203,28 @@ function sendKeysInject(session: string, text: string): string {
 async function sendKeysLocal(session: string, text: string): Promise<void> {
   await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text])
   await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'])
+}
+
+/**
+ * Whether `session`'s active pane is the pane this process is running in. Only possible when we
+ * are invoked from *inside* the quimby tmux server (e.g. a host shell in the dashboard) — so it
+ * gates on `$TMUX` pointing at that same server before comparing pane ids (which are per-server,
+ * hence meaningless to compare across servers). Guards against a nudge typing into the user's
+ * own shell, where the text would run as a command. Any probe failure is treated as "not us".
+ */
+async function isTargetOurOwnPane(session: string): Promise<boolean> {
+  const tmuxEnv = process.env.TMUX
+  if (!tmuxEnv) return false
+  const socketPath = tmuxEnv.split(',')[0]
+  if (!socketPath.endsWith(`/${quimbyTmuxSocket}`)) return false
+  try {
+    const [here, target] = await Promise.all([
+      execa('tmux', ['display-message', '-p', '#{pane_id}']),
+      execa('tmux', [...TMUX, 'display-message', '-p', '-t', session, '#{pane_id}']),
+    ])
+    const herePane = here.stdout.trim()
+    return herePane !== '' && herePane === target.stdout.trim()
+  } catch {
+    return false
+  }
 }
