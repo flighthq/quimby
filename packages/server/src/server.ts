@@ -1,5 +1,5 @@
 import { unlink } from 'node:fs/promises'
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
 import { getQuimbyDir } from '@quimbyhq/paths'
@@ -41,15 +41,15 @@ export interface QuimbyServerHandle {
 }
 
 export async function startServer(opts: ServerOptions): Promise<QuimbyServerHandle> {
-  const { repoRoot, port = 7749, pollInterval = 5000, autoDispatch = true } = opts
+  const { repoRoot, pollInterval = 5000, autoDispatch = true } = opts
   const reporter = opts.reporter ?? silentReporter
 
   const statusCache = new Map<string, StatusSnapshot>()
   const outboxTracker = createOutboxDispatchTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
-  // The actual bound port; equals `port` unless it was 0 (OS-assigned ephemeral).
-  let boundPort = port
+  // The actual bound port, set once the server is listening (see bindServer below).
+  let boundPort = 0
 
   const server = createServer(async (req, res) => {
     try {
@@ -100,28 +100,26 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     }
   }, pollInterval)
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      reporter.error(`Port ${port} is already in use. Is another server running?`)
-      process.exit(1)
-    }
+  // Prefer 7749, but only pin it when the caller asked for a specific port. With no explicit
+  // port, a busy 7749 (a server already up in another workspace) falls back to a free one, so
+  // two workspaces can each run a server without a shared-default clash — server.json records
+  // the actual port and every command reads its own workspace's file to find it. A bind failure
+  // must not leave the poller running, so clear it before the error escapes.
+  try {
+    boundPort = await bindServer(server, opts.port ?? 7749, opts.port !== undefined, reporter)
+  } catch (err) {
+    clearInterval(poller)
     throw err
-  })
+  }
 
-  await new Promise<void>((resolve) => {
-    server.listen(port, '127.0.0.1', () => {
-      boundPort = (server.address() as AddressInfo | null)?.port ?? port
-      reporter.success(`Server listening on http://127.0.0.1:${boundPort}`)
-      reporter.info(`Polling every ${pollInterval / 1000}s`)
-      reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
-      if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
-      const subCount = countSubscriptions(state)
-      if (subCount > 0) {
-        reporter.info(`${subCount} active subscription(s)`)
-      }
-      resolve()
-    })
-  })
+  reporter.success(`Server listening on http://127.0.0.1:${boundPort}`)
+  reporter.info(`Polling every ${pollInterval / 1000}s`)
+  reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
+  if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
+  const subCount = countSubscriptions(state)
+  if (subCount > 0) {
+    reporter.info(`${subCount} active subscription(s)`)
+  }
 
   await writeServerInfo(repoRoot, boundPort)
 
@@ -174,6 +172,49 @@ async function removeServerInfo(repoRoot: string): Promise<void> {
   try {
     await unlink(join(getQuimbyDir(repoRoot), 'server.json'))
   } catch {}
+}
+
+/**
+ * Bind `server` to `preferredPort` on loopback and resolve with the port actually bound. When
+ * the caller pinned a port (`explicit`), a clash is a hard error. Otherwise a busy default is
+ * expected — another workspace's server holds it — so we retry on an OS-assigned free port
+ * rather than fail. A non-`EADDRINUSE` error always propagates.
+ */
+async function bindServer(
+  server: Server,
+  preferredPort: number,
+  explicit: boolean,
+  reporter: Reporter,
+): Promise<number> {
+  try {
+    return await tryListen(server, preferredPort)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err
+    if (explicit) {
+      throw new Error(
+        `Port ${preferredPort} is already in use. Choose another with -p, or stop what's using it.`,
+      )
+    }
+    reporter.warn(`Port ${preferredPort} is in use (another workspace?) — binding a free port.`)
+    return tryListen(server, 0)
+  }
+}
+
+/** Resolve with the bound port on success, reject with the listen error (a failed attempt leaves the server free to retry). */
+function tryListen(server: Server, port: number): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const onError = (err: Error) => {
+      server.removeListener('listening', onListening)
+      reject(err)
+    }
+    const onListening = () => {
+      server.removeListener('error', onError)
+      resolve((server.address() as AddressInfo).port)
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen(port, '127.0.0.1')
+  })
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

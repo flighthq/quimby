@@ -37,16 +37,21 @@ async function api(
   return { status: res.status, json: await res.json() }
 }
 
+async function makeWorkspace(): Promise<string> {
+  const d = join(tmpdir(), `quimby-server-${crypto.randomUUID()}`)
+  await mkdir(d, { recursive: true })
+  await execa('git', ['init'], { cwd: d })
+  await execa('git', ['config', 'user.email', 'test@test.com'], { cwd: d })
+  await execa('git', ['config', 'user.name', 'Test User'], { cwd: d })
+  await writeFile(join(d, 'README.md'), '# test')
+  await execa('git', ['add', '-A'], { cwd: d })
+  await execa('git', ['commit', '-m', 'initial'], { cwd: d })
+  await ensureWorkspace(d)
+  return d
+}
+
 beforeEach(async () => {
-  dir = join(tmpdir(), `quimby-server-${crypto.randomUUID()}`)
-  await mkdir(dir, { recursive: true })
-  await execa('git', ['init'], { cwd: dir })
-  await execa('git', ['config', 'user.email', 'test@test.com'], { cwd: dir })
-  await execa('git', ['config', 'user.name', 'Test User'], { cwd: dir })
-  await writeFile(join(dir, 'README.md'), '# test')
-  await execa('git', ['add', '-A'], { cwd: dir })
-  await execa('git', ['commit', '-m', 'initial'], { cwd: dir })
-  await ensureWorkspace(dir)
+  dir = await makeWorkspace()
   const state = await loadState(dir)
   state.agents.backend = { id: 'b1', name: 'backend', location: { type: 'local' } } as never
   state.agents.reviewer = { id: 'r1', name: 'reviewer', location: { type: 'local' } } as never
@@ -111,5 +116,40 @@ describe('startServer', () => {
     await h.stop()
     expect(await exists(join(dir, '.quimby', 'server.json'))).toBe(false)
     handle = null
+  })
+
+  it('two servers with no explicit port bind distinct, reachable ports', async () => {
+    // Mirrors `quimby serve` in two workspaces: neither pins a port, so the second must fall
+    // back off the shared 7749 default instead of clashing. Whether or not 7749 is free here,
+    // the guarantee is that the two land on different, individually reachable ports.
+    handle = await startServer({ repoRoot: dir, pollInterval: 1_000_000, autoDispatch: false })
+    const dir2 = await makeWorkspace()
+    const other = await startServer({
+      repoRoot: dir2,
+      pollInterval: 1_000_000,
+      autoDispatch: false,
+    })
+    try {
+      expect(handle.port).toBeGreaterThan(0)
+      expect(other.port).toBeGreaterThan(0)
+      expect(other.port).not.toBe(handle.port)
+      expect((await fetch(`http://127.0.0.1:${handle.port}/api/status`)).status).toBe(200)
+      expect((await fetch(`http://127.0.0.1:${other.port}/api/status`)).status).toBe(200)
+    } finally {
+      await other.stop()
+      await rm(dir2, { recursive: true, force: true })
+    }
+  })
+
+  it('errors when an explicitly requested port is already in use', async () => {
+    handle = await startOnEphemeral()
+    await expect(
+      startServer({
+        repoRoot: dir,
+        port: handle.port,
+        pollInterval: 1_000_000,
+        autoDispatch: false,
+      }),
+    ).rejects.toThrow(/already in use/)
   })
 })
