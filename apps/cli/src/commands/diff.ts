@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 
+import { getAgentWorkSummary } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getAgentRepoDir, QUIMBY_DIRNAME, remoteAgentRepoDir } from '@quimbyhq/paths'
@@ -10,7 +11,10 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { formatWorkSummary } from '../workSummary'
+
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
+const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
@@ -57,6 +61,29 @@ async function getDiff(
   // Full working tree (committed + uncommitted + untracked) — the same view a
   // handoff or apply would carry, including their exclusion of Quimby's own state.
   return git.diffWorkingTree(repoPath, 'quimby/seed', { exclude: [QUIMBY_DIRNAME] })
+}
+
+// The agent's commit subjects since its seed (`quimby/seed..HEAD`), newest first, for the
+// diff header. Empty when there are none (uncommitted-only work) or the repo can't be read.
+async function getCommitSubjects(
+  repoRoot: string,
+  stateId: string,
+  agent: { id: string; location?: AgentLocation },
+): Promise<string[]> {
+  try {
+    if (isSSH(agent.location)) {
+      const transport = getTransport(agent.location)
+      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
+      const out = await transport.exec(`git log quimby/seed..HEAD --format=%h %s`, {
+        cwd: rRepoDir,
+      })
+      return out.split('\n').filter(Boolean)
+    }
+    const repoPath = getAgentRepoDir(repoRoot, agent.id)
+    return (await git.log(repoPath, 'quimby/seed..HEAD', '%h %s')).split('\n').filter(Boolean)
+  } catch {
+    return []
+  }
 }
 
 // Page output through the user's pager when attached to a TTY, so a large diff
@@ -126,12 +153,28 @@ export async function runDiffCommand({
     return
   }
 
-  const diff = await getDiff(repoRoot, args.name, state, args.stat)
+  const agent = state.agents[args.name]
+  if (!agent) {
+    throw new QuimbyError(`Agent "${args.name}" not found`)
+  }
+
+  // A merge-state header + commit list frame the diff: what's unmerged at a glance
+  // (files / commits / ±lines) and which commits carry it, before the patch itself.
+  const [diff, summary, commits] = await Promise.all([
+    getDiff(repoRoot, args.name, state, args.stat),
+    getAgentWorkSummary(repoRoot, state.id, agent),
+    getCommitSubjects(repoRoot, state.id, agent),
+  ])
+
+  const header = [
+    `${bold(args.name)}  ${dim(formatWorkSummary(summary))}`,
+    ...commits.map((c) => `  ${dim(c)}`),
+  ].join('\n')
 
   if (!diff) {
-    console.log('No changes.')
+    console.log(`${header}\n${dim('(working tree matches seed)')}`)
     return
   }
 
-  await page(args.stat ? diff : colorizeDiff(diff))
+  await page(`${header}\n\n${args.stat ? diff : colorizeDiff(diff)}`)
 }

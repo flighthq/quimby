@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setAgentSyncRef } from './config'
 import { addAgent } from './lifecycle'
-import { getAgentPendingWork, getAgentSyncStatus, syncAgent } from './sync'
+import { getAgentPendingWork, getAgentSyncStatus, getAgentWorkSummary, syncAgent } from './sync'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -181,6 +181,67 @@ describe('getAgentSyncStatus', () => {
     const agent = { ...agentAt(head, state.sourceRef), syncRef: undefined } as unknown as AgentState
     const { syncRef } = await getAgentSyncStatus(dir, agent, state.sourceRef)
     expect(syncRef).toBe(state.sourceRef)
+  })
+})
+
+describe('getAgentWorkSummary', () => {
+  it('summarizes committed + uncommitted work against the seed for a local agent', async () => {
+    await registerLocalAgentClone('alice', 'a1')
+    const repoDir = getAgentRepoDir(dir, 'a1')
+    // One commit on top of seed, plus an uncommitted edit to a tracked file.
+    await writeFile(join(repoDir, 'feature.txt'), 'x\ny\n')
+    await execa('git', ['add', '-A'], { cwd: repoDir })
+    await execa('git', ['commit', '-m', 'feat'], { cwd: repoDir })
+    await writeFile(join(repoDir, 'README.md'), '# Test\nmore\n')
+
+    const state = await loadState(dir)
+    const summary = await getAgentWorkSummary(dir, state.id, state.agents.alice)
+    expect(summary).not.toBeNull()
+    expect(summary!.commits).toBe(1)
+    expect(summary!.files).toBe(2) // feature.txt + README.md
+    expect(summary!.insertions).toBeGreaterThanOrEqual(3)
+  })
+
+  it('reports zero work for a freshly cloned local agent at its seed', async () => {
+    await registerLocalAgentClone('bob', 'b1')
+    const state = await loadState(dir)
+    expect(await getAgentWorkSummary(dir, state.id, state.agents.bob)).toEqual({
+      files: 0,
+      insertions: 0,
+      deletions: 0,
+      commits: 0,
+    })
+  })
+
+  it('sums remote tracked + untracked work for an SSH agent', async () => {
+    const transport = {
+      exec: vi.fn(async (cmd: string) => {
+        if (cmd.includes('diff --numstat')) return '2\t1\tfile.ts\n-\t-\timg.png\n'
+        if (cmd.includes('ls-files --others')) return 'new1.txt\nnew2.txt\n'
+        if (cmd.includes('rev-list --count')) return '3\n'
+        return ''
+      }),
+    } as unknown as SSHTransport
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remote', 'r1', 'seedsha')
+
+    const state = await loadState(dir)
+    const summary = await getAgentWorkSummary(dir, state.id, state.agents.remote)
+    // 2 tracked (file.ts + binary img.png) + 2 untracked = 4 files; binary adds no line deltas.
+    expect(summary).toEqual({ files: 4, insertions: 2, deletions: 1, commits: 3 })
+  })
+
+  it('returns null when the agent repo cannot be read', async () => {
+    const state = await loadState(dir)
+    const ghost = {
+      id: 'no-such-id',
+      name: 'ghost',
+      seedCommit: 'x',
+      syncRef: state.sourceRef,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      location: { type: 'local' },
+    } as AgentState
+    expect(await getAgentWorkSummary(dir, state.id, ghost)).toBeNull()
   })
 })
 

@@ -1,6 +1,11 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import { getAgentRepoDir, remoteAgentRepoDir, remoteProjectRoot } from '@quimbyhq/paths'
+import {
+  getAgentRepoDir,
+  QUIMBY_DIRNAME,
+  remoteAgentRepoDir,
+  remoteProjectRoot,
+} from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
@@ -54,6 +59,58 @@ export async function getAgentSyncStatus(
   }
   const behind = await git.countCommits(repoRoot, `${agent.seedCommit}..${targetCommit}`)
   return { behind, syncRef, targetCommit }
+}
+
+/** The cheap merge-state signal: how much unmerged work sits on an agent's seed. */
+export interface AgentWorkSummary {
+  /** Changed files vs `quimby/seed` (committed + uncommitted + untracked). */
+  files: number
+  insertions: number
+  deletions: number
+  /** Commits on the agent's branch since its seed (`quimby/seed..HEAD`). */
+  commits: number
+}
+
+/**
+ * Compute an agent's {@link AgentWorkSummary} — changed files, ±lines, and commit count of
+ * its working tree against `quimby/seed`. `files === 0 && commits === 0` means "synced"
+ * (nothing unmerged). Shares the working-tree capture with `diff`/handoff so the numbers
+ * match what an apply would carry. Returns null when the repo can't be read (agent never
+ * provisioned, or an unreachable SSH host).
+ */
+export async function getAgentWorkSummary(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<AgentWorkSummary | null> {
+  try {
+    if (isSSH(agent.location)) {
+      const transport = getSSHTransport(agent.location)
+      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
+      const [numstatOut, othersOut, countOut] = await Promise.all([
+        transport.exec(`git diff --numstat quimby/seed`, { cwd: rRepoDir }),
+        transport.exec(`git ls-files --others --exclude-standard`, { cwd: rRepoDir }),
+        transport.exec(`git rev-list --count quimby/seed..HEAD`, { cwd: rRepoDir }),
+      ])
+      const tracked = parseNumstat(numstatOut)
+      const untracked = othersOut.split('\n').filter(Boolean).length
+      return {
+        files: tracked.files + untracked,
+        insertions: tracked.insertions,
+        deletions: tracked.deletions,
+        commits: parseInt(countOut.trim(), 10) || 0,
+      }
+    }
+
+    const repoDir = getAgentRepoDir(repoRoot, agent.id)
+    const [stat, commits] = await Promise.all([
+      git.diffWorkingTreeNumstat(repoDir, 'quimby/seed', { exclude: [QUIMBY_DIRNAME] }),
+      git.countCommits(repoDir, 'quimby/seed..HEAD'),
+    ])
+    return { files: stat.files, insertions: stat.insertions, deletions: stat.deletions, commits }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -192,4 +249,20 @@ async function resolveSyncTarget(
         `Retarget it with "quimby set ${agent.name} --sync <ref>".`,
     )
   }
+}
+
+/** Sum a `git diff --numstat` block (remote SSH path) into file/insertion/deletion counts. */
+function parseNumstat(numstat: string): { files: number; insertions: number; deletions: number } {
+  let files = 0
+  let insertions = 0
+  let deletions = 0
+  for (const line of numstat.split('\n')) {
+    if (!line.trim()) continue
+    files++
+    const [ins, del] = line.split('\t')
+    // Binary files report "-\t-": counted as a changed file, no line deltas.
+    if (ins !== '-') insertions += parseInt(ins, 10) || 0
+    if (del !== '-') deletions += parseInt(del, 10) || 0
+  }
+  return { files, insertions, deletions }
 }

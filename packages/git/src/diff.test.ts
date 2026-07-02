@@ -12,6 +12,7 @@ import {
   diff,
   diffStaged,
   diffWorkingTree,
+  diffWorkingTreeNumstat,
   formatPatch,
   getConflicts,
 } from './diff'
@@ -207,6 +208,60 @@ describe('diffWorkingTree', () => {
 
     const output = await diffWorkingTree(dir, 'quimby/seed', { exclude: ['.quimby'] })
     expect(output).toContain('pkg/.quimby/keep.txt')
+  })
+})
+
+describe('diffWorkingTreeNumstat', () => {
+  it('counts committed, uncommitted, and untracked changes and sums line deltas', async () => {
+    await makeCommit(dir, 'base.txt', 'a\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await makeCommit(dir, 'committed.txt', 'x\ny\n', 'a commit since seed') // +2
+    await writeFile(join(dir, 'base.txt'), 'a\nb\n') // +1 (uncommitted)
+    await writeFile(join(dir, 'untracked.txt'), 'z\n') // +1 (untracked)
+
+    const stat = await diffWorkingTreeNumstat(dir, 'quimby/seed')
+    expect(stat).toEqual({ files: 3, insertions: 4, deletions: 0 })
+  })
+
+  it('returns zeros when the working tree matches the base', async () => {
+    await makeCommit(dir, 'base.txt', 'a\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    expect(await diffWorkingTreeNumstat(dir, 'quimby/seed')).toEqual({
+      files: 0,
+      insertions: 0,
+      deletions: 0,
+    })
+  })
+
+  it('counts a binary file as changed but with no line deltas', async () => {
+    await makeCommit(dir, 'base.txt', 'a\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await writeFile(join(dir, 'logo.bin'), Buffer.from([0x89, 0x00, 0xff, 0xfe]))
+
+    expect(await diffWorkingTreeNumstat(dir, 'quimby/seed')).toEqual({
+      files: 1,
+      insertions: 0,
+      deletions: 0,
+    })
+  })
+
+  it('drops an excluded path from the counts', async () => {
+    await makeCommit(dir, 'base.txt', 'a\n', 'initial')
+    await tag(dir, 'quimby/seed')
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x\n')
+    await writeFile(join(dir, 'real.txt'), 'r\n')
+
+    expect(await diffWorkingTreeNumstat(dir, 'quimby/seed', { exclude: ['.quimby'] })).toEqual({
+      files: 1,
+      insertions: 1,
+      deletions: 0,
+    })
+  })
+
+  it('throws GitError when the base ref does not exist', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    await expect(diffWorkingTreeNumstat(dir, 'nonexistent-sha')).rejects.toThrow()
   })
 })
 

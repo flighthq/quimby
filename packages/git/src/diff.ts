@@ -70,41 +70,35 @@ export async function diffWorkingTree(
   base: string,
   opts?: { binary?: boolean; exclude?: readonly string[] },
 ): Promise<string> {
-  const indexFile = join(tmpdir(), `quimby-index-${crypto.randomUUID()}`)
-  const env = { ...process.env, GIT_INDEX_FILE: indexFile }
-  try {
-    await execa('git', ['read-tree', base], { cwd, env })
-    await execa('git', ['add', '-A'], { cwd, env })
-    // Drop excluded paths from the throwaway index so they never enter the diff. A
-    // pathspec on `add` can't do this — it makes git error on an ignored match — so we
-    // stage all, then unstage. Bare `add -A` already skips gitignored paths; the
-    // unstage also removes a path a fresh project hasn't ignored yet (the leak this
-    // guards). Skipped when the path is part of `base`, so a genuinely tracked path is
-    // left in place rather than shown as a spurious deletion.
-    for (const path of opts?.exclude ?? []) {
-      const inBase = await execa('git', ['ls-tree', base, '--', path], { cwd, env })
-      if (inBase.stdout.trim()) continue
-      await execa('git', ['rm', '-r', '--cached', '--quiet', '--ignore-unmatch', '--', path], {
-        cwd,
-        env,
-      })
-    }
-    const { stdout: tree } = await execa('git', ['write-tree'], {
-      cwd,
-      env,
-      stripFinalNewline: true,
-    })
+  return withCapturedTree(cwd, base, opts?.exclude, async (tree) => {
     // `--binary` for capture (so a carried/applied diff can recreate binary files);
     // omitted for display, where it would spew base85 instead of "Binary files differ".
     const args = ['diff', ...(opts?.binary ? ['--binary'] : []), base, tree]
     const { stdout } = await execa('git', args, { cwd, stripFinalNewline: false })
     return stdout
-  } catch (err: unknown) {
-    const e = err as { stderr?: string; message?: string }
-    throw new GitError(`git working-tree capture failed: ${e.stderr ?? e.message}`, e.stderr)
-  } finally {
-    await rm(indexFile, { force: true })
-  }
+  })
+}
+
+/**
+ * Line-delta summary of the same working-tree capture {@link diffWorkingTree} produces —
+ * committed + uncommitted + untracked (non-ignored) against `base`, without touching the
+ * repo's real index. Returns changed-file count and total insertions/deletions; binary
+ * files count toward `files` but contribute no line deltas (git reports them as `-`). This
+ * is the cheap "N files, +X/−Y vs seed" merge-state signal, sharing one capture with the
+ * full diff so the numbers always match what a handoff/apply would carry.
+ */
+export async function diffWorkingTreeNumstat(
+  cwd: string,
+  base: string,
+  opts?: { exclude?: readonly string[] },
+): Promise<WorkingTreeStat> {
+  return withCapturedTree(cwd, base, opts?.exclude, async (tree) => {
+    const { stdout } = await execa('git', ['diff', '--numstat', base, tree], {
+      cwd,
+      stripFinalNewline: true,
+    })
+    return parseNumstat(stdout)
+  })
 }
 
 export async function formatPatch(
@@ -124,4 +118,69 @@ export async function getConflicts(cwd: string): Promise<string[]> {
     .split('\n')
     .filter((l) => /^(UU|AA|DD|AU|UA|DU|UD) /.test(l))
     .map((l) => l.slice(3).trim())
+}
+
+/** Changed-file count and total line deltas of a working-tree capture against a base. */
+export interface WorkingTreeStat {
+  files: number
+  insertions: number
+  deletions: number
+}
+
+/**
+ * Stage the full working tree (committed + uncommitted + untracked) into a throwaway index,
+ * write a tree from it, and hand that tree to `use` — the shared capture behind both
+ * {@link diffWorkingTree} and {@link diffWorkingTreeNumstat}. The repo's real index and
+ * history are never touched. `exclude` drops repo-root paths from the capture regardless of
+ * `.gitignore` (so `.quimby` never leaks), skipping any path already tracked in `base` to
+ * avoid showing a spurious deletion.
+ */
+async function withCapturedTree<T>(
+  cwd: string,
+  base: string,
+  exclude: readonly string[] | undefined,
+  use: (tree: string) => Promise<T>,
+): Promise<T> {
+  const indexFile = join(tmpdir(), `quimby-index-${crypto.randomUUID()}`)
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile }
+  try {
+    await execa('git', ['read-tree', base], { cwd, env })
+    await execa('git', ['add', '-A'], { cwd, env })
+    // A pathspec on `add` can't exclude (it errors on an ignored match), so stage all then
+    // unstage. Skipped when the path is tracked in `base`, so a real tracked path stays put.
+    for (const path of exclude ?? []) {
+      const inBase = await execa('git', ['ls-tree', base, '--', path], { cwd, env })
+      if (inBase.stdout.trim()) continue
+      await execa('git', ['rm', '-r', '--cached', '--quiet', '--ignore-unmatch', '--', path], {
+        cwd,
+        env,
+      })
+    }
+    const { stdout: tree } = await execa('git', ['write-tree'], {
+      cwd,
+      env,
+      stripFinalNewline: true,
+    })
+    return await use(tree)
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message?: string }
+    throw new GitError(`git working-tree capture failed: ${e.stderr ?? e.message}`, e.stderr)
+  } finally {
+    await rm(indexFile, { force: true })
+  }
+}
+
+function parseNumstat(numstat: string): WorkingTreeStat {
+  let files = 0
+  let insertions = 0
+  let deletions = 0
+  for (const line of numstat.split('\n')) {
+    if (!line.trim()) continue
+    files++
+    const [ins, del] = line.split('\t')
+    // Binary files report "-\t-" — they count as a changed file but add no line deltas.
+    if (ins !== '-') insertions += parseInt(ins, 10) || 0
+    if (del !== '-') deletions += parseInt(del, 10) || 0
+  }
+  return { files, insertions, deletions }
 }
