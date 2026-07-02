@@ -264,6 +264,10 @@ const AGENT_WINDOW_FMT =
 const HOST_WINDOW_FMT =
   '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour248] #W }}'
 const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
+// Shortcut hint shown on each pane's tab strip in a panel dashboard (the wrapper itself has
+// no status bar), replacing tmux's default date/time.
+const PANEL_STATUS_RIGHT =
+  '#[fg=colour240]alt+←→ tabs · shift+alt+←→ panes · ^b d close  #[fg=colour245]%H:%M '
 
 interface WindowSpec {
   name: string
@@ -923,6 +927,10 @@ async function buildViewSession(
   await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
+  // Replace tmux's default date/time status-right with the panel shortcut hint (the wrapper
+  // has no status bar of its own, so this per-pane strip is where the hints must live).
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right-length', '80'])
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right', PANEL_STATUS_RIGHT])
 
   const { stdout: winList } = await execa('tmux', [...TMUX, 'list-windows', '-t', session, '-F', '#{window_index} #{window_name}']) // prettier-ignore
   for (const line of winList.split('\n').filter(Boolean)) {
@@ -954,10 +962,17 @@ async function stylePanelDashboard(
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'select-pane', '-L'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'select-pane', '-R'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Up', 'select-pane', '-U'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Down', 'select-pane', '-D'])
+  // Alt+Arrow switches TABS within the focused pane; Shift+Alt+Arrow moves between PANES.
+  // The wrapper intercepts every root key before the inner view sees it, so tab nav can't be
+  // a plain inner bind — instead the wrapper forwards the inner view's prefix + prev/next into
+  // the focused pane (send-keys C-b p/n). Pane nav is a normal wrapper bind. Mouse does both.
+  // This keeps Alt+Arrow = tabs, matching the flat dashboard.
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'send-keys', 'C-b', 'p'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'send-keys', 'C-b', 'n'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Left', 'select-pane', '-L'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Right', 'select-pane', '-R'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Up', 'select-pane', '-U'])
+  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Down', 'select-pane', '-D'])
   await execa('tmux', [...TMUX, 'bind', '-n', 'M-z', 'resize-pane', '-Z']).catch(() => {})
 
   // Highlight a pane's tab strip when its agent goes quiet/active (global, mirrors the flat
