@@ -20,7 +20,8 @@ quimby stop <agent>                                  Kill the agent's tmux sessi
 quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Update agent config
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
-quimby status [agent]                                Show agent-written status
+quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
+quimby log <agent>                                   Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged
 quimby assign <agent> -m "..." | @file [--no-sync] [--no-nudge] [-c]  Set an agent's current task; syncs the agent to its base first (--no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
@@ -69,6 +70,8 @@ All flags support `-x` short and `--xxx` long forms:
 - `-s` / `--sync` (add, set)
 - `--base` / `--current` (sync — retarget the sync ref; `--current` uses the host's current branch)
 - `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
+- `--to` (status — push `<from>`'s status snapshot to another agent's `inbox/status`)
+- `-i` / `--interactive` (status — page the agent's full status.md instead of the digest)
 - `--stat` (diff)
 - `--commits`, `--patch` (apply)
 - `--3way` (apply — accepted for compatibility; the merge-based flow is inherently 3-way)
