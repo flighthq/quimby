@@ -299,7 +299,12 @@ async function settleAgentSeed(opts: {
   const { state, repoRoot, agent, name, mergedName, targetRepoPath, landedOnBranch } = opts
   const catchUp = `\`quimby sync ${name} --current -f\``
 
-  if (landedOnBranch || targetRepoPath !== repoRoot) {
+  // Compare git toplevels, not raw paths: `repoRoot` is `--show-toplevel`, while
+  // `targetRepoPath` defaults to the cwd, which may be a subdirectory of the same repo.
+  // A raw `!==` would treat a merge run from a subdir as a foreign target and skip the
+  // advance. Only a genuinely different repo (or a non-repo path) is "off the branch".
+  const targetTop = await git.findRoot(targetRepoPath)
+  if (landedOnBranch || targetTop !== repoRoot) {
     logger.info(`Landed off "${name}"'s tracked branch — catch it up when ready with ${catchUp}.`)
     return
   }
@@ -311,6 +316,9 @@ async function settleAgentSeed(opts: {
     syncTip = await git.revParse(repoRoot, syncRef)
     headTip = await git.revParse(repoRoot, 'HEAD')
   } catch {
+    logger.info(
+      `Couldn't resolve "${name}"'s tracked branch (${syncRef}) — catch it up with ${catchUp}.`,
+    )
     return
   }
   if (syncTip !== headTip) {
