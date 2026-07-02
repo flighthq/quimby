@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 
+import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getAgentRepoDir, QUIMBY_DIRNAME, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
@@ -37,7 +38,7 @@ async function getDiff(
 ): Promise<string> {
   const agent = state.agents[name]
   if (!agent) {
-    throw new Error(`"${name}" is not an agent`)
+    throw new QuimbyError(`Agent "${name}" not found`)
   }
 
   if (isSSH(agent.location)) {
