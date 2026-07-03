@@ -4,9 +4,17 @@ import { join } from 'node:path'
 
 import { getQuimbyDir } from '@quimbyhq/paths'
 import { writeText } from '@quimbyhq/utils'
+import { exists } from '@quimbyhq/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getServerInfo, isServerRunning, serverDelete, serverGet, serverPost } from './client'
+import {
+  getServerInfo,
+  isServerRunning,
+  serverDelete,
+  serverGet,
+  serverPost,
+  stopServer,
+} from './client'
 
 let dir: string
 
@@ -120,5 +128,28 @@ describe('serverPost', () => {
     await writeServerJson(7749, process.pid)
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('Bad Request', { status: 400 }))
     expect(await serverPost(dir, '/api/subscriptions', {})).toBe(false)
+  })
+})
+
+describe('stopServer', () => {
+  it('returns null and clears a stale pidfile when no live server is found', async () => {
+    // A dead pid: getServerInfo reports "not running", but the pidfile must still be swept.
+    await writeServerJson(7749, 99999999)
+    expect(await stopServer(dir)).toBeNull()
+    expect(await exists(join(getQuimbyDir(dir), 'server.json'))).toBe(false)
+  })
+
+  it('returns null when there is nothing to stop', async () => {
+    expect(await stopServer(dir)).toBeNull()
+  })
+
+  it('signals the running pid, removes the pidfile, and returns its info', async () => {
+    // Mock kill so the SIGTERM (and getServerInfo's liveness probe) never touch the test runner.
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    await writeServerJson(7749, process.pid)
+    const stopped = await stopServer(dir)
+    expect(stopped).toMatchObject({ pid: process.pid, port: 7749 })
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM')
+    expect(await exists(join(getQuimbyDir(dir), 'server.json'))).toBe(false)
   })
 })

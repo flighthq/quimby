@@ -1,6 +1,6 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import type { QuimbyServerHandle } from '@quimbyhq/server'
-import { getServerInfo, startServer } from '@quimbyhq/server'
+import { getServerInfo, startServer, stopServer } from '@quimbyhq/server'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -42,6 +42,11 @@ export default defineCommand({
         'Auto-carry settled outbox drafts to their recipients (on by default; --no-dispatch to skip)',
       default: true,
     },
+    stop: {
+      type: 'boolean',
+      description: 'Stop the running quimby server for this workspace, then exit',
+      default: false,
+    },
   },
   run: runServeCommand,
 })
@@ -49,9 +54,26 @@ export default defineCommand({
 export async function runServeCommand({
   args,
 }: {
-  args: { port?: string; poll?: string; interactive?: boolean; tty?: boolean; dispatch?: boolean }
+  args: {
+    port?: string
+    poll?: string
+    interactive?: boolean
+    tty?: boolean
+    dispatch?: boolean
+    stop?: boolean
+  }
 }) {
   const { repoRoot } = await resolveWorkspace()
+
+  if (args.stop) {
+    const stopped = await stopServer(repoRoot)
+    if (stopped) {
+      logger.success(`Stopped quimby server (pid ${stopped.pid}, port ${stopped.port}).`)
+    } else {
+      logger.info('No quimby server is running for this workspace.')
+    }
+    return
+  }
 
   const existing = await getServerInfo(repoRoot)
   if (existing) {

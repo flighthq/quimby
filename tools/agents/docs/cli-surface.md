@@ -32,7 +32,7 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) t
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms, and for an SSH agent also skips remote cleanup)
-quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits
 quimby subscribe <agent> <target>                    Agent receives target's status
 quimby unsubscribe <agent> <target>                  Remove subscription
 ```
@@ -81,3 +81,4 @@ All flags support `-x` short and `--xxx` long forms:
 - `--poll` (serve)
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)
 - `--dispatch` / `--no-dispatch` (serve — auto-carry settled outbox drafts, on by default)
+- `--stop` (serve — stop the running server for this workspace: reads `server.json`, signals the pid, removes the pidfile; a clean message when none is running)
