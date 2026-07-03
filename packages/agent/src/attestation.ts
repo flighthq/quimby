@@ -84,7 +84,10 @@ export function parseAttestation(statusText: string): AgentAttestation | null {
   }
 
   const command = fields.command
-  const result = fields.result
+  // `result` is an enum, so take only its first whitespace-delimited token — a stray trailing
+  // comment (`pass  # pass | fail`) must not nuke the whole attestation. `command`/`summary` stay
+  // free-text (they can legitimately contain `#`, e.g. `summary: fixes #123`).
+  const result = fields.result?.split(/\s+/)[0]
   if (!command || (result !== 'pass' && result !== 'fail')) return null
   return {
     command,

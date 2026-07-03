@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
+import { renderAgentClaudeMd } from '@quimbyhq/template'
 import type { AgentState } from '@quimbyhq/types'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -118,6 +119,32 @@ describe('parseAttestation', () => {
       '```quimby-attest\ncommand: new\nresult: pass\n```'
     expect(parseAttestation(text)?.command).toBe('new')
     expect(parseAttestation(text)?.result).toBe('pass')
+  })
+
+  it('parses the exact quimby-attest example shown in the generated CLAUDE.md (copy-paste-correct)', () => {
+    // Guards the happy path: an agent mirroring the shown format must not read as "unverified".
+    const parsed = parseAttestation(renderAgentClaudeMd({ agentName: 'a', agentId: 'id' }))
+    expect(parsed?.result).toBe('pass')
+    expect(parsed?.command).toBe('npm run ci')
+  })
+
+  it('takes only the first token of result, so a trailing comment does not nuke the block', () => {
+    const text = '```quimby-attest\ncommand: npm run ci\nresult: pass        # pass | fail\n```'
+    expect(parseAttestation(text)?.result).toBe('pass')
+  })
+
+  it('keeps a free-text summary containing # intact (only result is tokenized)', () => {
+    const text = '```quimby-attest\ncommand: x\nresult: fail\nsummary: broke #123\n```'
+    expect(parseAttestation(text)?.summary).toBe('broke #123')
+  })
+
+  it('parses an indented block (leading whitespace on the fence and fields)', () => {
+    const text = '    ```quimby-attest\n    command: make test\n    result: pass\n    ```'
+    expect(parseAttestation(text)?.result).toBe('pass')
+  })
+
+  it('returns null (no throw) on an unterminated fence', () => {
+    expect(parseAttestation('```quimby-attest\ncommand: x\nresult: pass\n')).toBeNull()
   })
 })
 

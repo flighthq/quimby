@@ -100,7 +100,7 @@ export function renderResumeRequest(): string {
 const ATTEST_BLOCK_EXAMPLE = [
   '    ```quimby-attest',
   '    command: npm run ci',
-  '    result: pass        # pass | fail',
+  '    result: pass',
   '    summary: 78 files, 646 tests green',
   '    atCommit: <your current short commit hash>',
   '    ```',
