@@ -6,6 +6,9 @@
   },
   "references": [
     {
+      "path": "../errors"
+    },
+    {
       "path": "../paths"
     },
     {

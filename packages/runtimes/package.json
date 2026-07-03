@@ -19,8 +19,10 @@
     "clean": "tsc -b --clean"
   },
   "dependencies": {
+    "@quimbyhq/errors": "*",
     "@quimbyhq/paths": "*",
-    "@quimbyhq/types": "*"
+    "@quimbyhq/types": "*",
+    "execa": "^9.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+const execa = vi.hoisted(() => vi.fn())
+vi.mock('execa', () => ({ execa }))
 
 import { sbx } from './sbx'
 
@@ -66,11 +69,19 @@ describe('sbx', () => {
     expect(spec.args).toContain('--dangerously-skip-permissions')
   })
 
-  it('setup resolves without error', async () => {
+  it('setup resolves when the sbx CLI is present', async () => {
+    execa.mockResolvedValueOnce({ stdout: 'sbx 1.0.0' })
     await expect(sbx.setup(ctx)).resolves.toBeUndefined()
   })
 
-  it('teardown resolves without error', async () => {
+  it('setup throws a clear error when sbx is not on PATH', async () => {
+    execa.mockRejectedValueOnce(Object.assign(new Error('spawn sbx ENOENT'), { code: 'ENOENT' }))
+    await expect(sbx.setup(ctx)).rejects.toThrow(/isn't on your PATH/)
+  })
+
+  it('teardown runs a best-effort `sbx rm <sandbox>`, swallowing errors', async () => {
+    execa.mockRejectedValueOnce(new Error('no such sandbox'))
     await expect(sbx.teardown(ctx)).resolves.toBeUndefined()
+    expect(execa).toHaveBeenCalledWith('sbx', expect.arrayContaining(['rm']))
   })
 })

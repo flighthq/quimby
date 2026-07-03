@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
+import { bestEffortExec, requireRuntimeCli } from './probe'
+
 // sbx is path-sensitive: it keys a sandbox off its working directory and persists
 // that absolute path behind the --name, so the name must track the path rather than
 // pin one. We derive it from a hash of the agent's location (plus the stable IDs).
@@ -24,7 +26,11 @@ function sandboxName(ctx: RuntimeContext): string {
 export const sbx: RuntimeAdapter = {
   type: 'sbx',
 
-  async setup() {},
+  // Validate `sbx` is installed before a launch, so a missing CLI fails clearly here rather than
+  // the agent's tmux pane dying instantly with a bare "[exited]".
+  async setup() {
+    await requireRuntimeCli('sbx', 'sbx')
+  },
 
   runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
     return {
@@ -43,5 +49,9 @@ export const sbx: RuntimeAdapter = {
     }
   },
 
-  async teardown() {},
+  // Remove the agent's sandbox when the agent is torn down (remove/rebuild). Best-effort:
+  // a missing sandbox or CLI is fine. The exact `sbx` removal verb may need adjusting.
+  async teardown(ctx: RuntimeContext) {
+    await bestEffortExec('sbx', ['rm', sandboxName(ctx)])
+  },
 }

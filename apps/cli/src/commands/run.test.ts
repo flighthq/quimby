@@ -32,6 +32,7 @@ vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local'],
   buildContext: () => ({}),
   getRuntime: () => ({
+    setup: async () => {},
     runSpec: () => ({ command: 'claude', args: ['claude'], cwd: '/fake/root', env: {} }),
   }),
 }))

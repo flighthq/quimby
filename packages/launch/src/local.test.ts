@@ -6,9 +6,11 @@ const runSpec = vi.hoisted(() =>
 )
 const writeText = vi.hoisted(() => vi.fn(async () => {}))
 
+const setup = vi.hoisted(() => vi.fn(async () => {}))
+
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
-  getRuntime: () => ({ runSpec }),
+  getRuntime: () => ({ runSpec, setup }),
   buildContext: (repoRoot: string) => ({ repoRoot }),
 }))
 vi.mock('@quimbyhq/template', () => ({

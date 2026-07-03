@@ -99,6 +99,9 @@ export async function prepareLocalTmuxLaunch(
 
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, agent.name, state.id, agent.id)
+  // Validate the runtime (e.g. the sbx/openshell CLI is installed) before any tmux work, so a
+  // missing runtime fails with a clear error instead of a pane that dies the instant it launches.
+  await adapter.setup(ctx)
   const spec = await adapter.runSpec(ctx, entrypoint)
 
   const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [

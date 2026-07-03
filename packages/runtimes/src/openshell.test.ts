@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+const execa = vi.hoisted(() => vi.fn())
+vi.mock('execa', () => ({ execa }))
 
 import { openshell } from './openshell'
 
@@ -36,11 +39,21 @@ describe('openshell', () => {
     expect(spec.args).toContain('--dangerously-skip-permissions')
   })
 
-  it('setup resolves without error', async () => {
+  it('setup resolves when the openshell CLI is present', async () => {
+    execa.mockResolvedValueOnce({ stdout: 'openshell 1.0.0' })
     await expect(openshell.setup(ctx)).resolves.toBeUndefined()
   })
 
-  it('teardown resolves without error', async () => {
+  it('setup throws a clear error when openshell is not on PATH', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('spawn openshell ENOENT'), { code: 'ENOENT' }),
+    )
+    await expect(openshell.setup(ctx)).rejects.toThrow(/isn't on your PATH/)
+  })
+
+  it('teardown runs a best-effort sandbox removal, swallowing errors', async () => {
+    execa.mockRejectedValueOnce(new Error('no such sandbox'))
     await expect(openshell.teardown(ctx)).resolves.toBeUndefined()
+    expect(execa).toHaveBeenCalledWith('openshell', expect.arrayContaining(['sandbox', 'rm']))
   })
 })

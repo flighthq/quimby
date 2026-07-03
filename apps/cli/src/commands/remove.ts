@@ -1,8 +1,9 @@
 import { removeAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import { buildContext, getRuntime } from '@quimbyhq/runtimes'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState } from '@quimbyhq/types'
+import type { AgentState, QuimbyState, RuntimeType } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
@@ -56,6 +57,12 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
   // doesn't leave an orphaned process pointing at a directory that no longer exists.
   await killAgentSession(agent)
 
+  // Tear down the runtime sandbox (sbx/openshell) for a local agent; a `local` runtime no-ops.
+  // Skipped for SSH agents — that sandbox lives on the remote host, out of local reach.
+  if (!isSSH(agent.location)) {
+    await teardownRuntime(state, repoRoot, agent, args.agent)
+  }
+
   // Attempt full removal, including the remote `rm -rf` for an SSH agent. If the host is
   // unreachable the remote teardown fails — tolerate it: remove the local state anyway so an
   // agent on a dead host can still be cleaned up (no separate skip-remote flag needed).
@@ -72,6 +79,25 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
       `Couldn't reach the remote host — removed "${args.agent}" from local state anyway ` +
         `(its remote workspace was not cleaned up).`,
     )
+  }
+}
+
+/**
+ * Best-effort teardown of a local agent's runtime sandbox (the sbx/openshell adapter's
+ * `teardown`). A `local` runtime no-ops; an unknown saved runtime or a CLI failure is ignored —
+ * removing the agent should never be blocked by sandbox cleanup.
+ */
+async function teardownRuntime(
+  state: Readonly<QuimbyState>,
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+  name: string,
+): Promise<void> {
+  const runtime = (agent.defaults?.runtime as RuntimeType) ?? 'local'
+  try {
+    await getRuntime(runtime).teardown(buildContext(repoRoot, name, state.id, agent.id))
+  } catch {
+    // Unknown runtime or teardown failure — advisory only.
   }
 }
 
