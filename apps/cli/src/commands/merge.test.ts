@@ -59,7 +59,7 @@ function mergeArgs(overrides: Record<string, unknown>) {
       patch: false,
       '3way': false,
       rebase: false,
-      advance: true,
+      // `sync` omitted (undefined) means advance-on by default, mirroring citty with no --sync flag.
       ...overrides,
     },
   } as never
@@ -105,6 +105,32 @@ describe('runMergeCommand', () => {
     // predates the .gitignore commit.
     const tracked = await git(host, 'ls-files')
     expect(tracked).not.toContain('.quimby')
+  })
+
+  it('leaves the seed alone with --no-sync', async () => {
+    const { host } = await setupHostAndAgent()
+    const before = (await loadState(host)).agents.alice.seedCommit
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    // citty yields `false` for --no-sync.
+    await cmd.run!(mergeArgs({ message: 'land it', target: host, sync: false }))
+    expect((await loadState(host)).agents.alice.seedCommit).toBe(before)
+  })
+
+  it('retargets the agent sync ref with --sync <ref> while advancing', async () => {
+    const { host } = await setupHostAndAgent()
+    await git(host, 'branch', 'release') // a ref to retarget onto (must resolve)
+    expect((await loadState(host)).agents.alice.syncRef).toBe('main')
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ message: 'land it', target: host, sync: 'release' }))
+    expect((await loadState(host)).agents.alice.syncRef).toBe('release')
   })
 
   it('leaves the seed alone when landing on a fresh branch (-b)', async () => {

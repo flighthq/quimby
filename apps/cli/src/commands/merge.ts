@@ -71,11 +71,10 @@ export default defineCommand({
       description: 'Rebase the agent onto host HEAD before merging',
       default: false,
     },
-    advance: {
-      type: 'boolean',
+    sync: {
+      type: 'string',
       description:
-        "Advance the agent's seed onto the merge when it lands cleanly on the agent's branch (on by default; --no-advance to skip)",
-      default: true,
+        "Advance the agent's seed onto the merge when it lands cleanly on its branch (on by default; --sync <ref> also retargets the agent's sync ref to <ref>; --no-sync skips)",
     },
   },
   run: runMergeCommand,
@@ -93,7 +92,8 @@ export async function runMergeCommand({
     target?: string
     message?: string
     rebase: boolean
-    advance: boolean
+    // `--sync <ref>` → string, `--no-sync` → false, bare `--sync`/absent → '' / undefined.
+    sync?: string | boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -103,6 +103,10 @@ export async function runMergeCommand({
   }
 
   const mode: ApplyMode = args.commits ? 'commits' : args.patch ? 'patch' : 'squashed'
+  // Uniform `--sync`: --no-sync (false) skips the seed advance; a ref string advances *and*
+  // retargets the agent's sync ref to it; bare `--sync`/absent advances onto the landed branch.
+  const advanceOn = args.sync !== false
+  const retargetRef = typeof args.sync === 'string' && args.sync !== '' ? args.sync : undefined
   const targetRepoPath = resolve(args.target ?? process.cwd())
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
@@ -185,7 +189,7 @@ export async function runMergeCommand({
     // A clean base hit: the work is fully committed. Advance the agent's seed when that's
     // safe (else point at the manual catch-up), then celebrate.
     if (isAgent) {
-      if (args.advance) {
+      if (advanceOn) {
         await settleAgentSeed({
           state,
           repoRoot,
@@ -194,10 +198,11 @@ export async function runMergeCommand({
           mergedName: meta.name,
           targetRepoPath,
           landedOnBranch: branch !== undefined,
+          retargetRef,
         })
       } else {
         logger.info(
-          `Seed left unchanged (--no-advance) — catch "${args.agent}" up with ` +
+          `Seed left unchanged (--no-sync) — catch "${args.agent}" up with ` +
             `\`quimby sync ${args.agent} --current -f\` before its next revision.`,
         )
       }
@@ -304,8 +309,11 @@ async function settleAgentSeed(opts: {
   mergedName: string
   targetRepoPath: string
   landedOnBranch: boolean
+  /** `--sync <ref>`: retarget the agent's sync ref to this while advancing (else onto its base). */
+  retargetRef?: string
 }): Promise<void> {
-  const { state, repoRoot, agent, name, mergedName, targetRepoPath, landedOnBranch } = opts
+  const { state, repoRoot, agent, name, mergedName, targetRepoPath, landedOnBranch, retargetRef } =
+    opts
   const catchUp = `\`quimby sync ${name} --current -f\``
 
   // Compare git toplevels, not raw paths: `repoRoot` is `--show-toplevel`, while
@@ -351,6 +359,9 @@ async function settleAgentSeed(opts: {
     return
   }
 
-  const result = await syncAgent(repoRoot, name, { force: true })
-  logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}`)
+  // A ref retargets the agent's sync ref while advancing (syncAgent persists `base`); without
+  // one the seed advances onto the current base — the branch the merge just landed on.
+  const result = await syncAgent(repoRoot, name, { force: true, base: retargetRef })
+  const retargeted = retargetRef ? ` (now tracks ${retargetRef})` : ''
+  logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}${retargeted}`)
 }

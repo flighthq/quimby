@@ -27,7 +27,7 @@ quimby diff <agent> [agent2]                         Show an agent's live diff a
 quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
-quimby merge <agent> [--commits|--patch] [--3way] [-b] [-t] [-m "..."] [--no-advance]   Merge the agent's work into your repo (the boundary); squashed by default authors one commit (editor, or -m); --advance advances the seed on a clean landing
+quimby merge <agent> [--commits|--patch] [--3way] [-b] [-t] [-m "..."] [--sync <ref>|--no-sync]   Merge the agent's work into your repo (the boundary); squashed by default authors one commit (editor, or -m); advances the seed on a clean landing (--sync <ref> also retargets the sync ref; --no-sync skips)
 quimby apply <agent> …                               Deprecated alias for `quimby merge` (same flags)
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
@@ -77,7 +77,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--stat` (diff)
 - `--commits`, `--patch` (merge)
 - `--3way` (merge — accepted for compatibility; the merge-based flow is inherently 3-way)
-- `--advance` / `--no-advance` (merge — advance the agent's seed onto a clean, committed merge that landed on its branch, on by default). Renamed from the former `--sync`/`--no-sync` so `--sync` is a ref-string everywhere and never an overloaded boolean; `--no-sync` on `merge` no longer exists.
+- `--sync` / `--no-sync` (merge — advance the agent's seed onto a clean, committed merge that landed on its branch, on by default; `--sync <ref>` also retargets the agent's sync ref to `<ref>` as it advances; `--no-sync` skips). One optionally-valued `--sync` — bare/absent advances onto the landed branch, a ref retargets, `--no-sync` skips — so `--sync` means the same thing on add/set/assign/merge.
 - `--rebase` (handoff, dispatch, merge)
 - `--poll` (serve)
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)

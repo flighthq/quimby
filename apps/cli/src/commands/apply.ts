@@ -49,11 +49,10 @@ export default defineCommand({
       description: 'Rebase the agent onto host HEAD before merging',
       default: false,
     },
-    advance: {
-      type: 'boolean',
+    sync: {
+      type: 'string',
       description:
-        "Advance the agent's seed onto the merge when it lands cleanly on the agent's branch (on by default; --no-advance to skip)",
-      default: true,
+        "Advance the agent's seed onto the merge when it lands cleanly on its branch (on by default; --sync <ref> also retargets the agent's sync ref to <ref>; --no-sync skips)",
     },
   },
   run: runApplyCommand,
@@ -69,7 +68,7 @@ export async function runApplyCommand(ctx: {
     target?: string
     message?: string
     rebase: boolean
-    advance: boolean
+    sync?: string | boolean
   }
 }) {
   logger.warn('`quimby apply` is deprecated — use `quimby merge` instead.')
