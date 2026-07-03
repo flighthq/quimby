@@ -240,6 +240,25 @@ describe('assembleRemoteHandoff', () => {
     await rm(repoRoot, { recursive: true, force: true })
   })
 
+  it('embeds the resolved attestation into the remote (SSH) parcel meta', async () => {
+    const repoRoot = await setupRepoRoot()
+    const { transport } = recordingTransport()
+    vi.mocked(getSSHTransport).mockReturnValue(transport)
+
+    const meta = await assembleRemoteHandoff({
+      repoRoot,
+      from: 'remote',
+      codeSourceId: 'remote-id',
+      codeSourceLocation: sshLocation,
+      projectId: 'proj',
+      note: 'take a look',
+      resolveAttestation: async () => ({ command: 'npm run ci', result: 'pass' }),
+    })
+
+    expect(meta.attestation).toEqual({ command: 'npm run ci', result: 'pass' })
+    await rm(repoRoot, { recursive: true, force: true })
+  })
+
   it('issues the expected remote git reads (seed, subjects, working-tree diff)', async () => {
     const repoRoot = await setupRepoRoot()
     const { transport, calls } = recordingTransport()

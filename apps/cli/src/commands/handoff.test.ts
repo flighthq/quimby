@@ -2,6 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const handoffWork = vi.hoisted(() => vi.fn())
 const nudgeAgentSession = vi.hoisted(() => vi.fn(async (_opts: Record<string, unknown>) => {}))
+const getAgentAttestation = vi.hoisted(() => vi.fn(async () => null))
+
+// Keep the rest of @quimbyhq/agent real; only stub the attestation read so we can drive a
+// `result: fail` and assert delivery still proceeds (warn-never-gate).
+vi.mock('@quimbyhq/agent', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  getAgentAttestation,
+}))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -76,5 +84,14 @@ describe('run', () => {
     const { default: cmd } = await import('./handoff')
     await cmd.run!({ args: { from: 'review', rebase: false, clear: false } } as never)
     expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('delivers despite a failing attestation — informational, never a gate', async () => {
+    getAgentAttestation.mockResolvedValueOnce({ command: 'npm run ci', result: 'fail' } as never)
+    handoffWork.mockResolvedValueOnce({ to: 'review', nudgeText: null } as never)
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', rebase: false, clear: false } } as never)
+    // The carry still happened even though the source attested `result: fail`.
+    expect(handoffWork).toHaveBeenCalledTimes(1)
   })
 })

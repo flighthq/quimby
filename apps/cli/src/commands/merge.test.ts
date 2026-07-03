@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { addAgent } from '@quimbyhq/agent'
-import { getAgentRepoDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
 import { exists } from '@quimbyhq/utils'
 import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
@@ -105,6 +105,22 @@ describe('runMergeCommand', () => {
     // predates the .gitignore commit.
     const tracked = await git(host, 'ls-files')
     expect(tracked).not.toContain('.quimby')
+  })
+
+  it('proceeds with a failing attestation — informational, never a gate', async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    await writeFile(
+      join(getAgentDir(host, agentId), 'status.md'),
+      '```quimby-attest\ncommand: npm run ci\nresult: fail\n```',
+    )
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ message: 'land it', target: host }))
+    // The merge still landed despite `result: fail` — the attestation only informs.
+    expect(await exists(join(host, 'feature.txt'))).toBe(true)
   })
 
   it('leaves the seed alone with --no-sync', async () => {
