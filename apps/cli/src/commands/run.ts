@@ -1,4 +1,4 @@
-import { configureRemoteAgentIdentity } from '@quimbyhq/agent'
+import { configureRemoteAgentIdentity, renderRemoteMailboxMigration } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
 import {
@@ -144,7 +144,7 @@ export async function runRunCommand({
     logger.success(
       `Attaching to tmux session "${launch.sessionName}" on ${launch.host}${launch.runtimeLabel}`,
     )
-    // CWD is the agent dir (parent of repo/) so the agent sees assignment.md, inbox/,
+    // CWD is the agent dir (parent of repo/) so the agent sees assignment.md, handoff/,
     // etc. tmux -A attaches to an existing session or creates a new one; bash -l is a
     // login shell so PATH includes user-installed tools like claude / sbx.
     await launch.transport.runInteractive('tmux', [
@@ -542,12 +542,17 @@ async function buildSSHWindow(
     )
   }
 
+  // Reshape a legacy inbox/outbox mailbox into the handoff/ tree (once), before init/launch.
+  await transport.exec(renderRemoteMailboxMigration(rAgentDir))
+
   const repoReady = await transport.fileExists(`${rRepoDir}/.git`)
   if (!repoReady) {
     await transport.checkCapabilities(['git', 'rsync', 'tmux'])
     logger.start(`Initializing remote agent "${name}"...`)
-    await transport.ensureDir(`${rAgentDir}/inbox/status`)
-    await transport.ensureDir(`${rAgentDir}/outbox`)
+    await transport.ensureDir(`${rAgentDir}/handoff/out/draft`)
+    await transport.ensureDir(`${rAgentDir}/handoff/out/queued`)
+    await transport.ensureDir(`${rAgentDir}/handoff/in/received`)
+    await transport.ensureDir(`${rAgentDir}/status`)
     await transport.exec(`git clone ${rRoot} ${rRepoDir}`)
     await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
     await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)

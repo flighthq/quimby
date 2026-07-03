@@ -16,6 +16,7 @@ vi.mock('@quimbyhq/transport', async (importOriginal) => ({
 vi.mock('@quimbyhq/agent', () => ({
   cloneAndSeedRemoteAgentRepo: vi.fn(async () => 'seedsha123'),
   writeRemoteAgentScaffold: vi.fn(async () => {}),
+  renderRemoteMailboxMigration: vi.fn((rAgentDir: string) => `migrate ${rAgentDir}`),
 }))
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],

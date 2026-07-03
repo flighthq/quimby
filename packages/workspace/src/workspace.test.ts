@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getStatePath } from '@quimbyhq/paths'
+import { getAgentDir, getStatePath } from '@quimbyhq/paths'
 import { ensureDir, exists, writeYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -156,6 +156,64 @@ describe('resolveWorkspace', () => {
     const reloaded = await loadState(dir)
     expect(reloaded.agents.alice.defaults?.entrypoint).toBe('claude')
     expect((reloaded.agents.alice as unknown as Record<string, unknown>).guard).toBeUndefined()
+  })
+
+  it('migrates a legacy inbox/outbox mailbox into the handoff/ tree, idempotently', async () => {
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      id: 'ws-id',
+      sourceRepo: dir,
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {
+        alice: {
+          id: 'alice-id',
+          name: 'alice',
+          seedCommit: 'abc123',
+          syncRef: 'main',
+          createdAt: '2024-01-01T00:00:00.000Z',
+        },
+      },
+    })
+    const agentDir = getAgentDir(dir, 'alice-id')
+    // A legacy mailbox: a queued outbox draft, its .sent ledger, a delivered inbox parcel, a
+    // processed .done archive entry, and a status mirror file.
+    await ensureDir(join(agentDir, 'outbox', 'builder'))
+    await writeFile(join(agentDir, 'outbox', 'builder', 'README.md'), 'fix Y')
+    await ensureDir(join(agentDir, 'outbox', '.sent', 'integration'))
+    await writeFile(join(agentDir, 'outbox', '.sent', 'integration', 'README.md'), 'shipped')
+    await ensureDir(join(agentDir, 'inbox', 'host-abc123'))
+    await writeFile(join(agentDir, 'inbox', 'host-abc123', 'meta.yaml'), 'name: host-abc123')
+    await ensureDir(join(agentDir, 'inbox', '.done', 'review-old'))
+    await ensureDir(join(agentDir, 'inbox', 'status'))
+    await writeFile(join(agentDir, 'inbox', 'status', 'backend.md'), '# Status: backend')
+
+    process.chdir(dir)
+    await resolveWorkspace()
+
+    // New tree populated per the mapping…
+    expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'builder', 'README.md'))).toBe(
+      true,
+    )
+    expect(await exists(join(agentDir, 'handoff', 'out', 'sent', 'integration', 'README.md'))).toBe(
+      true,
+    )
+    expect(
+      await exists(join(agentDir, 'handoff', 'in', 'received', 'host-abc123', 'meta.yaml')),
+    ).toBe(true)
+    expect(await exists(join(agentDir, 'handoff', 'in', 'processed', 'review-old'))).toBe(true)
+    expect(await exists(join(agentDir, 'status', 'backend.md'))).toBe(true)
+    // …and the legacy trees are gone.
+    expect(await exists(join(agentDir, 'inbox'))).toBe(false)
+    expect(await exists(join(agentDir, 'outbox'))).toBe(false)
+
+    // Idempotent: a second load with the migrated tree in place changes nothing and does not throw.
+    await resolveWorkspace()
+    expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'builder', 'README.md'))).toBe(
+      true,
+    )
+    expect(await exists(join(agentDir, 'inbox'))).toBe(false)
   })
 
   it('throws when called outside a git repo', async () => {

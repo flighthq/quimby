@@ -76,9 +76,9 @@ export async function runDispatchCommand({
           }
         }
       } else if (result.status === 'unknown') {
-        logger.warn(`Skipping "${result.recipient}" — no such agent (left in outbox to fix)`)
+        logger.warn(`Skipping "${result.recipient}" — no such agent (left queued to fix)`)
       } else {
-        logger.warn(`Failed to deliver to "${result.recipient}" (left in outbox): ${result.error}`)
+        logger.warn(`Failed to deliver to "${result.recipient}" (left queued): ${result.error}`)
       }
     }
   }

@@ -6,6 +6,6 @@
  */
 export function inboxNoticeText(parcelName: string, note?: string): string {
   return note
-    ? `Please review: @inbox/${parcelName}/\n\n${note}`
-    : `New handoff in your inbox: @inbox/${parcelName}/ — please review.`
+    ? `Please review: @handoff/in/received/${parcelName}/\n\n${note}`
+    : `New handoff in your inbox: @handoff/in/received/${parcelName}/ — please review.`
 }

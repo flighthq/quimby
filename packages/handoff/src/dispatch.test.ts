@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import {
   getAgentDir,
-  getAgentInboxParcelDir,
-  getAgentOutboxDraftDir,
-  getAgentOutboxSentDraftDir,
+  getAgentHandoffInReceivedParcelDir,
+  getAgentHandoffOutQueuedRecipientDir,
+  getAgentHandoffOutSentRecipientDir,
   getAgentRepoDir,
 } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
@@ -56,8 +56,9 @@ async function setupRepoRoot(): Promise<string> {
 async function setupAgentRepo(repoRoot: string, agentId: string): Promise<void> {
   const agentRepoDir = getAgentRepoDir(repoRoot, agentId)
   const agentDir = getAgentDir(repoRoot, agentId)
-  await mkdir(join(agentDir, 'inbox', 'status'), { recursive: true })
-  await mkdir(join(agentDir, 'outbox'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'out', 'queued'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'in', 'received'), { recursive: true })
+  await mkdir(join(agentDir, 'status'), { recursive: true })
   await mkdir(agentRepoDir, { recursive: true })
   await init(agentRepoDir)
   await configureGit(agentRepoDir)
@@ -76,7 +77,7 @@ function stateWith(...names: string[]): QuimbyState {
 }
 
 async function stageDraft(repoRoot: string, senderId: string, recipient: string, note: string) {
-  const draft = getAgentOutboxDraftDir(repoRoot, senderId, recipient)
+  const draft = getAgentHandoffOutQueuedRecipientDir(repoRoot, senderId, recipient)
   await mkdir(draft, { recursive: true })
   await writeFile(join(draft, 'README.md'), note)
 }
@@ -104,7 +105,7 @@ describe('dispatchOutbox', () => {
       sender: 'review',
     })
     expect(results).toEqual([{ recipient: 'ghost', status: 'unknown' }])
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'ghost'))).toBe(true)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'ghost'))).toBe(true)
   })
 
   it('delivers a note-only draft, drains it to .sent, and lands it in the inbox', async () => {
@@ -121,15 +122,15 @@ describe('dispatchOutbox', () => {
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({ recipient: 'builder', status: 'delivered', hasNote: true })
     const parcelName = results[0].parcelName!
-    expect(await exists(getAgentInboxParcelDir(dir, 'builder', parcelName))).toBe(true)
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'builder'))).toBe(false)
-    expect(await exists(getAgentOutboxSentDraftDir(dir, 'review', 'builder'))).toBe(true)
+    expect(await exists(getAgentHandoffInReceivedParcelDir(dir, 'builder', parcelName))).toBe(true)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
+    expect(await exists(getAgentHandoffOutSentRecipientDir(dir, 'review', 'builder'))).toBe(true)
   })
 
   it('fails when attach references a nonexistent code source', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
     await mkdir(draft, { recursive: true })
     await writeFile(join(draft, 'README.md'), '---\nattach: phantom\n---\nuse their code')
 
@@ -177,7 +178,9 @@ describe('dispatchOutbox', () => {
     })
 
     expect(results.map((r) => r.recipient)).toEqual(['builder'])
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'integration'))).toBe(true)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'integration'))).toBe(
+      true,
+    )
   })
 
   it('delivers multiple recipients in one pass', async () => {

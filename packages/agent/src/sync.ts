@@ -3,11 +3,12 @@ import { rm } from 'node:fs/promises'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
-  getAgentInboxDoneDir,
-  getAgentOutboxSentDir,
+  getAgentHandoffInProcessedDir,
+  getAgentHandoffOutSentDir,
   getAgentRepoDir,
   QUIMBY_DIRNAME,
-  remoteAgentDir,
+  remoteAgentHandoffInProcessedDir,
+  remoteAgentHandoffOutSentDir,
   remoteAgentRepoDir,
   remoteProjectRoot,
 } from '@quimbyhq/paths'
@@ -189,10 +190,11 @@ export async function syncAgent(
 }
 
 /**
- * Prune an agent's mailbox caches — the outbox `.sent/` delivery ledger and the inbox `.done/`
- * processed-parcel archive. These are caches bounded by agent lifetime, not the hot path, so GC
- * is folded into `sync` (and covered by `rebuild`'s full mailbox wipe). Active inbox/outbox
- * parcels, `assignment.md`, and `status.md` are left untouched — this only sweeps the archives.
+ * Prune an agent's mailbox caches — the `handoff/out/sent/` delivery ledger and the
+ * `handoff/in/processed/` archive. These are caches bounded by agent lifetime, not the hot path,
+ * so GC is folded into `sync` (and covered by `rebuild`'s full mailbox wipe). Active queued/
+ * received parcels, `assignment.md`, and `status.md` are left untouched — this only sweeps the
+ * archives.
  */
 export async function pruneAgentMailboxCaches(
   repoRoot: string,
@@ -200,14 +202,14 @@ export async function pruneAgentMailboxCaches(
   stateId: string,
 ): Promise<void> {
   if (isSSH(agent.location)) {
-    const rAgentDir = remoteAgentDir(stateId, agent.id, agent.location.base)
+    const base = agent.location.base
     await getSSHTransport(agent.location).exec(
-      `rm -rf ${rAgentDir}/outbox/.sent ${rAgentDir}/inbox/.done`,
+      `rm -rf ${remoteAgentHandoffOutSentDir(stateId, agent.id, base)} ${remoteAgentHandoffInProcessedDir(stateId, agent.id, base)}`,
     )
     return
   }
-  await rm(getAgentOutboxSentDir(repoRoot, agent.id), { recursive: true, force: true })
-  await rm(getAgentInboxDoneDir(repoRoot, agent.id), { recursive: true, force: true })
+  await rm(getAgentHandoffOutSentDir(repoRoot, agent.id), { recursive: true, force: true })
+  await rm(getAgentHandoffInProcessedDir(repoRoot, agent.id), { recursive: true, force: true })
 }
 
 /** Drive the sync algorithm against a local agent clone via the git CLI. */

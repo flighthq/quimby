@@ -54,52 +54,81 @@ export function getStagingHandoffDir(repoRoot: string, name: string): string {
   return join(repoRoot, '.quimby', 'staging', name)
 }
 
-export function getAgentInboxDir(repoRoot: string, agentId: string): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'inbox')
+// The mailbox is an explicit-lifecycle tree: state is a directory *level* above the party
+// name (`handoff/out/queued/<recipient>`, `handoff/in/received/<sender>-<hash>`), never a
+// dot-prefix. This is self-documenting and collision-safe — a scanner enumerates the fixed
+// state dirs and reads party names as the leaves, so an agent may be named anything. Direction
+// (`in`/`out`) groups the trays; `status/` sits outside `handoff/` because it is a live
+// overwritten mirror, not a discrete parcel.
+export function getAgentHandoffDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff')
 }
 
-// A delivered parcel sits directly in the inbox, named by sender + contents. The
-// recipient is keyed by id (its own directory); the parcel name stays content-derived.
-export function getAgentInboxParcelDir(
+// `out/draft/<recipient>` — the agent's authoring space. **Not scanned**: an agent writes a
+// parcel here, then publishes it with one atomic same-fs `mv` into `out/queued/`, so a partial
+// parcel never appears as queued (the race fix by construction). Addressed by recipient name.
+export function getAgentHandoffOutDraftDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'draft')
+}
+
+export function getAgentHandoffOutDraftRecipientDir(
+  repoRoot: string,
+  agentId: string,
+  recipient: string,
+): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'draft', recipient)
+}
+
+// `out/queued/<recipient>` — finalized parcels awaiting transmit; the scan root Quimby carries
+// from (was `outbox/<recipient>`).
+export function getAgentHandoffOutQueuedDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'queued')
+}
+
+export function getAgentHandoffOutQueuedRecipientDir(
+  repoRoot: string,
+  agentId: string,
+  recipient: string,
+): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'queued', recipient)
+}
+
+// `out/sent/<recipient>` — the sender's delivery ledger; a carried parcel is moved here on
+// success (was `outbox/.sent/<recipient>`).
+export function getAgentHandoffOutSentDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'sent')
+}
+
+export function getAgentHandoffOutSentRecipientDir(
+  repoRoot: string,
+  agentId: string,
+  recipient: string,
+): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'out', 'sent', recipient)
+}
+
+// `in/received/<sender>-<hash>` — delivered parcels awaiting processing; content-named, since on
+// receipt the question is "what did I get, and from whom" (was `inbox/<sender>-<hash>`).
+export function getAgentHandoffInReceivedDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'received')
+}
+
+export function getAgentHandoffInReceivedParcelDir(
   repoRoot: string,
   agentId: string,
   parcelName: string,
 ): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'inbox', parcelName)
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'received', parcelName)
 }
 
-// Where an agent moves parcels it has processed.
-export function getAgentInboxDoneDir(repoRoot: string, agentId: string): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'inbox', '.done')
+// `in/processed/<sender>-<hash>` — parcels the recipient has acted on (was `inbox/.done/…`).
+export function getAgentHandoffInProcessedDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'processed')
 }
 
-export function getAgentInboxStatusDir(repoRoot: string, agentId: string): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'inbox', 'status')
-}
-
-export function getAgentOutboxDir(repoRoot: string, agentId: string): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'outbox')
-}
-
-// A staged parcel awaiting pickup. The owning agent is keyed by id; the draft is
-// addressed by recipient *name* (how the agent inside its sandbox addresses peers).
-export function getAgentOutboxDraftDir(
-  repoRoot: string,
-  agentId: string,
-  recipient: string,
-): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'outbox', recipient)
-}
-
-// The delivery ledger: parcels already carried, moved aside on success.
-export function getAgentOutboxSentDir(repoRoot: string, agentId: string): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'outbox', '.sent')
-}
-
-export function getAgentOutboxSentDraftDir(
-  repoRoot: string,
-  agentId: string,
-  recipient: string,
-): string {
-  return join(repoRoot, '.quimby', 'agents', agentId, 'outbox', '.sent', recipient)
+// `status/<peer>.md` — live status mirrors the server overwrites each poll. Its own root at the
+// agent level (not under `handoff/`), because status is a continuously-updated reflection, not a
+// discrete immutable parcel (was `inbox/status/`).
+export function getAgentStatusMirrorDir(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'status')
 }

@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentDir, getAgentInboxStatusDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentStatusMirrorDir } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
 import { exists, readText } from '@quimbyhq/utils'
 import { ensureWorkspace, loadState } from '@quimbyhq/workspace'
@@ -71,7 +71,7 @@ describe('getFileMtime', () => {
 describe('pollAgentStatus', () => {
   it('seeds the cache on first sighting without routing to subscribers', async () => {
     await writeStatus('b1', 'working')
-    await mkdir(getAgentInboxStatusDir(dir, 'r1'), { recursive: true })
+    await mkdir(getAgentStatusMirrorDir(dir, 'r1'), { recursive: true })
     const cache = new Map<string, StatusSnapshot>()
 
     await pollAgentStatus(
@@ -83,7 +83,7 @@ describe('pollAgentStatus', () => {
 
     expect(cache.get('backend')?.content).toBe('working')
     // first sighting must NOT broadcast (would spam every subscriber on server start)
-    expect(await exists(join(getAgentInboxStatusDir(dir, 'r1'), 'backend.md'))).toBe(false)
+    expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(false)
   })
 
   it('routes a changed status to a subscriber inbox', async () => {
@@ -97,7 +97,7 @@ describe('pollAgentStatus', () => {
       cache,
     )
 
-    const routed = await readText(join(getAgentInboxStatusDir(dir, 'r1'), 'backend.md'))
+    const routed = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
     expect(routed).toContain('done')
     expect(routed).toContain('# Status: backend')
   })
@@ -114,7 +114,7 @@ describe('pollAgentStatus', () => {
       cache,
     )
 
-    expect(await exists(join(getAgentInboxStatusDir(dir, 'r1'), 'backend.md'))).toBe(false)
+    expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(false)
   })
 
   it('does not route to a non-subscriber', async () => {
@@ -128,7 +128,7 @@ describe('pollAgentStatus', () => {
       cache,
     )
 
-    expect(await exists(join(getAgentInboxStatusDir(dir, 'o1'), 'backend.md'))).toBe(false)
+    expect(await exists(join(getAgentStatusMirrorDir(dir, 'o1'), 'backend.md'))).toBe(false)
   })
 
   it('returns quietly when the status file is missing', async () => {
@@ -139,7 +139,7 @@ describe('pollAgentStatus', () => {
 
   it('detects an SSH agent change by content comparison (no mtime)', async () => {
     readFile.mockResolvedValue('remote-status')
-    await mkdir(getAgentInboxStatusDir(dir, 'r1'), { recursive: true })
+    await mkdir(getAgentStatusMirrorDir(dir, 'r1'), { recursive: true })
     const cache = new Map<string, StatusSnapshot>([
       ['backend', { content: 'old-remote', mtime: 0 }],
     ])
@@ -154,7 +154,7 @@ describe('pollAgentStatus', () => {
     await pollAgentStatus(dir, state, 'backend', cache)
 
     expect(cache.get('backend')?.content).toBe('remote-status')
-    expect(await exists(join(getAgentInboxStatusDir(dir, 'r1'), 'backend.md'))).toBe(true)
+    expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(true)
   })
 })
 

@@ -4,8 +4,8 @@ import { join } from 'node:path'
 
 import {
   getAgentDir,
-  getAgentInboxDoneDir,
-  getAgentOutboxSentDir,
+  getAgentHandoffInProcessedDir,
+  getAgentHandoffOutSentDir,
   getAgentRepoDir,
 } from '@quimbyhq/paths'
 import type { SSHTransport } from '@quimbyhq/transport'
@@ -258,28 +258,30 @@ describe('getAgentWorkSummary', () => {
 })
 
 describe('pruneAgentMailboxCaches', () => {
-  it('sweeps .sent and .done but leaves active parcels, assignment, and status', async () => {
+  it('sweeps out/sent and in/processed but leaves active parcels, assignment, and status', async () => {
     await registerLocalAgentClone('carol', 'carol-id')
     const agentDir = getAgentDir(dir, 'carol-id')
     // Archives to sweep:
-    await mkdir(join(getAgentOutboxSentDir(dir, 'carol-id'), 'reviewer'), { recursive: true })
-    await mkdir(join(getAgentInboxDoneDir(dir, 'carol-id'), 'builder-abc'), { recursive: true })
+    await mkdir(join(getAgentHandoffOutSentDir(dir, 'carol-id'), 'reviewer'), { recursive: true })
+    await mkdir(join(getAgentHandoffInProcessedDir(dir, 'carol-id'), 'builder-abc'), {
+      recursive: true,
+    })
     // Active mailbox that must survive:
-    await mkdir(join(agentDir, 'outbox', 'reviewer'), { recursive: true })
-    await mkdir(join(agentDir, 'inbox', 'builder-xyz'), { recursive: true })
+    await mkdir(join(agentDir, 'handoff', 'out', 'queued', 'reviewer'), { recursive: true })
+    await mkdir(join(agentDir, 'handoff', 'in', 'received', 'builder-xyz'), { recursive: true })
     await writeFile(join(agentDir, 'assignment.md'), 'do the thing')
 
     const agent = (await loadState(dir)).agents.carol
     await pruneAgentMailboxCaches(dir, agent, 'proj-id')
 
-    expect(await exists(getAgentOutboxSentDir(dir, 'carol-id'))).toBe(false)
-    expect(await exists(getAgentInboxDoneDir(dir, 'carol-id'))).toBe(false)
-    expect(await exists(join(agentDir, 'outbox', 'reviewer'))).toBe(true)
-    expect(await exists(join(agentDir, 'inbox', 'builder-xyz'))).toBe(true)
+    expect(await exists(getAgentHandoffOutSentDir(dir, 'carol-id'))).toBe(false)
+    expect(await exists(getAgentHandoffInProcessedDir(dir, 'carol-id'))).toBe(false)
+    expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'reviewer'))).toBe(true)
+    expect(await exists(join(agentDir, 'handoff', 'in', 'received', 'builder-xyz'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
   })
 
-  it('rm -rf the remote .sent/.done over transport for an SSH agent', async () => {
+  it('rm -rf the remote out/sent and in/processed over transport for an SSH agent', async () => {
     const { transport, calls } = fakeSSHTransport('')
     mockedGetSSH.mockReturnValue(transport)
     await registerSSHAgent('remo', 'remo-id', 'seed-sha')
@@ -287,22 +289,24 @@ describe('pruneAgentMailboxCaches', () => {
 
     await pruneAgentMailboxCaches(dir, agent, 'proj-id')
 
-    expect(calls.some((c) => c.includes('rm -rf') && c.includes('/outbox/.sent'))).toBe(true)
-    expect(calls.some((c) => c.includes('/inbox/.done'))).toBe(true)
+    expect(calls.some((c) => c.includes('rm -rf') && c.includes('/handoff/out/sent'))).toBe(true)
+    expect(calls.some((c) => c.includes('/handoff/in/processed'))).toBe(true)
   })
 })
 
 describe('syncAgent', () => {
-  it('prunes the .sent/.done caches after a successful sync', async () => {
+  it('prunes the out/sent and in/processed caches after a successful sync', async () => {
     await registerLocalAgentClone('gc', 'gc-id')
-    await mkdir(join(getAgentOutboxSentDir(dir, 'gc-id'), 'reviewer'), { recursive: true })
-    await mkdir(join(getAgentInboxDoneDir(dir, 'gc-id'), 'builder-abc'), { recursive: true })
+    await mkdir(join(getAgentHandoffOutSentDir(dir, 'gc-id'), 'reviewer'), { recursive: true })
+    await mkdir(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'builder-abc'), {
+      recursive: true,
+    })
     await advanceHost('feature')
 
     await syncAgent(dir, 'gc')
 
-    expect(await exists(getAgentOutboxSentDir(dir, 'gc-id'))).toBe(false)
-    expect(await exists(getAgentInboxDoneDir(dir, 'gc-id'))).toBe(false)
+    expect(await exists(getAgentHandoffOutSentDir(dir, 'gc-id'))).toBe(false)
+    expect(await exists(getAgentHandoffInProcessedDir(dir, 'gc-id'))).toBe(false)
   })
 
   it('throws a clear error when the sync ref does not resolve', async () => {

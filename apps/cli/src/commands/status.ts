@@ -45,7 +45,7 @@ export default defineCommand({
     to: {
       type: 'string',
       description:
-        "Push <name>'s current status to this agent's inbox/status (manual twin of subscribe)",
+        "Push <name>'s current status to this agent's status mirror (manual twin of subscribe)",
     },
   },
   run: runStatusCommand,
@@ -96,7 +96,7 @@ async function pushStatus(
   const content = await readAgentFile(repoRoot, state, fromAgent, 'status.md')
   const payload = formatStatusSnapshot(from, content || '(no status)', new Date().toISOString())
   await deliverStatusSnapshot({ repoRoot, stateId: state.id, fromName: from, toAgent, payload })
-  logger.success(`Pushed "${from}" status → "${to}" (inbox/status/${from}.md)`)
+  logger.success(`Pushed "${from}" status → "${to}" (status/${from}.md)`)
 }
 
 async function renderOverview(
@@ -114,8 +114,8 @@ async function renderOverview(
     const cells = [
       `  ${bold(name)}`,
       renderSession(snap.sessionState),
-      countCell('inbox', snap.inbox.length),
-      countCell('outbox', snap.outbox.length),
+      countCell('received', snap.inbox.length),
+      countCell('queued', snap.outbox.length),
       dim(formatWorkSummary(snap.summary)),
     ]
     // The seed-vs-base axis, distinct from unmerged work — surfaced so a stale baseline
@@ -171,8 +171,8 @@ async function renderDeepDive(
       ),
     )
   }
-  console.log(row('inbox', renderParcelList(snap.inbox, 'unprocessed')))
-  console.log(row('outbox', renderParcelList(snap.outbox, 'queued')))
+  console.log(row('received', renderParcelList(snap.inbox, 'unprocessed')))
+  console.log(row('queued', renderParcelList(snap.outbox, 'queued')))
 
   const { shown, more } = excerpt(status, STATUS_EXCERPT_LINES)
   console.log(row('status.md', shown ? '' : dim('(no status)')))

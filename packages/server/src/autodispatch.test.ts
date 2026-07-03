@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { addAll, commit, init, tag } from '@quimbyhq/git'
-import { getAgentDir, getAgentOutboxDraftDir, getAgentRepoDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentHandoffOutQueuedRecipientDir, getAgentRepoDir } from '@quimbyhq/paths'
 import { collectingReporter } from '@quimbyhq/reporter'
 import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
 import { exists, readYaml } from '@quimbyhq/utils'
@@ -35,8 +35,9 @@ async function configureGit(cwd: string) {
 
 async function setupAgentRepo(agentId: string): Promise<void> {
   const agentDir = getAgentDir(dir, agentId)
-  await mkdir(join(agentDir, 'inbox', 'status'), { recursive: true })
-  await mkdir(join(agentDir, 'outbox'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'out', 'queued'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'in', 'received'), { recursive: true })
+  await mkdir(join(agentDir, 'status'), { recursive: true })
   const repoDir = getAgentRepoDir(dir, agentId)
   await mkdir(repoDir, { recursive: true })
   await init(repoDir)
@@ -56,7 +57,7 @@ function stateWith(...names: string[]): QuimbyState {
 }
 
 async function stageDraft(senderId: string, recipient: string, note: string): Promise<void> {
-  const draft = getAgentOutboxDraftDir(dir, senderId, recipient)
+  const draft = getAgentHandoffOutQueuedRecipientDir(dir, senderId, recipient)
   await mkdir(draft, { recursive: true })
   await writeFile(join(draft, 'README.md'), note)
 }
@@ -87,11 +88,11 @@ describe('autoDispatchOutboxes', () => {
 
     await autoDispatchOutboxes(dir, state, tracker)
     // first cycle: unsettled, nothing delivered
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'builder'))).toBe(true)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(true)
 
     await autoDispatchOutboxes(dir, state, tracker)
     // second cycle: mtime unchanged → settled → delivered + drained
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'builder'))).toBe(false)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
   })
 
   it('delivers the settled parcel and reports it', async () => {
@@ -106,7 +107,7 @@ describe('autoDispatchOutboxes', () => {
     await autoDispatchOutboxes(dir, state, tracker, reporter)
 
     // drained from the outbox = it was carried to the recipient
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'builder'))).toBe(false)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
     expect(events.some((e) => e.level === 'success' && /delivered/.test(e.message))).toBe(true)
   })
 
@@ -124,7 +125,7 @@ describe('autoDispatchOutboxes', () => {
     await autoDispatchOutboxes(dir, state, tracker) // settle
     await autoDispatchOutboxes(dir, state, tracker) // deliver
 
-    const inbox = join(getAgentDir(dir, 'builder'), 'inbox')
+    const inbox = join(getAgentDir(dir, 'builder'), 'handoff', 'in', 'received')
     const parcels = (await readdir(inbox)).filter((n) => n.startsWith('review-'))
     expect(parcels).toHaveLength(1)
     const meta = (await readYaml(join(inbox, parcels[0], 'meta.yaml'))) as {
@@ -143,7 +144,7 @@ describe('autoDispatchOutboxes', () => {
     const { reporter, events } = collectingReporter()
     await autoDispatchOutboxes(dir, state, tracker, reporter)
 
-    expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'ghost'))).toBe(true)
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'ghost'))).toBe(true)
     expect(events.some((e) => e.level === 'warn' && /not an agent/.test(e.message))).toBe(true)
   })
 
@@ -157,7 +158,10 @@ describe('autoDispatchOutboxes', () => {
     await autoDispatchOutboxes(dir, state, tracker)
     expect(tracker.seen.has('review/builder')).toBe(true)
 
-    await rm(getAgentOutboxDraftDir(dir, 'review', 'builder'), { recursive: true, force: true })
+    await rm(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'), {
+      recursive: true,
+      force: true,
+    })
     await autoDispatchOutboxes(dir, state, tracker)
     expect(tracker.seen.has('review/builder')).toBe(false)
   })

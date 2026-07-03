@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   remoteAgentDir,
+  remoteAgentHandoffDir,
+  remoteAgentHandoffInProcessedDir,
+  remoteAgentHandoffInReceivedDir,
+  remoteAgentHandoffOutDraftDir,
+  remoteAgentHandoffOutQueuedDir,
+  remoteAgentHandoffOutSentDir,
   remoteAgentRepoDir,
+  remoteAgentStatusMirrorDir,
   remoteProjectRoot,
   remoteQuimbyDir,
   remoteTmuxConfigPath,
@@ -21,6 +28,54 @@ describe('remoteAgentDir', () => {
   })
 })
 
+describe('remoteAgentHandoffDir', () => {
+  it('returns the handoff root under the remote agent dir', () => {
+    expect(remoteAgentHandoffDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff',
+    )
+  })
+})
+
+describe('remoteAgentHandoffInProcessedDir', () => {
+  it('returns the remote in/processed dir', () => {
+    expect(remoteAgentHandoffInProcessedDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/in/processed',
+    )
+  })
+})
+
+describe('remoteAgentHandoffInReceivedDir', () => {
+  it('returns the remote in/received dir', () => {
+    expect(remoteAgentHandoffInReceivedDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/in/received',
+    )
+  })
+})
+
+describe('remoteAgentHandoffOutDraftDir', () => {
+  it('returns the remote out/draft dir', () => {
+    expect(remoteAgentHandoffOutDraftDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/out/draft',
+    )
+  })
+})
+
+describe('remoteAgentHandoffOutQueuedDir', () => {
+  it('returns the remote out/queued scan root', () => {
+    expect(remoteAgentHandoffOutQueuedDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/out/queued',
+    )
+  })
+})
+
+describe('remoteAgentHandoffOutSentDir', () => {
+  it('returns the remote out/sent ledger dir', () => {
+    expect(remoteAgentHandoffOutSentDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/out/sent',
+    )
+  })
+})
+
 describe('remoteAgentRepoDir', () => {
   it('returns repo subdir of remote agent dir', () => {
     expect(remoteAgentRepoDir('proj-id', 'alice')).toBe(
@@ -30,6 +85,20 @@ describe('remoteAgentRepoDir', () => {
 
   it('uses base override', () => {
     expect(remoteAgentRepoDir('proj-id', 'alice', '/base')).toBe('/base/.quimby/agents/alice/repo')
+  })
+})
+
+describe('remoteAgentStatusMirrorDir', () => {
+  it('returns the status-mirror dir at the remote agent root, outside handoff/', () => {
+    expect(remoteAgentStatusMirrorDir('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/status',
+    )
+  })
+
+  it('defaults under the workspace root when no base', () => {
+    expect(remoteAgentStatusMirrorDir('proj-id', 'alice')).toBe(
+      '~/.quimby/workspaces/proj-id/.quimby/agents/alice/status',
+    )
   })
 })
 

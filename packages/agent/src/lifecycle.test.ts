@@ -207,20 +207,23 @@ describe('rebuildAgent', () => {
   it('clears the mailbox and resets assignment/status on rebuild', async () => {
     const agent = await addAgent(dir, 'alice')
     const agentDir = getAgentDir(dir, agent.id)
-    // A delivered inbox parcel, a queued outbox draft, and a dirtied task/status.
-    await mkdir(join(agentDir, 'inbox', 'review-abc123'), { recursive: true })
-    await writeFile(join(agentDir, 'inbox', 'review-abc123', 'README.md'), 'please review')
-    await mkdir(join(agentDir, 'outbox', 'builder'), { recursive: true })
-    await writeFile(join(agentDir, 'outbox', 'builder', 'README.md'), 'a reply')
+    // A delivered received parcel, a queued outbox draft, and a dirtied task/status.
+    await mkdir(join(agentDir, 'handoff', 'in', 'received', 'review-abc123'), { recursive: true })
+    await writeFile(
+      join(agentDir, 'handoff', 'in', 'received', 'review-abc123', 'README.md'),
+      'please review',
+    )
+    await mkdir(join(agentDir, 'handoff', 'out', 'queued', 'builder'), { recursive: true })
+    await writeFile(join(agentDir, 'handoff', 'out', 'queued', 'builder', 'README.md'), 'a reply')
     await writeFile(join(agentDir, 'assignment.md'), 'do the thing')
     await writeFile(join(agentDir, 'status.md'), 'working hard')
 
     await rebuildAgent(dir, 'alice')
 
     // The mailbox is wiped (parcels gone) but re-scaffolded, and the task/status are reset.
-    expect(await exists(join(agentDir, 'inbox', 'review-abc123'))).toBe(false)
-    expect(await exists(join(agentDir, 'outbox', 'builder'))).toBe(false)
-    expect(await exists(join(agentDir, 'inbox', 'status'))).toBe(true)
+    expect(await exists(join(agentDir, 'handoff', 'in', 'received', 'review-abc123'))).toBe(false)
+    expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'builder'))).toBe(false)
+    expect(await exists(join(agentDir, 'handoff', 'out', 'draft'))).toBe(true)
     expect(await readFile(join(agentDir, 'assignment.md'), 'utf-8')).toBe('')
     expect(await readFile(join(agentDir, 'status.md'), 'utf-8')).toBe('idle')
   })

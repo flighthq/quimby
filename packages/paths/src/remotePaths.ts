@@ -23,6 +23,65 @@ export function remoteTmuxConfigPath(projectId: string, base?: string): string {
   return `${remoteQuimbyDir(projectId, base)}/tmux.conf`
 }
 
+// ── Remote mailbox tree (SSH agents) ─────────────────────────────────────────
+// The remote twins of the local handoff/status helpers. These return the fixed state-dir
+// containers; a recipient name or parcel name is appended at the call site (through `sq()`
+// where a shell command needs it), mirroring how the remote paths are otherwise interpolated.
+
+export function remoteAgentHandoffDir(projectId: string, agentId: string, base?: string): string {
+  return `${remoteAgentDir(projectId, agentId, base)}/handoff`
+}
+
+export function remoteAgentHandoffOutDraftDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/out/draft`
+}
+
+export function remoteAgentHandoffOutQueuedDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/out/queued`
+}
+
+export function remoteAgentHandoffOutSentDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/out/sent`
+}
+
+export function remoteAgentHandoffInReceivedDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/in/received`
+}
+
+export function remoteAgentHandoffInProcessedDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/in/processed`
+}
+
+// Status mirrors sit outside `handoff/`, at the agent root — the remote twin of
+// {@link getAgentStatusMirrorDir}.
+export function remoteAgentStatusMirrorDir(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentDir(projectId, agentId, base)}/status`
+}
+
 // ── Stable identifiers ────────────────────────────────────────────────────────
 
 // Quimby runs its tmux sessions on a dedicated server socket, so they never mix with

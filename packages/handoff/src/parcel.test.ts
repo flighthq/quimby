@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import {
   getAgentDir,
-  getAgentInboxParcelDir,
+  getAgentHandoffInReceivedParcelDir,
   getAgentRepoDir,
   getStagingDir,
   getStagingHandoffDir,
@@ -58,8 +58,9 @@ async function setupRepoRoot(): Promise<string> {
 async function setupAgentRepo(repoRoot: string, agentName: string): Promise<string> {
   const agentRepoDir = getAgentRepoDir(repoRoot, agentName)
   const agentDir = getAgentDir(repoRoot, agentName)
-  await mkdir(join(agentDir, 'inbox', 'status'), { recursive: true })
-  await mkdir(join(agentDir, 'outbox'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'out', 'queued'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'in', 'received'), { recursive: true })
+  await mkdir(join(agentDir, 'status'), { recursive: true })
   await mkdir(agentRepoDir, { recursive: true })
   await init(agentRepoDir)
   await configureGit(agentRepoDir)
@@ -125,7 +126,7 @@ describe('deliverHandoff', () => {
       toLocation: undefined,
       projectId: 'proj',
     })
-    const inboxParcel = getAgentInboxParcelDir(dir, 'receiver', meta.name)
+    const inboxParcel = getAgentHandoffInReceivedParcelDir(dir, 'receiver', meta.name)
     expect(await exists(join(inboxParcel, 'meta.yaml'))).toBe(true)
   })
 

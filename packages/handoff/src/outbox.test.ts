@@ -5,9 +5,10 @@ import { join } from 'node:path'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import {
   getAgentDir,
-  getAgentOutboxDir,
-  getAgentOutboxDraftDir,
-  getAgentOutboxSentDraftDir,
+  getAgentHandoffOutDraftRecipientDir,
+  getAgentHandoffOutQueuedDir,
+  getAgentHandoffOutQueuedRecipientDir,
+  getAgentHandoffOutSentRecipientDir,
   getAgentRepoDir,
 } from '@quimbyhq/paths'
 import type { AgentState } from '@quimbyhq/types'
@@ -70,8 +71,9 @@ async function setupRepoRoot(): Promise<string> {
 async function setupAgentRepo(repoRoot: string, agentName: string): Promise<string> {
   const agentRepoDir = getAgentRepoDir(repoRoot, agentName)
   const agentDir = getAgentDir(repoRoot, agentName)
-  await mkdir(join(agentDir, 'inbox', 'status'), { recursive: true })
-  await mkdir(join(agentDir, 'outbox'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'out', 'queued'), { recursive: true })
+  await mkdir(join(agentDir, 'handoff', 'in', 'received'), { recursive: true })
+  await mkdir(join(agentDir, 'status'), { recursive: true })
   await mkdir(agentRepoDir, { recursive: true })
   await init(agentRepoDir)
   await configureGit(agentRepoDir)
@@ -97,7 +99,7 @@ describe('clearRemoteOutboxDraft', () => {
     expect(sshTransport.exec).not.toHaveBeenCalled()
   })
 
-  it('moves the remote draft into the remote .sent ledger', async () => {
+  it('moves the remote queued parcel into the remote out/sent ledger', async () => {
     await clearRemoteOutboxDraft(
       agent('9b35cd55', { type: 'ssh', host: 'joshua@box' }),
       'proj',
@@ -105,25 +107,25 @@ describe('clearRemoteOutboxDraft', () => {
     )
     expect(sshTransport.exec).toHaveBeenCalledTimes(1)
     const cmd = (sshTransport.exec.mock.calls[0] as unknown as [string])[0]
-    expect(cmd).toContain('/agents/9b35cd55/outbox')
-    expect(cmd).toMatch(/&& mv \S+\/outbox\/'builder' \S+\/outbox\/\.sent\/'builder'/)
+    expect(cmd).toContain('/agents/9b35cd55/handoff/out')
+    expect(cmd).toMatch(/&& mv \S+\/out\/queued\/'builder' \S+\/out\/sent\/'builder'/)
   })
 })
 
 describe('markHandoffSent', () => {
-  it('is a no-op when the draft does not exist', async () => {
+  it('is a no-op when the queued parcel does not exist', async () => {
     await expect(markHandoffSent(dir, 'ghost', 'builder')).resolves.toBeUndefined()
   })
 
-  it('moves an outbox draft into the .sent ledger', async () => {
+  it('moves a queued parcel into the out/sent ledger', async () => {
     await setupAgentRepo(dir, 'review')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
-    await mkdir(draft, { recursive: true })
-    await writeFile(join(draft, 'README.md'), 'fix Y')
+    const queued = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(queued, { recursive: true })
+    await writeFile(join(queued, 'README.md'), 'fix Y')
     await markHandoffSent(dir, 'review', 'builder')
-    expect(await exists(draft)).toBe(false)
+    expect(await exists(queued)).toBe(false)
     expect(
-      await exists(join(getAgentOutboxSentDraftDir(dir, 'review', 'builder'), 'README.md')),
+      await exists(join(getAgentHandoffOutSentRecipientDir(dir, 'review', 'builder'), 'README.md')),
     ).toBe(true)
   })
 })
@@ -142,21 +144,21 @@ describe('pickupRemoteOutbox', () => {
     expect(sshTransport.rsyncFrom).not.toHaveBeenCalled()
   })
 
-  it('rsyncs the remote outbox into the local outbox dir when it exists', async () => {
+  it('rsyncs the remote out/queued into the local queued dir when it exists', async () => {
     sshTransport.fileExists.mockResolvedValueOnce(true)
     const ssh = agent('9b35cd55', { type: 'ssh', host: 'joshua@box' })
     await pickupRemoteOutbox(dir, ssh, 'proj')
     expect(sshTransport.rsyncFrom).toHaveBeenCalledTimes(1)
     const [remote, local] = sshTransport.rsyncFrom.mock.calls[0] as unknown as [string, string]
-    expect(remote).toContain('/agents/9b35cd55/outbox')
-    expect(local).toContain(getAgentOutboxDir(dir, '9b35cd55'))
+    expect(remote).toContain('/agents/9b35cd55/handoff/out/queued')
+    expect(local).toContain(getAgentHandoffOutQueuedDir(dir, '9b35cd55'))
   })
 })
 
 describe('readOutboxDraft', () => {
   it('returns an empty note when no README.md is staged', async () => {
     await setupAgentRepo(dir, 'review')
-    await mkdir(getAgentOutboxDraftDir(dir, 'review', 'builder'), { recursive: true })
+    await mkdir(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'), { recursive: true })
     const parsed = await readOutboxDraft(dir, 'review', 'builder')
     expect(parsed.note).toBe('')
     expect(parsed.attach).toBeUndefined()
@@ -164,7 +166,7 @@ describe('readOutboxDraft', () => {
 
   it('parses the note and an attach: code source from frontmatter', async () => {
     await setupAgentRepo(dir, 'review')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'integration')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'integration')
     await mkdir(draft, { recursive: true })
     await writeFile(join(draft, 'README.md'), '---\nattach: builder\n---\npromote this work')
     const parsed = await readOutboxDraft(dir, 'review', 'integration')
@@ -174,7 +176,7 @@ describe('readOutboxDraft', () => {
 
   it('returns the raw content when frontmatter is unclosed (no closing ---)', async () => {
     await setupAgentRepo(dir, 'review')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
     await mkdir(draft, { recursive: true })
     const raw = '---\nattach: builder\nno closing delimiter here'
     await writeFile(join(draft, 'README.md'), raw)
@@ -185,7 +187,7 @@ describe('readOutboxDraft', () => {
 
   it('strips frontmatter but returns no attach when no attach: key is present', async () => {
     await setupAgentRepo(dir, 'review')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
     await mkdir(draft, { recursive: true })
     await writeFile(join(draft, 'README.md'), '---\nsome: metadata\n---\nclean up the null case')
     const parsed = await readOutboxDraft(dir, 'review', 'builder')
@@ -195,7 +197,7 @@ describe('readOutboxDraft', () => {
 
   it('returns the raw note when there is no frontmatter', async () => {
     await setupAgentRepo(dir, 'review')
-    const draft = getAgentOutboxDraftDir(dir, 'review', 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
     await mkdir(draft, { recursive: true })
     await writeFile(join(draft, 'README.md'), 'just fix it')
     const parsed = await readOutboxDraft(dir, 'review', 'builder')
@@ -205,16 +207,29 @@ describe('readOutboxDraft', () => {
 })
 
 describe('readOutboxRecipients', () => {
-  it('lists recipient drafts and ignores the .sent ledger', async () => {
+  it('lists queued recipients (the sent ledger is a separate tree)', async () => {
     await setupAgentRepo(dir, 'review')
-    await mkdir(getAgentOutboxDraftDir(dir, 'review', 'builder'), { recursive: true })
-    await mkdir(getAgentOutboxDraftDir(dir, 'review', 'integration'), { recursive: true })
-    await mkdir(getAgentOutboxSentDraftDir(dir, 'review', 'old'), { recursive: true })
+    await mkdir(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'), { recursive: true })
+    await mkdir(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'integration'), {
+      recursive: true,
+    })
+    await mkdir(getAgentHandoffOutSentRecipientDir(dir, 'review', 'old'), { recursive: true })
     const recipients = await readOutboxRecipients(dir, 'review')
     expect(recipients).toEqual(['builder', 'integration'])
   })
 
-  it('returns empty when there is no outbox', async () => {
+  it('returns empty when there is no queue', async () => {
     expect(await readOutboxRecipients(dir, 'ghost')).toEqual([])
+  })
+
+  it('scans out/queued only — a parcel still in out/draft is never dispatched', async () => {
+    await setupAgentRepo(dir, 'review')
+    // Authoring-in-progress in draft/ (the atomic-publish source) must NOT be picked up…
+    await mkdir(getAgentHandoffOutDraftRecipientDir(dir, 'review', 'builder'), { recursive: true })
+    // …only a finalized parcel published into queued/ is.
+    await mkdir(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'integration'), {
+      recursive: true,
+    })
+    expect(await readOutboxRecipients(dir, 'review')).toEqual(['integration'])
   })
 })

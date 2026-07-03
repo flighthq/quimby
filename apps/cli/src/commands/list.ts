@@ -63,7 +63,7 @@ export async function runListCommand() {
         ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
         : dim('no defaults — run `quimby set`')
 
-      const outboxStr = outboxDrafts > 0 ? `  ${cyan(`outbox: ${outboxDrafts}`)}` : ''
+      const outboxStr = outboxDrafts > 0 ? `  ${cyan(`queued: ${outboxDrafts}`)}` : ''
 
       let pendingStr = ''
       if (pending !== null) {
