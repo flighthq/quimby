@@ -31,7 +31,7 @@ describe('runRemoveCommand', () => {
     )
   })
 
-  it('kills the tmux session for a running local agent before removing it', async () => {
+  it('warns and removes nothing without --force (destructive-action gate)', async () => {
     resolved = workspace({
       builder: { id: 'b1', name: 'builder', location: { type: 'local' }, tmux: true },
     })
@@ -39,6 +39,18 @@ describe('runRemoveCommand', () => {
     removeAgent.mockClear()
     const { default: cmd } = await import('./remove')
     await cmd.run!({ args: { name: 'builder', force: false } } as never)
+    expect(removeAgent).not.toHaveBeenCalled()
+    expect(execa).not.toHaveBeenCalled()
+  })
+
+  it('kills the tmux session for a running local agent before removing it', async () => {
+    resolved = workspace({
+      builder: { id: 'b1', name: 'builder', location: { type: 'local' }, tmux: true },
+    })
+    execa.mockClear()
+    removeAgent.mockClear()
+    const { default: cmd } = await import('./remove')
+    await cmd.run!({ args: { name: 'builder', force: true } } as never)
     const argv = execa.mock.calls[0]?.[1] as string[]
     expect(argv).toContain('kill-session')
     expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'builder')
@@ -49,7 +61,7 @@ describe('runRemoveCommand', () => {
     execa.mockClear()
     removeAgent.mockClear()
     const { default: cmd } = await import('./remove')
-    await cmd.run!({ args: { name: 'plain', force: false } } as never)
+    await cmd.run!({ args: { name: 'plain', force: true } } as never)
     expect(execa).not.toHaveBeenCalled()
     expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'plain')
   })

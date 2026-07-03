@@ -181,7 +181,7 @@ quimby set researcher --host user@box:/different/path
 quimby remove researcher --force
 ```
 
-`--force` skips the remote `rm -rf` and removes only the local state entry. Use this when the SSH host is unreachable and you want to clean up state.
+`quimby remove` is destructive, so — like `rebuild` — a bare `quimby remove <agent>` only warns and removes nothing; `--force` confirms the removal. For an SSH agent `--force` additionally skips the remote `rm -rf` and removes only the local state entry, which is what you want when the SSH host is unreachable.
 
 ## CLI Surface
 

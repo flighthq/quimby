@@ -31,7 +31,7 @@ quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's 
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
-quimby remove <agent> [--force]                      Remove agent (--force: skip remote cleanup)
+quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms, and for an SSH agent also skips remote cleanup)
 quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top
 quimby subscribe <agent> <target>                    Agent receives target's status
 quimby unsubscribe <agent> <target>                  Remove subscription

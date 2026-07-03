@@ -28,7 +28,7 @@ export default defineCommand({
     force: {
       type: 'boolean',
       alias: 'f',
-      description: 'Skip remote cleanup (use when SSH host is unreachable)',
+      description: 'Confirm removal (for an SSH agent, also skips remote cleanup)',
       default: false,
     },
   },
@@ -43,9 +43,22 @@ export async function runRemoveCommand({ args }: { args: { name: string; force: 
     throw new QuimbyError(`Agent "${args.name}" not found`)
   }
 
-  if (isSSH(agent.location) && args.force) {
-    // Host is unreachable: skip remote teardown (its tmux session and dir), remove state only.
-    // Still scrub subscriptions here since this path bypasses removeAgent.
+  // Removal is destructive, so gate it behind --force just like `rebuild`. For an SSH agent
+  // --force keeps its second duty of skipping remote cleanup, so the warning names that too.
+  if (!args.force) {
+    const remoteNote = isSSH(agent.location)
+      ? ' Its remote workspace is left in place (a forced removal skips remote cleanup).'
+      : ''
+    logger.warn(
+      `This permanently removes "${args.name}" — its repo, work, inbox, and outbox.${remoteNote} Pass --force (-f) to confirm.`,
+    )
+    return
+  }
+
+  if (isSSH(agent.location)) {
+    // A forced SSH removal skips remote teardown (its tmux session and dir) — the escape hatch
+    // for an unreachable host — and removes state only. Scrub subscriptions here since this
+    // path bypasses removeAgent.
     const s = await loadState(repoRoot)
     delete s.agents[args.name]
     removeAgentFromSubscriptions(s, args.name)
