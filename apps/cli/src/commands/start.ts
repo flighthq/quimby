@@ -25,7 +25,6 @@ export default defineCommand({
     },
     cmd: {
       type: 'string',
-      alias: 'c',
       description: 'Entrypoint command to launch (overrides the agent default)',
     },
     runtime: {

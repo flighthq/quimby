@@ -89,6 +89,11 @@ describe('run', () => {
     await expect(cmd.run!({ args: { name: 'nonexistent' } } as never)).rejects.toThrow('not found')
   })
 
+  it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
+    const { default: cmd } = await import('./run')
+    expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()
+  })
+
   it('attaches a single agent to its own session, not a dashboard, despite citty duplicating the positional', async () => {
     const { default: cmd } = await import('./run')
     // citty puts the first positional in both `name` and `_`; `run a` must attach the one

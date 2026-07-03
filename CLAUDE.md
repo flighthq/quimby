@@ -84,7 +84,7 @@ npm run exports:check   # describe-per-exported-function coverage (informational
 **CLI patterns**
 
 - CLI grammar: `verb target [qualifiers]`
-- Flags: `-x` short + `--xxx` long (e.g., `-m`/`--message`, `-c`/`--cmd`, `-s`/`--sync`)
+- Flags: `-x` short + `--xxx` long (e.g., `-m`/`--message`, `-c`/`--clear`, `-s`/`--sync`); `--cmd` is long-form only so `-c` stays reserved for `--clear` everywhere
 - Each command exports a named `run<Name>Command` function at module level (e.g. `runAddCommand`), referenced as `run:` in defineCommand — not inline
 - Prefer the unjs ecosystem (citty, consola, pathe)
 - All file paths use pathe for cross-platform consistency

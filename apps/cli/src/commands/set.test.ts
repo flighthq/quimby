@@ -14,6 +14,11 @@ describe('run', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
+  it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
+    const { default: cmd } = await import('./set')
+    expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()
+  })
+
   it('throws when agent does not exist', async () => {
     const { default: cmd } = await import('./set')
     await expect(

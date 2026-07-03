@@ -17,4 +17,8 @@ describe('run', () => {
       'Not inside a git repository',
     )
   })
+
+  it('does not alias --cmd to -c, keeping -c reserved for --clear', () => {
+    expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()
+  })
 })

@@ -42,6 +42,11 @@ describe('runStartCommand', () => {
     await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
+  it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
+    const { default: cmd } = await import('./start')
+    expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()
+  })
+
   it('no-ops when the agent is already running', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder', location: { type: 'local' } } })
     sessionState.mockResolvedValueOnce('running')

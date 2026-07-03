@@ -14,10 +14,10 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 ```
 quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
-quimby run <agent> [-c <cmd>] [-r <runtime>]        Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
-quimby start <agent> [-c <cmd>] [-r <runtime>]      Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop)
+quimby run <agent> [--cmd <cmd>] [-r <runtime>]     Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
+quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop)
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
-quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Update agent config
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Update agent config
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
@@ -59,10 +59,10 @@ All flags support `-x` short and `--xxx` long forms:
 - `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
 - `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
-- `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context)
+- `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
-- `-c` / `--cmd` (run, start, set, add — the agent's entrypoint command)
+- `--cmd` (run, start, set, add — the agent's entrypoint command; long-form only, so `-c` stays reserved for `--clear`)
 - `-r` / `--runtime` (run, start, set)
 - `-H` / `--host` (add, set)
 - `-b` / `--branch` (apply)
