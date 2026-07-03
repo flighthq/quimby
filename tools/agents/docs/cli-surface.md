@@ -8,7 +8,7 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 - **sideways**, agent → agent (direct), or host → agent: `handoff`
 - **outbox routing**, an agent's authored queue → its recipients: `dispatch`
-- **out**, agent → your repo (across the boundary): `apply`
+- **out**, agent → your repo (across the boundary): `merge` (`apply` is a deprecated alias)
 - **in**, you → an agent's task: `assign`
 
 ```
@@ -27,7 +27,8 @@ quimby diff <agent> [agent2]                         Show an agent's live diff a
 quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
-quimby apply <agent> [--commits|--patch] [--3way] [-b] [-t]   Apply the agent's work to your repo (the boundary)
+quimby merge <agent> [--commits|--patch] [--3way] [-b] [-t] [-m "..."] [--no-advance]   Merge the agent's work into your repo (the boundary); squashed by default authors one commit (editor, or -m); --advance advances the seed on a clean landing
+quimby apply <agent> …                               Deprecated alias for `quimby merge` (same flags)
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
@@ -66,18 +67,18 @@ All flags support `-x` short and `--xxx` long forms:
 - `-r` / `--runtime` (run, start, set)
 - `-H` / `--host` (add, set)
 - `--local` (set — convert an SSH agent back to local, dropping its remote location; errors if already local)
-- `-b` / `--branch` (apply)
-- `-t` / `--target` (apply)
+- `-b` / `--branch` (merge)
+- `-t` / `--target` (merge)
 - `-s` / `--sync` (add, set)
 - `--base` / `--current` (sync — retarget the sync ref; `--current` uses the host's current branch)
 - `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
 - `--to` (status — push `<from>`'s status snapshot to another agent's `inbox/status`)
 - `-i` / `--interactive` (status — page the agent's full status.md instead of the digest)
 - `--stat` (diff)
-- `--commits`, `--patch` (apply)
-- `--3way` (apply — accepted for compatibility; the merge-based flow is inherently 3-way)
+- `--commits`, `--patch` (merge)
+- `--3way` (merge — accepted for compatibility; the merge-based flow is inherently 3-way)
 - `--advance` / `--no-advance` (merge — advance the agent's seed onto a clean, committed merge that landed on its branch, on by default). Renamed from the former `--sync`/`--no-sync` so `--sync` is a ref-string everywhere and never an overloaded boolean; `--no-sync` on `merge` no longer exists.
-- `--rebase` (handoff, dispatch, apply)
+- `--rebase` (handoff, dispatch, merge)
 - `--poll` (serve)
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)
 - `--dispatch` / `--no-dispatch` (serve — auto-carry settled outbox drafts, on by default)

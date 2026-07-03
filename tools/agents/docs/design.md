@@ -27,7 +27,7 @@ A `meta.yaml` manifest (sender, recipient, `createdAt`, code source) is written 
 
 **Seed** — The `quimby/seed` git tag in each agent's repo marking the baseline. A handoff's diff is the agent's working tree (committed + uncommitted + untracked) against this tag.
 
-**Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby apply`), landing in git — the durable side of the boundary.
+**Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby merge`; `apply` is a deprecated alias), landing in git — the durable side of the boundary.
 
 **Server** — The host-side process that enables cross-agent visibility. Agents in sandboxes are isolated from each other — the server is the only entity that can see all agents. It polls for status changes and routes updates to subscribing agents.
 
@@ -188,7 +188,7 @@ quimby remove researcher --force
 
 ## CLI Surface
 
-The complete command reference, planned commands, the deferred verification guard, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`apply`), or sets a task in (`assign`).
+The complete command reference, planned commands, the deferred verification guard, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`merge`, formerly `apply`), or sets a task in (`assign`).
 
 ## No Config File (For Now)
 
@@ -242,6 +242,8 @@ The server (`quimby serve`) runs two components:
 
 ### HTTP API (localhost, default port 7749)
 
+The server prefers **7749**, but that is a preference, not a pin: when no `-p` is given and 7749 is already taken, it falls back to an OS-assigned free port rather than failing, so two workspaces can each run a server without a clash. An explicit `-p <port>` is pinned — if that port is taken the server errors cleanly instead of silently moving. The chosen port is recorded in `.quimby/server.json`, so CLI clients always find the running server regardless of which port it landed on. Stop a background server with `quimby serve --stop`.
+
 ```
 GET  /api/status                              Server health + overview
 GET  /api/agents                             All agents with cached status
@@ -284,9 +286,9 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the outbox `.sent/` ledger and inbox `.done/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active inbox/outbox parcels, `assignment.md`, and `status.md` untouched; `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
 
-## Apply (crossing the boundary)
+## Merge (crossing the boundary)
 
-`quimby apply <agent>` is the one verb that moves work **out** to the user's real repository. It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
+`quimby merge <agent>` is the one verb that moves work **out** to the user's real repository (`quimby apply` remains as a deprecated alias with the same flags). It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
 
 ### Merge-based strategy
 
@@ -329,7 +331,7 @@ Only a **fully-committed landing** (a "clean base hit") advances — squashed-co
 
 The previous approach applied the diff as a patch directly onto the target's working tree. This failed whenever the target had moved past the seed — which is the common case with multiple agents (you apply agent A's work, agent B's diff is now stale). The patch approach led to a cascade of workarounds: `--3way` mode, classification (settled/drifted/fresh), pre-emption, reduced diffs. The merge-based approach eliminates all of this by letting git do what it does best: three-way merge.
 
-Persisting an agent's work is git's job, reached through apply: `quimby apply <agent> -b feature/x` lands it on a branch you keep. There is no separate "save this work" store.
+Persisting an agent's work is git's job, reached through merge: `quimby merge <agent> -b feature/x` lands it on a branch you keep. There is no separate "save this work" store.
 
 ## Sync Targets
 
@@ -345,7 +347,7 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 - **`--base <ref>`** — retarget `syncRef` to `<ref>` (persisted), then sync onto it. The way to move an agent to a different branch. (`set --sync` records the ref without syncing.)
 - **`--current`** — sugar for `--base <the host's current branch>`, resolved once at call time. The everyday "snap onto where I am" — pair it with `-f` for the most common move after integrating (`quimby sync <agent> --current -f`: drop the agent's now-shipped work and rebase it on the branch you just landed work onto). It still **persists** the resolved branch as `syncRef`, so plain `sync` stays deterministic afterward; only the one-time read of live `HEAD` is implicit, and it errors on a detached HEAD (no branch to track). Orthogonal to `-f`: without `-f` it rebases the agent's work onto your branch; with `-f` it resets. Unlike `--base`, it is allowed with `--all` (retarget every agent onto your integration branch in one call).
 
-`--all` syncs every agent, skipping any with conflicts. Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`. The apply target is independent of `syncRef` — `quimby apply <agent> -t <branch>` lands work wherever you choose.
+`--all` syncs every agent, skipping any with conflicts. Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`. The merge target is independent of `syncRef` — `quimby merge <agent> -t <branch>` lands work wherever you choose.
 
 ## Rebuild
 
