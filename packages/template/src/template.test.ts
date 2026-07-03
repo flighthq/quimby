@@ -62,9 +62,37 @@ describe('renderAgentClaudeMd', () => {
     expect(output).toContain('status.md')
   })
 
-  it('includes inbox section', () => {
+  it('teaches the explicit-lifecycle handoff mailbox tree', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('inbox/')
+    expect(output).toContain('handoff/in/received/')
+    expect(output).toContain('handoff/in/processed/')
+    expect(output).toContain('handoff/out/draft/')
+    expect(output).toContain('handoff/out/queued/')
+    // The status mirror is its own root, not a parcel under handoff/.
+    expect(output).toContain('status/<peer>.md')
+    // The legacy layout must be gone from the instructions.
+    expect(output).not.toContain('inbox/<sender>')
+    expect(output).not.toContain('outbox/<recipient>')
+  })
+
+  it('teaches the atomic author-then-publish move for outgoing parcels', () => {
+    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
+    expect(output).toContain('mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>')
+    expect(output).toContain('atomic')
+  })
+
+  it('teaches keeping assignment.md current from direct user requests, and that writes are quiet', () => {
+    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
+    expect(output).toContain('Keeping Your Assignment Current')
+    // Direct-user-request durability (the crash-recovery gap).
+    expect(output).toContain('directly in this session')
+    // The discrimination rule: only a task-redefining change is recorded; steering is not.
+    expect(output).toContain('lean toward recording')
+    expect(output).toContain('steering')
+    // Only the user's channel changes the assignment — a peer note never does.
+    expect(output).toContain('a peer')
+    // Writes are quiet — not narrated.
+    expect(output).toContain('quiet')
   })
 
   it('mentions the repo/ directory', () => {

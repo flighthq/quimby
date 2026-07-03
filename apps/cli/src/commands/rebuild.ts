@@ -35,7 +35,7 @@ export async function runRebuildCommand({ args }: { args: { agent: string; force
 
   if (!args.force) {
     logger.warn(
-      `This recreates "${args.agent}" from scratch, discarding its work, inbox, and outbox. Pass --force (-f) to confirm.`,
+      `This recreates "${args.agent}" from scratch, discarding its work and handoff mailbox. Pass --force (-f) to confirm.`,
     )
     return
   }

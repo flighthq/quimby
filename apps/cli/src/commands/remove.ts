@@ -48,7 +48,7 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
   // Removal is destructive, so gate it behind --force just like `rebuild`.
   if (!args.force) {
     logger.warn(
-      `This permanently removes "${args.agent}" — its repo, work, inbox, and outbox. Pass --force (-f) to confirm.`,
+      `This permanently removes "${args.agent}" — its repo, work, and handoff mailbox. Pass --force (-f) to confirm.`,
     )
     return
   }

@@ -52,7 +52,7 @@ tmux is the universal substrate: every agent — local or SSH — always runs in
 The host-side process that enables everything requiring cross-agent visibility:
 
 - Polls agent `status.md` files for changes (local and SSH agents)
-- Routes status updates to subscribing agents' `inbox/status/` directories
+- Routes status updates to subscribing agents' `status/` mirror directories
 - Exposes an HTTP API on localhost for status aggregation and subscription management
 
 The server doesn't replace `run` or `start` — it enables the connections between agents that sandbox isolation otherwise prevents. Implemented.
@@ -69,7 +69,7 @@ quimby assign backend -m "..."      # works with or without server
 
 ### Local Layout
 
-An agent has two staging areas for parcels: an **outbox** (parcels it wants Quimby to carry, addressed by recipient) and an **inbox** (parcels delivered to it, named by sender + contents). Quimby picks up from the outbox and hand-delivers to the inbox.
+An agent's mailbox is a single `handoff/` tree with two trays: an **out** tray (parcels it wants Quimby to carry, addressed by recipient) and an **in** tray (parcels delivered to it, named by sender + contents). Each tray has an explicit per-state subdirectory. Quimby picks up from `out/queued/` and hand-delivers to `in/received/`.
 
 ```
 my-project/
@@ -83,21 +83,26 @@ my-project/
         assignment.md       # current task (set by `quimby assign`)
         status.md           # agent-written status (mirrored to subscribers)
         CLAUDE.md           # generated agent instructions
-        outbox/             # parcels staged for pickup, addressed by recipient
-          reviewer/         # a parcel bound for the `reviewer` agent
-            README.md       #   the note (optional; may carry `attach:` in frontmatter)
-            ...             #   any extra files (optional)
-          .sent/            # delivery receipts — parcels already carried (the progress ledger)
-            reviewer/
-        inbox/
-          frontend-a1b2c3d4/   # a parcel delivered from `frontend`
-            meta.yaml          #   manifest: from, to, createdAt, codeSource — written LAST
-            README.md          #   the note (optional)
-            squashed.diff      #   the diff (optional)
-            commits/           #   the diff as patches (optional)
-          status/              # live status mirrors from subscribed agents
-            frontend.md
-          .done/               # parcels this agent has processed
+        handoff/            # the mailbox — grouped by direction, one explicit state per level
+          out/                 # everything this agent is sending
+            draft/             #   authoring space — NOT scanned; the atomic-publish source
+              reviewer/        #     a parcel being authored for `reviewer`
+                README.md      #       the note (optional; may carry `attach:` in frontmatter)
+                ...            #       any extra files (optional)
+            queued/            #   finalized, awaiting pickup (published from draft by one `mv`)
+              reviewer/
+            sent/              #   delivery ledger — parcels already carried
+              reviewer/
+          in/                  # everything delivered to this agent
+            received/            # arrived, to process
+              frontend-a1b2c3d4/ #   a parcel delivered from `frontend`
+                meta.yaml        #     manifest: from, to, createdAt, codeSource — written LAST
+                README.md        #     the note (optional)
+                squashed.diff    #     the diff (optional)
+                commits/         #     the diff as patches (optional)
+            processed/           # parcels this agent has acted on
+        status/             # live status mirrors from subscribed agents (its own root, not a parcel)
+          frontend.md
       frontend/
         ...
   src/
@@ -105,12 +110,14 @@ my-project/
   ...
 ```
 
-Two naming schemes, deliberately, because the two staging areas answer different questions:
+The mailbox is an explicit-lifecycle tree: **state is a directory level above the party name** (`out/queued/<recipient>`, `in/received/<sender>-<hash>`), never a dot-prefix — self-documenting and collision-safe (an agent may be named anything, even `queued`). Direction (`in`/`out`) groups the two trays. Two naming schemes persist, deliberately, because the trays answer different questions:
 
-- The **outbox** is addressed by recipient (`outbox/<recipient>/`) — when authoring, the question is "who is this for".
-- The **inbox** is named by origin + contents (`inbox/<from>-<hash>/`) — when receiving, the question is "what did I get, and from whom".
+- The **out** tray is addressed by recipient (`out/queued/<recipient>/`) — when authoring, the question is "who is this for".
+- The **in** tray is named by origin + contents (`in/received/<sender>-<hash>/`) — when receiving, the question is "what did I get, and from whom".
 
-`status/` is **not** a parcel — it is a live mirror the server overwrites each poll, pulled by subscribers. Parcels are immutable, discrete deliveries; status is a continuously-updated reflection. They stay separate.
+An agent authors under `out/draft/<recipient>/` and **publishes** with a single atomic `mv` into `out/queued/`, so a partial parcel never appears as queued (see the auto-dispatch race fix in the lifecycle section).
+
+`status/` is **not** a parcel — it is a live mirror the server overwrites each poll, pulled by subscribers, so it sits at its own root outside `handoff/`. Parcels are immutable, discrete deliveries; status is a continuously-updated reflection. They stay separate.
 
 ### Remote Layout (SSH Agents)
 
@@ -127,9 +134,10 @@ SSH agents use a stable project ID to namespace the remote layout. The project I
         assignment.md
         status.md
         CLAUDE.md
-        outbox/             # picked up and carried back to the host by Quimby
-        inbox/              # parcels delivered here over transport
-          status/
+        handoff/            # same tree as local; out/queued is picked up and carried by Quimby
+          out/{draft,queued,sent}/
+          in/{received,processed}/
+        status/             # status mirrors delivered here over transport
 ```
 
 ## SSH Agents
@@ -230,11 +238,11 @@ For agent-authored routing, `quimby dispatch <agent>` enacts that agent's outbox
 quimby subscribe reviewer backend   # reviewer gets backend's status changes
 ```
 
-When backend's `status.md` changes, the server pushes a snapshot to `reviewer/inbox/status/backend.md`. For SSH agents, the server writes to the remote inbox via transport. This happens continuously without user intervention.
+When backend's `status.md` changes, the server pushes a snapshot to `reviewer/status/backend.md`. For SSH agents, the server writes to the remote status mirror via transport. This happens continuously without user intervention.
 
 Subscriptions are the "to whom it may concern" channel: an agent publishes status, and anyone who subscribed pulls it. The discernment is the subscription, set once — so broadcasts don't pile copies into every inbox or make every agent read-and-filter. Subscriptions are stored in `state.yaml` and can be added/removed whether or not the server is running. The server reloads state on each poll cycle.
 
-The server also **auto-dispatches outboxes**: on the same poll cycle it scans each agent's outbox and carries any _settled_ draft to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. A draft is dispatched only once its newest file has been unchanged for a full poll cycle; that debounce is the completion signal, keeping the server from carrying a half-written parcel while the agent is still authoring it (no `.ready` marker or agent cooperation required). Each exact draft version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored draft (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. This is **additive to** subscriptions, not a replacement: dispatch carries directed, discrete parcels; subscriptions mirror ambient status. Auto-dispatch is on by default; `quimby serve --no-dispatch` disables it, leaving only status routing.
+The server also **auto-dispatches queued parcels**: on the same poll cycle it scans each agent's `out/queued/` and carries any _settled_ parcel to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. The partial-write race is prevented **by construction**: agents author under the unscanned `out/draft/` and publish with one atomic `mv` into `out/queued/`, so a parcel appears in the queue complete or not at all. The settle-debounce is kept as a cheap **fallback** (protecting an agent that writes directly into `out/queued/`, skipping draft): a parcel is dispatched only once its newest file has been unchanged for a full poll cycle. An atomically-published parcel lands complete and settles in one cycle, so net latency is ≤1 poll cycle. Each exact parcel version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored parcel (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. This is **additive to** subscriptions, not a replacement: dispatch carries directed, discrete parcels; subscriptions mirror ambient status. Auto-dispatch is on by default; `quimby serve --no-dispatch` disables it, leaving only status routing.
 
 ## Server Architecture
 
@@ -258,8 +266,8 @@ DELETE /api/subscriptions/:subscriber/:target Remove subscription
 1. Check `state.yaml` mtime — reload if changed (picks up new agents/subscriptions)
 2. For each agent, check `status.md` (local: mtime; SSH: content comparison)
 3. If changed, read content, update cache, route to subscribers
-4. Route = write to subscriber's `inbox/status/<target>.md` (local or remote)
-5. Scan each agent's outbox; auto-dispatch any draft whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
+4. Route = write to subscriber's `status/<target>.md` mirror (local or remote)
+5. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
 
 The server writes `.quimby/server.json` (pid, port, startedAt) on startup and removes it on shutdown. CLI commands use this file to detect a running server and display its status.
 
@@ -275,16 +283,16 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 1. Resolves the diff. For `handoff A B`, that is A's working tree (committed + uncommitted + untracked) against `quimby/seed` — captured commit-free — or the `--attach` source's, with an optional `--rebase` (sync) first. For `handoff B` (host source), it is the host working tree vs B's seed, squashed. Sender name is the reserved `host`.
 2. Validates the recipient against the agent roster. An unknown recipient (a typo) is reported and nothing is carried — it bounces, never silently dropped.
-3. Assembles the parcel — note, diff — writes `meta.yaml` **last**, delivers it to `<to>/inbox/<from>-<hash>/` (local copy or rsync), then discards the staging copy.
+3. Assembles the parcel — note, diff — writes `meta.yaml` **last**, delivers it to `<to>/handoff/in/received/<from>-<hash>/` (local copy or rsync), then discards the staging copy.
 
 **Outbox routing (`quimby dispatch <agent>`).** Agent-authored routing rather than an immediate human move:
 
-- **Authoring (the agent).** Inside its sandbox an agent stages parcels in its outbox, addressed by recipient: `outbox/<recipient>/README.md` (the note) plus any files. Frontmatter `attach: <agent>` carries that agent's diff instead of the sender's own. The agent decides the routing; the host enacts it.
-- **Enacting.** `dispatch` carries every queued parcel to its addressee. An unknown recipient is **left in the outbox to fix** (bounce). On success the draft is **moved** to `outbox/.sent/<recipient>/` (timestamped) — the progress ledger: active `outbox/*` = queued, `.sent/*` = carried and when. A failed carry leaves the draft active for a clean retry.
+- **Authoring (the agent).** Inside its sandbox an agent authors a parcel under `handoff/out/draft/<recipient>/README.md` (the note) plus any files, then **publishes** it with one atomic `mv` into `handoff/out/queued/<recipient>/`. Frontmatter `attach: <agent>` carries that agent's diff instead of the sender's own. The agent decides the routing; the host enacts it.
+- **Enacting.** `dispatch` scans `out/queued/` and carries every queued parcel to its addressee. An unknown recipient is **left queued to fix** (bounce). On success the parcel is **moved** to `out/sent/<recipient>/` (timestamped) — the progress ledger: active `out/queued/*` = queued, `out/sent/*` = carried and when. A failed carry leaves the parcel queued for a clean retry.
 
-**Consumption (the recipient).** Parcels sit in `inbox/` until the agent processes them and moves them to `inbox/.done/`. Identity is content-derived, so a re-carried identical parcel overwrites in place rather than piling up.
+**Consumption (the recipient).** Parcels sit in `handoff/in/received/` until the agent processes them and moves them to `handoff/in/processed/`. Identity is content-derived, so a re-carried identical parcel overwrites in place rather than piling up.
 
-**Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the outbox `.sent/` ledger and inbox `.done/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active inbox/outbox parcels, `assignment.md`, and `status.md` untouched; `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
+**Garbage collection.** `out/sent/` and `in/processed/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the `out/sent/` ledger and `in/processed/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active queued/received parcels, `assignment.md`, and `status.md` untouched; `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
 
 ## Merge (crossing the boundary)
 
@@ -343,7 +351,7 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 `quimby sync <agent>` resolves `syncRef`'s tip _in the host repo_ (not the host's live `HEAD`, so syncing is deterministic) and brings the agent onto it, with three behaviors:
 
 - **default (safe)** — auto-stash the agent's uncommitted + untracked work, rebase its commits onto the new base, retag `quimby/seed`, then restore the stash. The agent's work is kept. A rebase or restore conflict aborts and reports, leaving the work intact.
-- **`-f` (hard)** — `reset --hard` to the base, discarding the agent's commits and working changes — but its **mailbox** (inbox/outbox/assignment/status) is untouched. For "my work shipped; snap me to the latest and keep me in the conversation."
+- **`-f` (hard)** — `reset --hard` to the base, discarding the agent's commits and working changes — but its **mailbox** (`handoff/`, `status/`, `assignment.md`, `status.md`) is untouched. For "my work shipped; snap me to the latest and keep me in the conversation."
 - **`--base <ref>`** — retarget `syncRef` to `<ref>` (persisted), then sync onto it. The way to move an agent to a different branch. (`set --sync` records the ref without syncing.)
 - **`--current`** — sugar for `--base <the host's current branch>`, resolved once at call time. The everyday "snap onto where I am" — pair it with `-f` for the most common move after integrating (`quimby sync <agent> --current -f`: drop the agent's now-shipped work and rebase it on the branch you just landed work onto). It still **persists** the resolved branch as `syncRef`, so plain `sync` stays deterministic afterward; only the one-time read of live `HEAD` is implicit, and it errors on a detached HEAD (no branch to track). Orthogonal to `-f`: without `-f` it rebases the agent's work onto your branch; with `-f` it resets. Unlike `--base`, it is allowed with `--all` (retarget every agent onto your integration branch in one call).
 
@@ -351,7 +359,7 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 
 ## Rebuild
 
-`quimby rebuild <agent> --force` recreates the agent: it deletes the agent's repo, re-clones from the current source, **clears its mailbox** (inbox/outbox), and resets assignment/status to empty/idle. `--force` is required. This is for "this agent is done or broken — start a blank one." When you only want to reset the _code_ but keep the agent in the conversation, `sync -f` is the gentler tool (it leaves the mailbox alone).
+`quimby rebuild <agent> --force` recreates the agent: it deletes the agent's repo, re-clones from the current source, **clears its mailbox** (`handoff/` and `status/`), and resets assignment/status to empty/idle. `--force` is required. This is for "this agent is done or broken — start a blank one." When you only want to reset the _code_ but keep the agent in the conversation, `sync -f` is the gentler tool (it leaves the mailbox alone).
 
 For SSH agents, rebuild rsyncs the latest source to the remote, deletes and re-clones the remote repo, retags `quimby/seed`, and clears the remote mailbox.
 
@@ -365,4 +373,4 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 
 ## Key Design Decisions
 
-The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; addressed-outbox / content-named-inbox; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-apply-by-default; apply-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; auto-dispatch-vs-subscribe; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.
+The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; the explicit-lifecycle `handoff/` tree (no dot-dirs); addressed-out / content-named-in; author-then-publish atomic rename; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-apply-by-default; apply-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; auto-dispatch-vs-subscribe; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.
