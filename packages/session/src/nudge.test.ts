@@ -225,4 +225,16 @@ describe('nudgeAgentSession', () => {
     expect(sentKeys).toBe(false)
     expect(events.some((e) => e.level === 'warn' && e.message.includes("isn't running"))).toBe(true)
   })
+
+  it('points a stopped agent at `quimby start` (headless), not `quimby run`', async () => {
+    execa.mockImplementation(async (_cmd: string, args: string[] = []) => {
+      if (args.includes('has-session')) throw new Error('no session')
+      return {}
+    })
+    const { reporter, events } = collectingReporter()
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+    const warn = events.find((e) => e.level === 'warn')?.message ?? ''
+    expect(warn).toContain('quimby start reviewer')
+    expect(warn).not.toContain('quimby run')
+  })
 })

@@ -140,7 +140,7 @@ export async function nudgeAgentSession(opts: {
 
   reporter.warn(
     `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
-      `(it'll see it on its next run; start it with \`quimby run ${displayName}\`).`,
+      `(it'll see it on its next run; bring it up headless with \`quimby start ${displayName}\`).`,
   )
 }
 
