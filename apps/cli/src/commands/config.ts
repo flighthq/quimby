@@ -12,7 +12,7 @@ export default defineCommand({
     description: 'Configure an agent interactively (runtime, entrypoint, location, …)',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -21,15 +21,15 @@ export default defineCommand({
   run: runConfigCommand,
 })
 
-export async function runConfigCommand({ args }: { args: { name: string } }) {
+export async function runConfigCommand({ args }: { args: { agent: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
-  const config = await runAgentWalkthrough(args.name, {
+  const config = await runAgentWalkthrough(args.agent, {
     runtime: agent.defaults?.runtime,
     entrypoint: agent.defaults?.entrypoint,
     location: agent.location,
@@ -37,15 +37,15 @@ export async function runConfigCommand({ args }: { args: { name: string } }) {
   })
   if (!config) return
 
-  await setAgentDefaults(repoRoot, args.name, {
+  await setAgentDefaults(repoRoot, args.agent, {
     runtime: config.runtime,
     entrypoint: config.entrypoint,
   })
-  await setAgentLocation(repoRoot, args.name, config.location ?? { type: 'local' })
-  await setAgentTmux(repoRoot, args.name, config.tmux ?? false)
+  await setAgentLocation(repoRoot, args.agent, config.location ?? { type: 'local' })
+  await setAgentTmux(repoRoot, args.agent, config.tmux ?? false)
   if (config.syncRef) {
-    await setAgentSyncRef(repoRoot, args.name, config.syncRef)
+    await setAgentSyncRef(repoRoot, args.agent, config.syncRef)
   }
 
-  logger.success(`Agent "${args.name}" configured`)
+  logger.success(`Agent "${args.agent}" configured`)
 }

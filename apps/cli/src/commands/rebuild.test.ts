@@ -16,7 +16,7 @@ describe('run', () => {
 
   it('throws when the agent does not exist', async () => {
     const { default: cmd } = await import('./rebuild')
-    await expect(cmd.run!({ args: { name: 'ghost', force: true } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'ghost', force: true } } as never)).rejects.toThrow(
       'not found',
     )
   })

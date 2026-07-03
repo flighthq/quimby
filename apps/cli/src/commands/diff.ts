@@ -85,7 +85,7 @@ export default defineCommand({
     description: "Show an agent's changes against its seed",
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -107,39 +107,39 @@ export default defineCommand({
 export async function runDiffCommand({
   args,
 }: {
-  args: { name: string; other?: string; stat: boolean }
+  args: { agent: string; other?: string; stat: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (args.other) {
     const [diffA, diffB] = await Promise.all([
-      getDiff(repoRoot, args.name, state, args.stat),
+      getDiff(repoRoot, args.agent, state, args.stat),
       getDiff(repoRoot, args.other, state, args.stat),
     ])
 
     const render = (d: string) => (d ? (args.stat ? d : colorizeDiff(d)) : '  (no changes)')
     await page(
-      `${bold(`═══ ${args.name} ═══`)}\n${render(diffA)}\n\n` +
+      `${bold(`═══ ${args.agent} ═══`)}\n${render(diffA)}\n\n` +
         `${bold(`═══ ${args.other} ═══`)}\n${render(diffB)}`,
     )
     return
   }
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   // A merge-state header + commit list frame the diff: what's unmerged at a glance
   // (files / commits / ±lines) and which commits carry it, before the patch itself.
   const [diff, summary, commits] = await Promise.all([
-    getDiff(repoRoot, args.name, state, args.stat),
+    getDiff(repoRoot, args.agent, state, args.stat),
     getAgentWorkSummary(repoRoot, state.id, agent),
     getCommitSubjects(repoRoot, state.id, agent),
   ])
 
   const header = [
-    `${bold(args.name)}  ${dim(formatWorkSummary(summary))}`,
+    `${bold(args.agent)}  ${dim(formatWorkSummary(summary))}`,
     ...commits.map((c) => `  ${dim(c)}`),
   ].join('\n')
 

@@ -18,7 +18,7 @@ export default defineCommand({
     description: 'Wake a running agent by typing a message into its tmux session',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent to nudge (omit when using --all)',
       required: false,
@@ -47,7 +47,7 @@ export default defineCommand({
 export async function runNudgeCommand({
   args,
 }: {
-  args: { name?: string; message?: string; clear: boolean; all: boolean }
+  args: { agent?: string; message?: string; clear: boolean; all: boolean }
 }) {
   const { state } = await resolveWorkspace()
 
@@ -89,19 +89,19 @@ export async function runNudgeCommand({
     return
   }
 
-  if (!args.name) {
+  if (!args.agent) {
     throw new QuimbyError('Provide an agent name, or --all to broadcast to every tmux/SSH agent.')
   }
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   await nudgeAgentSession({
     agent,
     clear: args.clear,
-    displayName: args.name,
+    displayName: args.agent,
     text,
     dashboardSession: dashSession,
     reporter: consolaReporter,

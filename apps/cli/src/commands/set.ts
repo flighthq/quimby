@@ -14,7 +14,7 @@ export default defineCommand({
     description: 'Update agent config',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -55,7 +55,7 @@ export async function runSetCommand({
   args,
 }: {
   args: {
-    name: string
+    agent: string
     runtime?: string
     cmd?: string
     host?: string
@@ -66,9 +66,9 @@ export async function runSetCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   if (
@@ -99,21 +99,21 @@ export async function runSetCommand({
     const updates: { runtime?: string; entrypoint?: string } = {}
     if (args.runtime) updates.runtime = args.runtime
     if (args.cmd) updates.entrypoint = args.cmd
-    await setAgentDefaults(repoRoot, args.name, updates)
+    await setAgentDefaults(repoRoot, args.agent, updates)
   }
 
   if (args.sync !== undefined) {
     if (!args.sync) {
       throw new QuimbyError('--sync requires a ref (e.g. main, release)')
     }
-    await setAgentSyncRef(repoRoot, args.name, args.sync)
+    await setAgentSyncRef(repoRoot, args.agent, args.sync)
   }
 
   if (args.local) {
     if (!isSSH(agent.location)) {
-      throw new QuimbyError(`Agent "${args.name}" is already local`)
+      throw new QuimbyError(`Agent "${args.agent}" is already local`)
     }
-    await setAgentLocation(repoRoot, args.name, { type: 'local' })
+    await setAgentLocation(repoRoot, args.agent, { type: 'local' })
   }
 
   if (args.host || args.port) {
@@ -124,8 +124,8 @@ export async function runSetCommand({
     if (!location) {
       throw new QuimbyError('Agent has no SSH host — provide --host to set one')
     }
-    await setAgentLocation(repoRoot, args.name, location)
+    await setAgentLocation(repoRoot, args.agent, location)
   }
 
-  logger.success(`Agent "${args.name}" updated`)
+  logger.success(`Agent "${args.agent}" updated`)
 }

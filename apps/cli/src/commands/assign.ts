@@ -11,7 +11,7 @@ export default defineCommand({
     description: "Set an agent's current task",
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -45,7 +45,7 @@ export default defineCommand({
 export async function runAssignCommand({
   args,
 }: {
-  args: { name: string; message?: string; nudge: boolean; sync: boolean; clear: boolean }
+  args: { agent: string; message?: string; nudge: boolean; sync: boolean; clear: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -53,7 +53,7 @@ export async function runAssignCommand({
     {
       state,
       repoRoot,
-      name: args.name,
+      name: args.agent,
       message: args.message,
       sync: args.sync,
       nudge: args.nudge,
@@ -63,9 +63,9 @@ export async function runAssignCommand({
 
   if (result.nudgeText !== null) {
     await nudgeAgentSession({
-      agent: state.agents[args.name],
+      agent: state.agents[args.agent],
       clear: args.clear,
-      displayName: args.name,
+      displayName: args.agent,
       text: result.nudgeText,
       reporter: consolaReporter,
     })

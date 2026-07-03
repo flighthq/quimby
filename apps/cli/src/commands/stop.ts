@@ -14,7 +14,7 @@ export default defineCommand({
     description: "Kill an agent's tmux session (headless or attached)",
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -23,22 +23,22 @@ export default defineCommand({
   run: runStopCommand,
 })
 
-export async function runStopCommand({ args }: { args: { name: string } }) {
+export async function runStopCommand({ args }: { args: { agent: string } }) {
   const { state } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   const session = tmuxSessionName(agent.id)
   const state0 = await getAgentSessionState(agent)
   if (state0 === 'stopped') {
-    logger.info(`"${args.name}" isn't running (no tmux session "${session}").`)
+    logger.info(`"${args.agent}" isn't running (no tmux session "${session}").`)
     return
   }
   if (state0 === 'attached') {
-    logger.warn(`"${args.name}" is attached — stopping it will drop any client in \`quimby run\`.`)
+    logger.warn(`"${args.agent}" is attached — stopping it will drop any client in \`quimby run\`.`)
   }
 
   // kill-session tears down the whole session (its running entrypoint included); the
@@ -51,5 +51,5 @@ export async function runStopCommand({ args }: { args: { name: string } }) {
     await execa('tmux', ['-L', quimbyTmuxSocket, 'kill-session', '-t', session])
   }
 
-  logger.success(`Stopped "${args.name}" (killed tmux session "${session}").`)
+  logger.success(`Stopped "${args.agent}" (killed tmux session "${session}").`)
 }

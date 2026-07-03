@@ -20,7 +20,7 @@ export default defineCommand({
     description: 'Remove an agent',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -35,12 +35,12 @@ export default defineCommand({
   run: runRemoveCommand,
 })
 
-export async function runRemoveCommand({ args }: { args: { name: string; force: boolean } }) {
+export async function runRemoveCommand({ args }: { args: { agent: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   // Removal is destructive, so gate it behind --force just like `rebuild`. For an SSH agent
@@ -50,7 +50,7 @@ export async function runRemoveCommand({ args }: { args: { name: string; force: 
       ? ' Its remote workspace is left in place (a forced removal skips remote cleanup).'
       : ''
     logger.warn(
-      `This permanently removes "${args.name}" — its repo, work, inbox, and outbox.${remoteNote} Pass --force (-f) to confirm.`,
+      `This permanently removes "${args.agent}" — its repo, work, inbox, and outbox.${remoteNote} Pass --force (-f) to confirm.`,
     )
     return
   }
@@ -60,10 +60,10 @@ export async function runRemoveCommand({ args }: { args: { name: string; force: 
     // for an unreachable host — and removes state only. Scrub subscriptions here since this
     // path bypasses removeAgent.
     const s = await loadState(repoRoot)
-    delete s.agents[args.name]
-    removeAgentFromSubscriptions(s, args.name)
+    delete s.agents[args.agent]
+    removeAgentFromSubscriptions(s, args.agent)
     await saveState(repoRoot, s)
-    logger.success(`Agent "${args.name}" removed from state (remote dir not cleaned up)`)
+    logger.success(`Agent "${args.agent}" removed from state (remote dir not cleaned up)`)
     return
   }
 
@@ -71,8 +71,8 @@ export async function runRemoveCommand({ args }: { args: { name: string; force: 
   // doesn't leave an orphaned process pointing at a directory that no longer exists.
   await killAgentSession(agent)
 
-  await removeAgent(repoRoot, args.name)
-  logger.success(`Agent "${args.name}" removed`)
+  await removeAgent(repoRoot, args.agent)
+  logger.success(`Agent "${args.agent}" removed`)
 }
 
 /**

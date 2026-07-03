@@ -11,7 +11,7 @@ export default defineCommand({
       'Recreate an agent from current source (destructive — discards its work and mailbox)',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -26,24 +26,24 @@ export default defineCommand({
   run: runRebuildCommand,
 })
 
-export async function runRebuildCommand({ args }: { args: { name: string; force: boolean } }) {
+export async function runRebuildCommand({ args }: { args: { agent: string; force: boolean } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (!state.agents[args.name]) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+  if (!state.agents[args.agent]) {
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   if (!args.force) {
     logger.warn(
-      `This recreates "${args.name}" from scratch, discarding its work, inbox, and outbox. Pass --force (-f) to confirm.`,
+      `This recreates "${args.agent}" from scratch, discarding its work, inbox, and outbox. Pass --force (-f) to confirm.`,
     )
     return
   }
 
-  await rebuildAgent(repoRoot, args.name)
+  await rebuildAgent(repoRoot, args.agent)
 
   const newState = await loadState(repoRoot)
-  const newSeed = newState.agents[args.name].seedCommit
+  const newSeed = newState.agents[args.agent].seedCommit
 
-  logger.success(`Agent "${args.name}" rebuilt (seed: ${newSeed.slice(0, 8)})`)
+  logger.success(`Agent "${args.agent}" rebuilt (seed: ${newSeed.slice(0, 8)})`)
 }

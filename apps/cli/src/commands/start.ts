@@ -18,7 +18,7 @@ export default defineCommand({
     description: 'Launch an agent headless in a detached tmux session',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -39,13 +39,13 @@ export default defineCommand({
 export async function runStartCommand({
   args,
 }: {
-  args: { name: string; cmd?: string; runtime?: string }
+  args: { agent: string; cmd?: string; runtime?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   // Headless launch means "already up" is a no-op, not a second session — a detached
@@ -53,8 +53,8 @@ export async function runStartCommand({
   const existing = await getAgentSessionState(agent)
   if (existing !== 'stopped') {
     logger.info(
-      `"${args.name}" is already ${existing} (tmux session "${tmuxSessionName(agent.id)}") — ` +
-        `nudge or assign it, or \`quimby run ${args.name}\` to attach.`,
+      `"${args.agent}" is already ${existing} (tmux session "${tmuxSessionName(agent.id)}") — ` +
+        `nudge or assign it, or \`quimby run ${args.agent}\` to attach.`,
     )
     return
   }
@@ -90,7 +90,7 @@ export async function runStartCommand({
     ].join(' ')
     await launch.transport.exec(cmd)
 
-    reportStarted(args.name, launch.sessionName, launch.host, launch.runtimeLabel)
+    reportStarted(args.agent, launch.sessionName, launch.host, launch.runtimeLabel)
     return
   }
 
@@ -98,22 +98,22 @@ export async function runStartCommand({
   // into tmux is enrolled now (persisted) — otherwise `run`/`nudge`/`list` wouldn't
   // recognize the very session `start` just created.
   if (!agent.tmux) {
-    state.agents[args.name].tmux = true
+    state.agents[args.agent].tmux = true
     await saveState(repoRoot, state)
-    logger.info(`Enabled tmux for "${args.name}" (headless start runs in a tmux session).`)
+    logger.info(`Enabled tmux for "${args.agent}" (headless start runs in a tmux session).`)
   }
 
   const launch = await prepareLocalTmuxLaunch({
     state,
     repoRoot,
-    agent: state.agents[args.name],
+    agent: state.agents[args.agent],
     cmd: args.cmd,
     runtime: args.runtime,
   })
 
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))
 
-  reportStarted(args.name, launch.sessionName, undefined, launch.runtimeLabel)
+  reportStarted(args.agent, launch.sessionName, undefined, launch.runtimeLabel)
 }
 
 function reportStarted(

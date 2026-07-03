@@ -36,7 +36,7 @@ describe('run', () => {
   it('throws QuimbyError when agent does not exist', async () => {
     const { default: cmd } = await import('./assign')
     await expect(
-      cmd.run!({ args: { name: 'nonexistent', message: 'hello', nudge: false } } as never),
+      cmd.run!({ args: { agent: 'nonexistent', message: 'hello', nudge: false } } as never),
     ).rejects.toThrow('not found')
   })
 
@@ -55,7 +55,7 @@ describe('run', () => {
     } as never)
     const { default: cmd } = await import('./assign')
     await cmd.run!({
-      args: { name: 'builder', message: 'do it', nudge: true, sync: true, clear: false },
+      args: { agent: 'builder', message: 'do it', nudge: true, sync: true, clear: false },
     } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
     expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
@@ -74,7 +74,7 @@ describe('run', () => {
     } as never)
     const { default: cmd } = await import('./assign')
     await cmd.run!({
-      args: { name: 'builder', message: 'do it', nudge: true, sync: true, clear: false },
+      args: { agent: 'builder', message: 'do it', nudge: true, sync: true, clear: false },
     } as never)
     expect(nudgeAgentSession).not.toHaveBeenCalled()
   })

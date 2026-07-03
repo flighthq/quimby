@@ -86,7 +86,7 @@ describe('run', () => {
 
   it('throws when agent does not exist', async () => {
     const { default: cmd } = await import('./run')
-    await expect(cmd.run!({ args: { name: 'nonexistent' } } as never)).rejects.toThrow('not found')
+    await expect(cmd.run!({ args: { agent: 'nonexistent' } } as never)).rejects.toThrow('not found')
   })
 
   it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
@@ -98,7 +98,7 @@ describe('run', () => {
     const { default: cmd } = await import('./run')
     // citty puts the first positional in both `name` and `_`; `run a` must attach the one
     // agent's own tmux session, not spin up a dashboard.
-    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     expect(h.calls.some((c) => c.includes('link-window'))).toBe(false)
     const created = h.calls
       .filter((c) => c.includes('new-session'))
@@ -110,7 +110,7 @@ describe('run', () => {
     const { default: cmd } = await import('./run')
     // Duplicated positional + a real second agent: the dashboard must link "a" a single
     // time (regression: the first agent got its own window twice).
-    await cmd.run!({ args: { name: 'a', _: ['a', 'a', 'b'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a', 'a', 'b'] } } as never)
     const links = h.calls.filter((a) => a.includes('link-window'))
     expect(links).toHaveLength(2)
     expect(links.filter((a) => a.some((x) => x.endsWith(':a')))).toHaveLength(1)
@@ -119,7 +119,7 @@ describe('run', () => {
   it('inside the quimby dashboard, adds the agent as a tab instead of a nested attach', async () => {
     process.env.TMUX = '/tmp/tmux-1000/quimby,42,0' // socket basename "quimby" ⇒ nested
     const { default: cmd } = await import('./run')
-    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     // Never attaches (that would steal the dashboard client and trip its self-destruct hook)
     // and never kills a session (the old bug tore the whole dashboard down).
     expect(h.calls.some((c) => c.includes('attach'))).toBe(false)
@@ -132,7 +132,7 @@ describe('run', () => {
   it('outside quimby tmux, a foreign $TMUX does not trigger the in-dashboard jump', async () => {
     process.env.TMUX = '/tmp/tmux-1000/default,42,0' // the user's own tmux, not quimby's
     const { default: cmd } = await import('./run')
-    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     // Normal single-agent path: attaches its own session, no link-window jump.
     expect(h.calls.some((c) => c.includes('link-window'))).toBe(false)
     const created = h.calls
@@ -145,7 +145,7 @@ describe('run', () => {
     h.sessions.add(tmuxSessionName('id-a')) // session held alive...
     h.dead = true // ...but its agent process has exited (a dead pane)
     const { default: cmd } = await import('./run')
-    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     // respawn-window replays quimby's own launch command in place — no tmux key, no user
     // reconstruction; `quimby run` alone delivers a running agent.
     expect(h.calls.some((c) => c.includes('respawn-window'))).toBe(true)
@@ -155,14 +155,14 @@ describe('run', () => {
     h.sessions.add(tmuxSessionName('id-a'))
     h.dead = false // agent still running
     const { default: cmd } = await import('./run')
-    await cmd.run!({ args: { name: 'a', _: ['a'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     expect(h.calls.some((c) => c.includes('respawn-window'))).toBe(false)
   })
 
   it('reuses a running per-agent session instead of restarting it', async () => {
     const { default: cmd } = await import('./run')
     h.sessions.add(tmuxSessionName('id-a')) // agent "a" already has a live session
-    await cmd.run!({ args: { name: 'a', _: ['a', 'b'] } } as never)
+    await cmd.run!({ args: { agent: 'a', _: ['a', 'b'] } } as never)
     // so no new-session is created for it — only "b" (and the dashboard) get created.
     const created = h.calls
       .filter((c) => c.includes('new-session'))

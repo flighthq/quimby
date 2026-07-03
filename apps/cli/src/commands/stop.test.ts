@@ -24,7 +24,7 @@ describe('runStopCommand', () => {
   it('throws when the agent does not exist', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./stop')
-    await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
+    await expect(cmd.run!({ args: { agent: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
   it('does not kill a session when the agent is already stopped', async () => {
@@ -32,7 +32,7 @@ describe('runStopCommand', () => {
     sessionState.mockResolvedValueOnce('stopped')
     execa.mockClear()
     const { default: cmd } = await import('./stop')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(execa).not.toHaveBeenCalled()
   })
 
@@ -41,7 +41,7 @@ describe('runStopCommand', () => {
     sessionState.mockResolvedValueOnce('running')
     execa.mockClear()
     const { default: cmd } = await import('./stop')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
     const argv = execa.mock.calls[0][1] as string[]
     expect(argv).toContain('kill-session')
   })

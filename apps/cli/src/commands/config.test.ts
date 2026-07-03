@@ -28,7 +28,7 @@ describe('runConfigCommand', () => {
   it('throws when the agent does not exist', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./config')
-    await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
+    await expect(cmd.run!({ args: { agent: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
   it('does nothing when the walkthrough is cancelled', async () => {
@@ -37,7 +37,7 @@ describe('runConfigCommand', () => {
     setAgentDefaults.mockClear()
     setAgentLocation.mockClear()
     const { default: cmd } = await import('./config')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(setAgentDefaults).not.toHaveBeenCalled()
     expect(setAgentLocation).not.toHaveBeenCalled()
   })
@@ -49,7 +49,7 @@ describe('runConfigCommand', () => {
     setAgentTmux.mockClear()
     setAgentSyncRef.mockClear()
     const { default: cmd } = await import('./config')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
 
     expect(setAgentLocation).toHaveBeenCalledWith('/repo', 'builder', { type: 'local' })
     expect(setAgentTmux).toHaveBeenCalledWith('/repo', 'builder', false)
@@ -67,7 +67,7 @@ describe('runConfigCommand', () => {
     })
     setAgentSyncRef.mockClear()
     const { default: cmd } = await import('./config')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(setAgentSyncRef).toHaveBeenCalledWith('/repo', 'builder', 'release')
   })
 })

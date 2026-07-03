@@ -15,7 +15,7 @@ export default defineCommand({
     description: 'Create a new agent',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Name for the agent',
       required: true,
@@ -51,7 +51,7 @@ export async function runAddCommand({
   args,
 }: {
   args: {
-    name: string
+    agent: string
     runtime?: string
     cmd?: string
     host?: string
@@ -86,7 +86,7 @@ export async function runAddCommand({
     }
     syncRef = args.sync
   } else {
-    const config = await runAgentWalkthrough(args.name)
+    const config = await runAgentWalkthrough(args.agent)
     if (!config) return
     defaults = { runtime: config.runtime, entrypoint: config.entrypoint }
     location = config.location
@@ -94,7 +94,7 @@ export async function runAddCommand({
     tmux = config.tmux
   }
 
-  const agentState = await addAgent(repoRoot, args.name, {
+  const agentState = await addAgent(repoRoot, args.agent, {
     defaults,
     location,
     ...(syncRef ? { syncRef } : {}),
@@ -107,7 +107,7 @@ export async function runAddCommand({
     : ''
 
   logger.success(
-    `Agent "${args.name}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
+    `Agent "${args.agent}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
   )
   if (location) {
     logger.info('Remote agent created — run `quimby run` to sync and initialize.')

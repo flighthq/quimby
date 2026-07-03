@@ -17,7 +17,7 @@ export default defineCommand({
     description: "Show an agent's live tmux output (visible screen + scrollback)",
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name',
       required: true,
@@ -26,12 +26,12 @@ export default defineCommand({
   run: runLogCommand,
 })
 
-export async function runLogCommand({ args }: { args: { name: string } }) {
+export async function runLogCommand({ args }: { args: { agent: string } }) {
   const { state } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   const session = tmuxSessionName(agent.id)
@@ -58,14 +58,14 @@ export async function runLogCommand({ args }: { args: { name: string } }) {
     }
   } catch {
     throw new QuimbyError(
-      `"${args.name}" has no live tmux session "${session}" — start it with ` +
-        `\`quimby start ${args.name}\` or \`quimby run ${args.name}\`.`,
+      `"${args.agent}" has no live tmux session "${session}" — start it with ` +
+        `\`quimby start ${args.agent}\` or \`quimby run ${args.agent}\`.`,
     )
   }
 
   const text = output.replace(ANSI, '').trimEnd()
   if (!text) {
-    console.log(`(no output captured from "${args.name}")`)
+    console.log(`(no output captured from "${args.agent}")`)
     return
   }
   await page(text)

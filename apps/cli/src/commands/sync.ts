@@ -11,7 +11,7 @@ export default defineCommand({
       'Sync agent(s) to their base, keeping their work (-f hard-resets; --base/--current retarget)',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name(s) to sync (omit with --all)',
       required: false,
@@ -44,7 +44,7 @@ export async function runSyncCommand({
   args,
 }: {
   args: {
-    name?: string
+    agent?: string
     _?: string[]
     all: boolean
     force: boolean
@@ -54,9 +54,9 @@ export async function runSyncCommand({
 }): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
 
-  // citty puts every positional in `args._` (including the one bound to `name`), so
+  // citty puts every positional in `args._` (including the one bound to `agent`), so
   // dedupe to avoid syncing the first agent twice.
-  const names = [...new Set([args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))]
+  const names = [...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))]
 
   await syncAgents(
     {

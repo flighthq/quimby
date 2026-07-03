@@ -11,7 +11,7 @@ export default defineCommand({
     description: 'Rename an agent',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Current agent name',
       required: true,
@@ -25,16 +25,16 @@ export default defineCommand({
   run: runRenameCommand,
 })
 
-export async function runRenameCommand({ args }: { args: { name: string; newName: string } }) {
+export async function runRenameCommand({ args }: { args: { agent: string; newName: string } }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
-  await renameAgent(repoRoot, args.name, args.newName)
-  logger.success(`Agent "${args.name}" renamed to "${args.newName}"`)
+  await renameAgent(repoRoot, args.agent, args.newName)
+  logger.success(`Agent "${args.agent}" renamed to "${args.newName}"`)
 
   // Rename is a pure relabel keyed by the stable UUID, so a live session survives it — but its
   // tmux window still shows the old label until the next run. Push the new name onto the live

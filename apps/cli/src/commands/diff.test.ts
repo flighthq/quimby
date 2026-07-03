@@ -20,7 +20,7 @@ describe('run', () => {
   it('throws when workspace is missing', async () => {
     resolved = new Error('No quimby workspace found')
     const { default: cmd } = await import('./diff')
-    await expect(cmd.run!({ args: { name: 'alice', stat: false } } as never)).rejects.toThrow()
+    await expect(cmd.run!({ args: { agent: 'alice', stat: false } } as never)).rejects.toThrow()
   })
 
   it('throws a QuimbyError with the standard wording for an unknown agent', async () => {
@@ -29,9 +29,9 @@ describe('run', () => {
     resolved = { state: { id: 'p', agents: {} }, repoRoot: '/fake/root' }
     const { default: cmd } = await import('./diff')
     await expect(
-      cmd.run!({ args: { name: 'ghost', stat: false } } as never),
+      cmd.run!({ args: { agent: 'ghost', stat: false } } as never),
     ).rejects.toBeInstanceOf(QuimbyError)
-    await expect(cmd.run!({ args: { name: 'ghost', stat: false } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'ghost', stat: false } } as never)).rejects.toThrow(
       'Agent "ghost" not found',
     )
   })

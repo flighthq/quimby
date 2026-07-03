@@ -37,7 +37,7 @@ describe('run', () => {
     resolved = workspace({})
     const { default: cmd } = await import('./set')
     await expect(
-      cmd.run!({ args: { name: 'nonexistent', runtime: 'local' } } as never),
+      cmd.run!({ args: { agent: 'nonexistent', runtime: 'local' } } as never),
     ).rejects.toThrow('not found')
   })
 
@@ -45,14 +45,14 @@ describe('run', () => {
     resolved = workspace({ researcher: { location: { type: 'ssh', host: 'user@box' } } })
     setAgentLocation.mockClear()
     const { default: cmd } = await import('./set')
-    await cmd.run!({ args: { name: 'researcher', local: true } } as never)
+    await cmd.run!({ args: { agent: 'researcher', local: true } } as never)
     expect(setAgentLocation).toHaveBeenCalledWith('/fake/root', 'researcher', { type: 'local' })
   })
 
   it('--local errors clearly when the agent is already local', async () => {
     resolved = workspace({ builder: { location: { type: 'local' } } })
     const { default: cmd } = await import('./set')
-    await expect(cmd.run!({ args: { name: 'builder', local: true } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'builder', local: true } } as never)).rejects.toThrow(
       'already local',
     )
   })
@@ -61,7 +61,7 @@ describe('run', () => {
     resolved = workspace({ researcher: { location: { type: 'ssh', host: 'user@box' } } })
     const { default: cmd } = await import('./set')
     await expect(
-      cmd.run!({ args: { name: 'researcher', local: true, host: 'user@other' } } as never),
+      cmd.run!({ args: { agent: 'researcher', local: true, host: 'user@other' } } as never),
     ).rejects.toThrow('cannot be combined')
   })
 })

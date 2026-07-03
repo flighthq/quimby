@@ -16,7 +16,7 @@ describe('run', () => {
 
   it('throws when the agent does not exist', async () => {
     const { default: cmd } = await import('./nudge')
-    await expect(cmd.run!({ args: { name: 'ghost', all: false } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'ghost', all: false } } as never)).rejects.toThrow(
       'not found',
     )
   })

@@ -25,7 +25,7 @@ export default defineCommand({
     description: 'Inspect agents: an orchestration overview, or one agent in depth',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent to deep-dive (omit for the overview of all agents)',
       required: false,
@@ -48,17 +48,17 @@ export default defineCommand({
 export async function runStatusCommand({
   args,
 }: {
-  args: { name?: string; interactive?: boolean; to?: string }
+  args: { agent?: string; interactive?: boolean; to?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
   if (args.to) {
-    await pushStatus(repoRoot, state, args.name, args.to)
+    await pushStatus(repoRoot, state, args.agent, args.to)
     return
   }
 
-  if (args.name) {
-    await renderDeepDive(repoRoot, state, args.name, args.interactive ?? false)
+  if (args.agent) {
+    await renderDeepDive(repoRoot, state, args.agent, args.interactive ?? false)
     return
   }
 

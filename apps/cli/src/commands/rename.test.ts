@@ -33,7 +33,7 @@ describe('run', () => {
     resolved = workspace({})
     const { default: cmd } = await import('./rename')
     await expect(
-      cmd.run!({ args: { name: 'nonexistent', newName: 'bob' } } as never),
+      cmd.run!({ args: { agent: 'nonexistent', newName: 'bob' } } as never),
     ).rejects.toThrow()
   })
 
@@ -44,7 +44,7 @@ describe('run', () => {
     renameAgent.mockClear()
     renameAgentWindow.mockClear()
     const { default: cmd } = await import('./rename')
-    await cmd.run!({ args: { name: 'old', newName: 'new' } } as never)
+    await cmd.run!({ args: { agent: 'old', newName: 'new' } } as never)
     expect(renameAgent).toHaveBeenCalledWith('/fake/root', 'old', 'new')
     expect(renameAgentWindow).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), 'new')
   })

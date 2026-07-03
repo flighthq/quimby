@@ -44,7 +44,7 @@ describe('runStatusCommand', () => {
   it('throws QuimbyError for an unknown agent in the deep-dive', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./status')
-    await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
+    await expect(cmd.run!({ args: { agent: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
   it('pushes a source agent status to a recipient with --to', async () => {
@@ -54,7 +54,7 @@ describe('runStatusCommand', () => {
     })
     deliverStatusSnapshot.mockClear()
     const { default: cmd } = await import('./status')
-    await cmd.run!({ args: { name: 'builder', to: 'reviewer' } } as never)
+    await cmd.run!({ args: { agent: 'builder', to: 'reviewer' } } as never)
     expect(deliverStatusSnapshot).toHaveBeenCalledTimes(1)
     expect(deliverStatusSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ fromName: 'builder' }),
@@ -70,7 +70,7 @@ describe('runStatusCommand', () => {
   it('errors when the --to recipient is unknown', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder', location: { type: 'local' } } })
     const { default: cmd } = await import('./status')
-    await expect(cmd.run!({ args: { name: 'builder', to: 'ghost' } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'builder', to: 'ghost' } } as never)).rejects.toThrow(
       'not found',
     )
   })

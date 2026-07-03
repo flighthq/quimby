@@ -36,7 +36,7 @@ export default defineCommand({
       'expression like "a b | c d" opens a multi-panel dashboard)',
   },
   args: {
-    name: {
+    agent: {
       type: 'positional',
       description: 'Agent name(s)',
       required: true,
@@ -62,12 +62,12 @@ export default defineCommand({
 export async function runRunCommand({
   args,
 }: {
-  args: { name: string; _?: string[]; cmd?: string; runtime?: string; host?: boolean }
+  args: { agent: string; _?: string[]; cmd?: string; runtime?: string; host?: boolean }
 }) {
   // A layout expression (uses `|` `/` `(` `)`) opens a multi-panel dashboard — split panes,
   // each a tabbed view over the retained agent sessions. Purely additive: bare `run a b`
   // (no operators) stays the flat tabbed dashboard below.
-  if (isLayoutExpr(args.name)) {
+  if (isLayoutExpr(args.agent)) {
     if (insideQuimbyTmux()) {
       throw new QuimbyError(
         'Run a panel layout from outside a quimby session — it builds its own dashboard.',
@@ -76,14 +76,14 @@ export async function runRunCommand({
     if (args.cmd || args.runtime) {
       throw new QuimbyError('--cmd/--runtime apply to a single agent; omit them for a panel layout')
     }
-    await runPanelDashboard(args.name)
+    await runPanelDashboard(args.agent)
     return
   }
 
-  // citty puts every positional in `args._` (including the one bound to `name`), so a
+  // citty puts every positional in `args._` (including the one bound to `agent`), so a
   // plain concat would duplicate the first agent — dedupe, as `sync` does.
   const names = [
-    ...new Set([args.name, ...(args._ ?? [])].filter((n): n is string => Boolean(n))),
+    ...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n))),
   ].filter((n) => n !== HOST_WINDOW)
 
   // If we're already inside the quimby dashboard, a nested `tmux attach` / `new-session -A`
@@ -110,9 +110,9 @@ export async function runRunCommand({
 
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.name]
+  const agent = state.agents[args.agent]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.name}" not found`)
+    throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
   // ── SSH agent ──────────────────────────────────────────────────────────────
@@ -182,7 +182,7 @@ export async function runRunCommand({
 
   // Enroll into tmux so `nudge`/`list` recognize the now-persistent session on later calls.
   if (!agent.tmux) {
-    state.agents[args.name].tmux = true
+    state.agents[args.agent].tmux = true
     await saveState(repoRoot, state)
   }
 

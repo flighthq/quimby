@@ -38,7 +38,7 @@ describe('run', () => {
   it('throws when the agent does not exist', async () => {
     const { default: cmd } = await import('./sync')
     await expect(
-      cmd.run!({ args: { name: 'ghost', all: false, force: false } } as never),
+      cmd.run!({ args: { agent: 'ghost', all: false, force: false } } as never),
     ).rejects.toThrow('not found')
   })
 
@@ -47,7 +47,7 @@ describe('run', () => {
     const { default: cmd } = await import('./sync')
     await cmd.run!({
       args: {
-        name: 'a',
+        agent: 'a',
         _: ['a', 'b', 'a'],
         all: false,
         force: true,

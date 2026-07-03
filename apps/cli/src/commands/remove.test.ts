@@ -26,7 +26,7 @@ describe('runRemoveCommand', () => {
   it('throws when the agent does not exist', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./remove')
-    await expect(cmd.run!({ args: { name: 'ghost', force: false } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'ghost', force: false } } as never)).rejects.toThrow(
       'not found',
     )
   })
@@ -38,7 +38,7 @@ describe('runRemoveCommand', () => {
     execa.mockClear()
     removeAgent.mockClear()
     const { default: cmd } = await import('./remove')
-    await cmd.run!({ args: { name: 'builder', force: false } } as never)
+    await cmd.run!({ args: { agent: 'builder', force: false } } as never)
     expect(removeAgent).not.toHaveBeenCalled()
     expect(execa).not.toHaveBeenCalled()
   })
@@ -50,7 +50,7 @@ describe('runRemoveCommand', () => {
     execa.mockClear()
     removeAgent.mockClear()
     const { default: cmd } = await import('./remove')
-    await cmd.run!({ args: { name: 'builder', force: true } } as never)
+    await cmd.run!({ args: { agent: 'builder', force: true } } as never)
     const argv = execa.mock.calls[0]?.[1] as string[]
     expect(argv).toContain('kill-session')
     expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'builder')
@@ -61,7 +61,7 @@ describe('runRemoveCommand', () => {
     execa.mockClear()
     removeAgent.mockClear()
     const { default: cmd } = await import('./remove')
-    await cmd.run!({ args: { name: 'plain', force: true } } as never)
+    await cmd.run!({ args: { agent: 'plain', force: true } } as never)
     expect(execa).not.toHaveBeenCalled()
     expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'plain')
   })

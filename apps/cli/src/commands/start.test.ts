@@ -39,7 +39,7 @@ describe('runStartCommand', () => {
   it('throws when the agent does not exist', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./start')
-    await expect(cmd.run!({ args: { name: 'ghost' } } as never)).rejects.toThrow('not found')
+    await expect(cmd.run!({ args: { agent: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
   it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
@@ -52,7 +52,7 @@ describe('runStartCommand', () => {
     sessionState.mockResolvedValueOnce('running')
     prepareLocalTmuxLaunch.mockClear()
     const { default: cmd } = await import('./start')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(prepareLocalTmuxLaunch).not.toHaveBeenCalled()
   })
 
@@ -71,7 +71,7 @@ describe('runStartCommand', () => {
       runtimeLabel: '',
     })
     const { default: cmd } = await import('./start')
-    await cmd.run!({ args: { name: 'builder' } } as never)
+    await cmd.run!({ args: { agent: 'builder' } } as never)
 
     expect(resolved.state.agents.builder).toMatchObject({ tmux: true })
     expect(saveState).toHaveBeenCalled()

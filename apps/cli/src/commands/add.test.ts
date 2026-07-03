@@ -13,7 +13,7 @@ describe('run', () => {
   })
 
   it('throws QuimbyError when not in a git repo', async () => {
-    await expect(cmd.run!({ args: { name: 'alice' } } as never)).rejects.toThrow(
+    await expect(cmd.run!({ args: { agent: 'alice' } } as never)).rejects.toThrow(
       'Not inside a git repository',
     )
   })
