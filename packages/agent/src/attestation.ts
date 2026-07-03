@@ -1,4 +1,5 @@
-import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
+import * as git from '@quimbyhq/git'
+import { getAgentDir, getAgentRepoDir, remoteAgentDir, remoteAgentRepoDir } from '@quimbyhq/paths'
 import { getTransport } from '@quimbyhq/transport'
 import type { AgentAttestation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -28,6 +29,29 @@ export async function getAgentAttestation(
       statusText = await readText(path)
     }
     return parseAttestation(statusText)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The agent repo's current `HEAD` commit hash (or `null` if unreadable) — the "live" hash a
+ * displayed attestation is checked against for staleness: if it no longer matches the block's
+ * `atCommit`, the agent committed more work since it verified. (Detects new commits, not yet
+ * uncommitted drift — the agent writes a commit hash, so that's what quimby can compare.)
+ */
+export async function getAgentHeadHash(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<string | null> {
+  try {
+    if (isSSH(agent.location)) {
+      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
+      const out = await getTransport(agent.location).exec('git rev-parse HEAD', { cwd: rRepoDir })
+      return out.trim() || null
+    }
+    return await git.revParse(getAgentRepoDir(repoRoot, agent.id), 'HEAD')
   } catch {
     return null
   }

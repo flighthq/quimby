@@ -34,4 +34,12 @@ describe('formatAttestation', () => {
   it('is not stale when the live hash matches atCommit', () => {
     expect(formatAttestation(pass, 'a1b2c3d')).not.toContain('STALE')
   })
+
+  it('is prefix-tolerant: a short attested hash matches a full live one', () => {
+    expect(formatAttestation(pass, 'a1b2c3d9f8e7')).not.toContain('STALE')
+  })
+
+  it('is not stale when no live hash is available', () => {
+    expect(formatAttestation(pass, null)).not.toContain('STALE')
+  })
 })

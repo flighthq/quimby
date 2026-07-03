@@ -1,7 +1,12 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { getAgentAttestation, rebaseAgentOntoBase, syncAgent } from '@quimbyhq/agent'
+import {
+  getAgentAttestation,
+  getAgentHeadHash,
+  rebaseAgentOntoBase,
+  syncAgent,
+} from '@quimbyhq/agent'
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
@@ -22,7 +27,7 @@ import { colors } from 'consola/utils'
 import { execa } from 'execa'
 import { join, resolve } from 'pathe'
 
-import { formatAttestation } from '../attestation'
+import { attestationResolver, formatAttestation } from '../attestation'
 import { getQuimbySuccessQuip } from '../quips'
 import { consolaReporter } from '../reporter'
 
@@ -122,9 +127,14 @@ export async function runMergeCommand({
 
   const isAgent = Boolean(state.agents[args.agent])
   // Relay the agent's self-attestation before crossing the boundary — informational, never a
-  // gate: the human decides. Absent/failed reads as "unverified".
+  // gate: the human decides. Absent/failed reads as "unverified"; a drifted HEAD reads as stale.
   if (isAgent) {
-    logger.info(formatAttestation(await getAgentAttestation(repoRoot, state.id, state.agents[args.agent]))) // prettier-ignore
+    const src = state.agents[args.agent]
+    const [att, liveHash] = await Promise.all([
+      getAgentAttestation(repoRoot, state.id, src),
+      getAgentHeadHash(repoRoot, state.id, src),
+    ])
+    logger.info(formatAttestation(att, liveHash))
   }
   // When staging fresh, silently sweep a staging area left by an abandoned prior merge
   // (conflict, then `git merge --abort`) so it never collides. Skipped when merging a parcel
@@ -141,6 +151,7 @@ export async function runMergeCommand({
           beforeStage: args.rebase
             ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
             : undefined,
+          resolveAttestation: attestationResolver(repoRoot, state),
         })
       ).name
     : args.agent

@@ -1,7 +1,7 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import type { QuimbyState } from '@quimbyhq/types'
+import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
@@ -43,6 +43,7 @@ export async function dispatchOutboxes(
     agent?: string
     all: boolean
     beforeStage?: (codeSourceName: string) => Promise<void>
+    resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
   },
   reporter: Reporter = silentReporter,
 ): Promise<DispatchOutboxesResult> {
@@ -68,6 +69,7 @@ export async function dispatchOutboxes(
       repoRoot,
       sender,
       beforeStage: opts.beforeStage,
+      resolveAttestation: opts.resolveAttestation,
     })
     if (results.length > 0) {
       reporter.start(`Dispatching "${sender}" → ${results.length} recipient(s)…`)
@@ -85,6 +87,7 @@ export async function dispatchOutbox(opts: {
   sender: string
   recipients?: readonly string[]
   beforeStage?: (codeSourceName: string) => Promise<void>
+  resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
 }): Promise<DispatchOutboxResult[]> {
   const { state, repoRoot, sender } = opts
   const senderState = state.agents[sender]
@@ -125,6 +128,7 @@ export async function dispatchOutbox(opts: {
             projectId: state.id,
             to: recipient,
             note: draft.note || undefined,
+            resolveAttestation: opts.resolveAttestation,
           })
         : await assembleHandoff({
             repoRoot,
@@ -133,6 +137,7 @@ export async function dispatchOutbox(opts: {
             codeSourceId: codeSource.id,
             to: recipient,
             note: draft.note || undefined,
+            resolveAttestation: opts.resolveAttestation,
           })
 
       await deliverHandoff({

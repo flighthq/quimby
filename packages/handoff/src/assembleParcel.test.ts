@@ -61,6 +61,31 @@ describe('assembleParcel', () => {
     expect(meta.seedCommit).toBe('seedcommit')
   })
 
+  it('embeds the resolved attestation into the parcel meta, keyed on the code source', async () => {
+    const seen: string[] = []
+    const meta = await assembleParcel(
+      {
+        repoRoot: dir,
+        from: 'builder',
+        resolveAttestation: async (codeSource) => {
+          seen.push(codeSource)
+          return { command: 'npm run ci', result: 'pass', atCommit: 'a1b2c3d' }
+        },
+      },
+      fakeOps({ seedDiff: 'diff --git a b\n' }),
+    )
+    expect(seen).toEqual(['builder'])
+    expect(meta.attestation).toEqual({ command: 'npm run ci', result: 'pass', atCommit: 'a1b2c3d' })
+  })
+
+  it('leaves meta.attestation undefined when no resolver is given', async () => {
+    const meta = await assembleParcel(
+      { repoRoot: dir, from: 'builder' },
+      fakeOps({ seedDiff: 'd\n' }),
+    )
+    expect(meta.attestation).toBeUndefined()
+  })
+
   it('writes only the note for a note-only parcel (no diff)', async () => {
     const meta = await assembleParcel(
       { repoRoot: dir, from: 'reviewer', note: 'please fix Y' },

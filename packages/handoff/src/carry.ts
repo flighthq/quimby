@@ -1,7 +1,7 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import type { QuimbyState } from '@quimbyhq/types'
+import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
 
 import { assembleHostHandoff, HOST_SENDER } from './assemble'
 import { inboxNoticeText } from './notice'
@@ -19,6 +19,8 @@ export interface HandoffWorkOptions {
   /** Force the nudge on/off; when omitted the note's presence decides (data-only → no nudge). */
   nudge?: boolean
   beforeStage?: (codeSourceName: string) => Promise<void>
+  /** Resolve the code source's attestation to embed in the carried parcel's `meta.yaml`. */
+  resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
 }
 
 export interface HandoffWorkResult {
@@ -81,6 +83,7 @@ export async function handoffWork(
       note: opts.message,
       attach: opts.attach,
       beforeStage: opts.beforeStage,
+      resolveAttestation: opts.resolveAttestation,
     })
     parcelName = meta.name
     sender = opts.from

@@ -1,5 +1,10 @@
 import type { AgentWorkSummary } from '@quimbyhq/agent'
-import { getAgentSyncStatus, getAgentWorkSummary, parseAttestation } from '@quimbyhq/agent'
+import {
+  getAgentHeadHash,
+  getAgentSyncStatus,
+  getAgentWorkSummary,
+  parseAttestation,
+} from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { readInboxParcelNames, readOutboxRecipients } from '@quimbyhq/handoff'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
@@ -157,7 +162,8 @@ async function renderDeepDive(
   // one or a check command is configured, so a stale/absent self-report is visible before merge.
   const attestation = parseAttestation(status)
   if (attestation || agent.check) {
-    const text = formatAttestation(attestation)
+    const liveHash = attestation ? await getAgentHeadHash(repoRoot, state.id, agent) : null
+    const text = formatAttestation(attestation, liveHash)
     console.log(
       row(
         'verify',

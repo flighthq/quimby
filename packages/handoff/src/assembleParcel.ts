@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 
 import { HandoffError } from '@quimbyhq/errors'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
-import type { CommitMeta, HandoffMeta } from '@quimbyhq/types'
+import type { AgentAttestation, CommitMeta, HandoffMeta } from '@quimbyhq/types'
 import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
@@ -35,6 +35,12 @@ export interface AssembleParcelOptions {
   description?: string
   suggestedMessage?: string
   name?: string
+  /**
+   * Resolve the code source's self-attestation to embed in `meta.yaml`, so it travels with the
+   * parcel. A callback (not a value) because the attestation is read from the agent's status.md by
+   * `@quimbyhq/agent`, which this package cannot depend on; the caller injects the reader.
+   */
+  resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
 }
 
 /**
@@ -80,7 +86,8 @@ export async function assembleParcel(
   }
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
 
-  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits })
+  const attestation = (await opts.resolveAttestation?.(codeSource)) ?? undefined
+  const meta = buildMeta({ ...opts, codeSource, name, seedCommit, subjects, commits, attestation })
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
 }
@@ -119,6 +126,7 @@ function buildMeta(opts: {
   commits: CommitMeta[]
   description?: string
   suggestedMessage?: string
+  attestation?: AgentAttestation
 }): HandoffMeta {
   const { from, codeSource, subjects, note } = opts
   // Prefer the agent's own commit subjects; fall back to the note's first line; and
@@ -145,5 +153,6 @@ function buildMeta(opts: {
     suggestedMessage,
     createdAt: new Date().toISOString(),
     commits: opts.commits,
+    attestation: opts.attestation,
   }
 }

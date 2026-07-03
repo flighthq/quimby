@@ -5,6 +5,7 @@ import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { attestationResolver } from '../attestation'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -54,6 +55,7 @@ export async function runDispatchCommand({
       beforeStage: args.rebase
         ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
         : undefined,
+      resolveAttestation: attestationResolver(repoRoot, state),
     },
     consolaReporter,
   )

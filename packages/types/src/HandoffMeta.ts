@@ -1,3 +1,4 @@
+import type { AgentAttestation } from './AgentAttestation'
 import type { CommitMeta } from './CommitMeta'
 
 export interface HandoffMeta {
@@ -16,4 +17,6 @@ export interface HandoffMeta {
   suggestedMessage: string
   createdAt: string
   commits: CommitMeta[]
+  /** The code source's self-attestation at carry time, relayed so it travels with the work. */
+  attestation?: AgentAttestation
 }

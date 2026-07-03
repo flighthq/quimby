@@ -1,5 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import type { HandoffMeta, QuimbyState } from '@quimbyhq/types'
+import type { AgentAttestation, HandoffMeta, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
@@ -19,6 +19,8 @@ export interface StageParcelOptions {
    * on the agent lifecycle. Omit for no pre-stage step.
    */
   beforeStage?: (codeSourceName: string) => Promise<void>
+  /** Resolve the code source's attestation to embed in `meta.yaml` (injected by the caller). */
+  resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
 }
 
 /**
@@ -57,6 +59,7 @@ export async function stageParcel(opts: Readonly<StageParcelOptions>): Promise<H
       note: opts.note,
       suggestedMessage: opts.message,
       name: opts.name,
+      resolveAttestation: opts.resolveAttestation,
     })
   }
 
@@ -69,5 +72,6 @@ export async function stageParcel(opts: Readonly<StageParcelOptions>): Promise<H
     note: opts.note,
     suggestedMessage: opts.message,
     name: opts.name,
+    resolveAttestation: opts.resolveAttestation,
   })
 }

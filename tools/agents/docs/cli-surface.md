@@ -53,7 +53,8 @@ The guard is now being rebuilt on the only honest model: **quimby asks, the agen
 - **Per-agent `check` command** — `quimby set <agent> --check "npm run ci"` (an `AgentState.check` field). Implemented.
 - **Attestation display** — the agent appends a `quimby-attest` fenced block to `status.md` (`command` / `result: pass|fail` / `summary` / `atCommit`); quimby parses the latest one and **shows** it in `quimby status <agent>` and **prints** it (or "unverified") before `merge`/`handoff`. Informational — never gates. Implemented.
 - **Request paths** — `quimby nudge <agent> --verify` (a canned "run your check and attest" message, naming the agent's `check`), `quimby assign … --verify` (appends the same to the assignment), and a generated-CLAUDE.md convention making self-verify the default after finishing an assignment. Implemented.
-- **Travels with the work** — embed the attestation in parcel `meta.yaml` on carry, and mark it **stale** when the agent's live content-hash ≠ the attested `atCommit`. _Planned._
+- **Travels with the work** — `handoff`/`dispatch`/`merge` embed the code source's attestation into the parcel `meta.yaml` (via a `resolveAttestation` seam, since `@quimbyhq/handoff` can't read an agent's status.md), so it reaches the recipient's inbox. Implemented.
+- **Staleness** — the displayed attestation is flagged **STALE** when the agent's live `HEAD` no longer matches the block's `atCommit` (prefix-tolerant). This catches new commits since the agent verified; it does **not** yet catch uncommitted drift, because the agent writes a commit hash (the design's "content-hash" ideal would need the agent to compute quimby's parcel hash, which it can't). Implemented, with that caveat.
 
 Because quimby only relays a self-report, user-facing text says "attests", not "verified".
 
