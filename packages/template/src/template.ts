@@ -68,6 +68,32 @@ export function renderTmuxConfig(): string {
   )
 }
 
+/**
+ * The one-line request quimby types into an agent (via `nudge --verify`) or appends to an
+ * assignment (`assign --verify`), asking it to self-verify and record a `quimby-attest` block.
+ * Names the agent's own `check` command when set, else a generic instruction. Kept single-line so
+ * it types cleanly into a tmux prompt; the exact block format lives in the agent's CLAUDE.md.
+ */
+export function renderVerifyRequest(check?: string): string {
+  const cmd = check ? `\`${check}\`` : "your project's tests/build"
+  return (
+    `Run your verification (${cmd}), then append a \`quimby-attest\` fenced block to the end of ` +
+    `status.md with: command, result (pass|fail), summary, and atCommit (your current short commit ` +
+    `hash). See "Verifying Your Work" in your agent instructions for the exact format.`
+  )
+}
+
+// The canonical `quimby-attest` block shape — the contract between an agent (writes it) and
+// quimby's parser (reads it). Shown in the generated CLAUDE.md so agents emit the exact format.
+const ATTEST_BLOCK_EXAMPLE = [
+  '    ```quimby-attest',
+  '    command: npm run ci',
+  '    result: pass        # pass | fail',
+  '    summary: 78 files, 646 tests green',
+  '    atCommit: <your current short commit hash>',
+  '    ```',
+].join('\n')
+
 export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }): string {
   const { agentName, agentId } = opts
 
@@ -129,6 +155,19 @@ export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }
     `    Promote builder's work; one nit in auth.ts.`,
     ``,
     `The user runs \`quimby dispatch ${agentName}\` to deliver every queued parcel to its recipient.`,
+    ``,
+    `## Verifying Your Work`,
+    ``,
+    `After you finish an assignment (or whenever asked to verify), run your verification — the`,
+    `command quimby recorded as your \`check\` (named in the request), or your project's tests/build`,
+    `— and record the outcome by appending a fenced \`quimby-attest\` block to the end of \`status.md\`:`,
+    ``,
+    ATTEST_BLOCK_EXAMPLE,
+    ``,
+    `Quimby reads the **latest** such block and relays it at the boundary — it never runs the check`,
+    `itself, and never blocks on the result (the human decides). Set \`atCommit\` to your current`,
+    `commit so quimby can tell whether the attestation is stale (your work changed since you`,
+    `verified). Report honestly: \`result: fail\` with a short reason is more useful than a false pass.`,
     ``,
     `## Project Instructions`,
     ``,

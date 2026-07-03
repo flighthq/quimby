@@ -2,6 +2,7 @@ import { QuimbyError } from '@quimbyhq/errors'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
+import { renderVerifyRequest } from '@quimbyhq/template'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -18,6 +19,8 @@ export interface AssignAgentTaskOptions {
   message?: string
   /** Sync the agent to its base before assigning (the durable message is written first). */
   sync: boolean
+  /** Append a self-verification request (`quimby-attest`) to the assignment, using the agent's `check`. */
+  verify?: boolean
   /**
    * When set, retarget the agent's `syncRef` to this ref and sync onto it (even at 0 behind),
    * instead of syncing against the current base. Ignored when `sync` is false.
@@ -62,6 +65,11 @@ export async function assignAgentTask(
   let taskContent = opts.message ?? ''
   if (taskContent.startsWith('@')) {
     taskContent = await readText(taskContent.slice(1))
+  }
+  // `--verify` appends a self-verification request so the agent attests after finishing the work.
+  if (opts.verify) {
+    const request = renderVerifyRequest(agent.check)
+    taskContent = taskContent ? `${taskContent}\n\n${request}` : request
   }
   if (!taskContent) {
     throw new QuimbyError('Provide a message with -m (use `quimby handoff` to deliver work)')

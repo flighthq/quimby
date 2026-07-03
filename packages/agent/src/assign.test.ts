@@ -76,6 +76,25 @@ describe('assignAgentTask', () => {
     expect(mockedSync).toHaveBeenCalledWith(dir, 'alice', { base: 'release' })
   })
 
+  it('appends a self-verification request to the assignment when verify is set', async () => {
+    const { reporter } = collectingReporter()
+    await assignAgentTask(
+      {
+        state: stateWithLocalAgent(),
+        repoRoot: dir,
+        name: 'alice',
+        message: 'do the thing',
+        sync: false,
+        verify: true,
+        nudge: false,
+      },
+      reporter,
+    )
+    const written = await readAssignment()
+    expect(written).toContain('do the thing')
+    expect(written).toContain('quimby-attest')
+  })
+
   it('writes assignment.md, reports success, and returns the nudge text', async () => {
     const { reporter, events } = collectingReporter()
     const result = await assignAgentTask(

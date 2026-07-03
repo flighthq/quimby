@@ -38,6 +38,12 @@ export default defineCommand({
       description:
         'Sync the agent to its base before assigning (on by default; --sync <ref> retargets to <ref> first; --no-sync skips)',
     },
+    verify: {
+      type: 'boolean',
+      description:
+        'Append a self-verification request to the assignment (the agent runs its `check` and records a quimby-attest block)',
+      default: false,
+    },
   },
   run: runAssignCommand,
 })
@@ -52,6 +58,7 @@ export async function runAssignCommand({
     // `--sync <ref>` → string, `--no-sync` → false, bare `--sync`/absent → '' / undefined.
     sync?: string | boolean
     clear: boolean
+    verify: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -69,6 +76,7 @@ export async function runAssignCommand({
       sync: doSync,
       syncRef,
       nudge: args.nudge,
+      verify: args.verify,
     },
     consolaReporter,
   )

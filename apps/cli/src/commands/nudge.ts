@@ -1,6 +1,8 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import { dashboardSessionName } from '@quimbyhq/paths'
 import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
+import { renderVerifyRequest } from '@quimbyhq/template'
+import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
@@ -40,6 +42,12 @@ export default defineCommand({
       description: 'Broadcast to every agent with a live tmux session (probed)',
       default: false,
     },
+    verify: {
+      type: 'boolean',
+      description:
+        'Type a canned self-verification request (the agent runs its `check` and records a quimby-attest block)',
+      default: false,
+    },
   },
   run: runNudgeCommand,
 })
@@ -47,13 +55,15 @@ export default defineCommand({
 export async function runNudgeCommand({
   args,
 }: {
-  args: { agent?: string; message?: string; clear: boolean; all: boolean }
+  args: { agent?: string; message?: string; clear: boolean; all: boolean; verify: boolean }
 }) {
   const { state } = await resolveWorkspace()
 
-  // Sent verbatim — an `@path` in the message is Claude's file-reference syntax to
-  // pass through, not a file to read (unlike `assign`, whose @file reads task content).
-  const text = args.message ?? DEFAULT_NUDGE
+  // `--verify` types the canned self-verify request (named to the agent's own `check`); otherwise
+  // the message is sent verbatim — an `@path` there is Claude's file-reference syntax to pass
+  // through, not a file to read (unlike `assign`, whose @file reads task content).
+  const textFor = (agent: Readonly<AgentState>): string =>
+    args.verify ? renderVerifyRequest(agent.check) : (args.message ?? DEFAULT_NUDGE)
   const dashSession = dashboardSessionName(state.id)
 
   if (args.all) {
@@ -81,7 +91,7 @@ export async function runNudgeCommand({
         agent,
         clear: args.clear,
         displayName: name,
-        text,
+        text: textFor(agent),
         dashboardSession: dashSession,
         reporter: consolaReporter,
       })
@@ -102,7 +112,7 @@ export async function runNudgeCommand({
     agent,
     clear: args.clear,
     displayName: args.agent,
-    text,
+    text: textFor(agent),
     dashboardSession: dashSession,
     reporter: consolaReporter,
   })

@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { renderAgentClaudeMd, renderTmuxConfig } from './template'
+import { renderAgentClaudeMd, renderTmuxConfig, renderVerifyRequest } from './template'
 
 describe('renderAgentClaudeMd', () => {
+  it('includes the self-verify convention and the quimby-attest block format', () => {
+    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
+    expect(output).toContain('Verifying Your Work')
+    expect(output).toContain('```quimby-attest')
+    expect(output).toContain('result: pass')
+  })
+
   it('includes the agent name', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
     expect(output).toContain('alice')
@@ -91,5 +98,22 @@ describe('renderTmuxConfig', () => {
     expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
       conf.indexOf('set-clipboard on'),
     )
+  })
+})
+
+describe('renderVerifyRequest', () => {
+  it('names the agent check command when set', () => {
+    const out = renderVerifyRequest('npm run ci')
+    expect(out).toContain('npm run ci')
+    expect(out).toContain('quimby-attest')
+  })
+
+  it('falls back to a generic instruction when no check is configured', () => {
+    const out = renderVerifyRequest(undefined)
+    expect(out).toContain("your project's tests/build")
+  })
+
+  it('is a single line so it types cleanly into a tmux prompt', () => {
+    expect(renderVerifyRequest('npm test')).not.toContain('\n')
   })
 })

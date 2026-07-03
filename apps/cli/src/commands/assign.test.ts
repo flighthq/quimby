@@ -83,6 +83,20 @@ describe('run', () => {
     expect(assignAgentTask.mock.calls[1][0]).toMatchObject({ sync: false, syncRef: undefined })
   })
 
+  it('passes --verify through to assignAgentTask', async () => {
+    resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
+    assignAgentTask.mockResolvedValueOnce({
+      behind: 0,
+      syncFailed: false,
+      nudgeText: null,
+    } as never)
+    const { default: cmd } = await import('./assign')
+    await cmd.run!({
+      args: { agent: 'builder', message: 'do it', nudge: false, verify: true, clear: false },
+    } as never)
+    expect(assignAgentTask.mock.calls[0][0]).toMatchObject({ verify: true })
+  })
+
   it('does not nudge when nudgeText is null (e.g. sync failed or nudge not requested)', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
     assignAgentTask.mockResolvedValueOnce({

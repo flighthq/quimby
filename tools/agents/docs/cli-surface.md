@@ -22,9 +22,9 @@ quimby help [command]                                 Root help (grouped, with b
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
 quimby log <agent>                                   Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged
-quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge
+quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends a self-verification request
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
-quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
+quimby nudge <agent> [-m "..."] [-c] [--verify] | --all [-m "..."] [-c] [--verify]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); --verify types a canned self-verification request; -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
 quimby merge <agent> [--commits|--patch] [--3way] [-b] [-t] [-m "..."] [--sync <ref>|--no-sync]   Merge the agent's work into your repo (the boundary); squashed by default authors one commit (editor, or -m); advances the seed on a clean landing (--sync <ref> also retargets the sync ref; --no-sync skips)
@@ -52,7 +52,7 @@ The guard is now being rebuilt on the only honest model: **quimby asks, the agen
 
 - **Per-agent `check` command** — `quimby set <agent> --check "npm run ci"` (an `AgentState.check` field). Implemented.
 - **Attestation display** — the agent appends a `quimby-attest` fenced block to `status.md` (`command` / `result: pass|fail` / `summary` / `atCommit`); quimby parses the latest one and **shows** it in `quimby status <agent>` and **prints** it (or "unverified") before `merge`/`handoff`. Informational — never gates. Implemented.
-- **Request paths** — `quimby nudge <agent> --verify` (a canned "run your check and attest" message), `quimby assign … --verify` (appends the same), and a CLAUDE.md convention making self-verify the default. _Planned._
+- **Request paths** — `quimby nudge <agent> --verify` (a canned "run your check and attest" message, naming the agent's `check`), `quimby assign … --verify` (appends the same to the assignment), and a generated-CLAUDE.md convention making self-verify the default after finishing an assignment. Implemented.
 - **Travels with the work** — embed the attestation in parcel `meta.yaml` on carry, and mark it **stale** when the agent's live content-hash ≠ the attested `atCommit`. _Planned._
 
 Because quimby only relays a self-report, user-facing text says "attests", not "verified".
@@ -68,6 +68,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default; `--sync <ref>` retargets the agent's sync ref to `<ref>` and syncs onto it first, `--no-sync` skips)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
+- `--verify` (nudge — type a canned self-verification request naming the agent's `check`; assign — append the same to the assignment, so the agent attests after finishing)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
 - `--cmd` (run, start, set, add — the agent's entrypoint command; long-form only, so `-c` stays reserved for `--clear`)
