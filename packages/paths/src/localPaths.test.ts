@@ -2,16 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import {
   getAgentDir,
-  getAgentInboxDir,
-  getAgentInboxDoneDir,
-  getAgentInboxParcelDir,
-  getAgentInboxStatusDir,
-  getAgentOutboxDir,
-  getAgentOutboxDraftDir,
-  getAgentOutboxSentDir,
-  getAgentOutboxSentDraftDir,
+  getAgentHandoffDir,
+  getAgentHandoffInProcessedDir,
+  getAgentHandoffInReceivedDir,
+  getAgentHandoffInReceivedParcelDir,
+  getAgentHandoffOutDraftDir,
+  getAgentHandoffOutDraftRecipientDir,
+  getAgentHandoffOutQueuedDir,
+  getAgentHandoffOutQueuedRecipientDir,
+  getAgentHandoffOutSentDir,
+  getAgentHandoffOutSentRecipientDir,
   getAgentRepoDir,
   getAgentsDir,
+  getAgentStatusMirrorDir,
   getQuimbyDir,
   getStagingDir,
   getStagingHandoffDir,
@@ -25,56 +28,80 @@ describe('getAgentDir', () => {
   })
 })
 
-describe('getAgentInboxDir', () => {
-  it('returns inbox dir under agent dir', () => {
-    expect(getAgentInboxDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox')
+describe('getAgentHandoffDir', () => {
+  it('returns the handoff root under agent dir', () => {
+    expect(getAgentHandoffDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/handoff')
   })
 })
 
-describe('getAgentInboxDoneDir', () => {
-  it('returns the processed-parcels dir under inbox', () => {
-    expect(getAgentInboxDoneDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox/.done')
-  })
-})
-
-describe('getAgentInboxParcelDir', () => {
-  it('returns a delivered parcel dir directly under inbox', () => {
-    expect(getAgentInboxParcelDir('/root', 'alice', 'bob-a1b2c3d4')).toBe(
-      '/root/.quimby/agents/alice/inbox/bob-a1b2c3d4',
+describe('getAgentHandoffInProcessedDir', () => {
+  it('returns the processed-parcels dir under in/', () => {
+    expect(getAgentHandoffInProcessedDir('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/in/processed',
     )
   })
 })
 
-describe('getAgentInboxStatusDir', () => {
-  it('returns inbox status dir under agent dir', () => {
-    expect(getAgentInboxStatusDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/inbox/status')
-  })
-})
-
-describe('getAgentOutboxDir', () => {
-  it('returns outbox dir under agent dir', () => {
-    expect(getAgentOutboxDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/outbox')
-  })
-})
-
-describe('getAgentOutboxDraftDir', () => {
-  it('returns a staged outbox parcel addressed by recipient', () => {
-    expect(getAgentOutboxDraftDir('/root', 'alice', 'bob')).toBe(
-      '/root/.quimby/agents/alice/outbox/bob',
+describe('getAgentHandoffInReceivedDir', () => {
+  it('returns the received-parcels scan root under in/', () => {
+    expect(getAgentHandoffInReceivedDir('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/in/received',
     )
   })
 })
 
-describe('getAgentOutboxSentDir', () => {
-  it('returns the delivery ledger dir under outbox', () => {
-    expect(getAgentOutboxSentDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/outbox/.sent')
+describe('getAgentHandoffInReceivedParcelDir', () => {
+  it('returns a delivered parcel dir under in/received, content-named', () => {
+    expect(getAgentHandoffInReceivedParcelDir('/root', 'alice', 'bob-a1b2c3d4')).toBe(
+      '/root/.quimby/agents/alice/handoff/in/received/bob-a1b2c3d4',
+    )
   })
 })
 
-describe('getAgentOutboxSentDraftDir', () => {
+describe('getAgentHandoffOutDraftDir', () => {
+  it('returns the unscanned authoring root under out/', () => {
+    expect(getAgentHandoffOutDraftDir('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/draft',
+    )
+  })
+})
+
+describe('getAgentHandoffOutDraftRecipientDir', () => {
+  it('returns an authored parcel addressed by recipient', () => {
+    expect(getAgentHandoffOutDraftRecipientDir('/root', 'alice', 'bob')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/draft/bob',
+    )
+  })
+})
+
+describe('getAgentHandoffOutQueuedDir', () => {
+  it('returns the queued scan root under out/', () => {
+    expect(getAgentHandoffOutQueuedDir('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/queued',
+    )
+  })
+})
+
+describe('getAgentHandoffOutQueuedRecipientDir', () => {
+  it('returns a queued parcel addressed by recipient', () => {
+    expect(getAgentHandoffOutQueuedRecipientDir('/root', 'alice', 'bob')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/queued/bob',
+    )
+  })
+})
+
+describe('getAgentHandoffOutSentDir', () => {
+  it('returns the delivery-ledger dir under out/', () => {
+    expect(getAgentHandoffOutSentDir('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/sent',
+    )
+  })
+})
+
+describe('getAgentHandoffOutSentRecipientDir', () => {
   it('returns a delivered parcel in the ledger by recipient', () => {
-    expect(getAgentOutboxSentDraftDir('/root', 'alice', 'bob')).toBe(
-      '/root/.quimby/agents/alice/outbox/.sent/bob',
+    expect(getAgentHandoffOutSentRecipientDir('/root', 'alice', 'bob')).toBe(
+      '/root/.quimby/agents/alice/handoff/out/sent/bob',
     )
   })
 })
@@ -88,6 +115,12 @@ describe('getAgentRepoDir', () => {
 describe('getAgentsDir', () => {
   it('returns agents dir under .quimby', () => {
     expect(getAgentsDir('/root')).toBe('/root/.quimby/agents')
+  })
+})
+
+describe('getAgentStatusMirrorDir', () => {
+  it('returns the status-mirror dir at the agent root, outside handoff/', () => {
+    expect(getAgentStatusMirrorDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/status')
   })
 })
 
