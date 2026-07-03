@@ -1,12 +1,12 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import { getAgentDir, getAgentOutboxDraftDir, getAgentRepoDir } from '@quimbyhq/paths'
 import { collectingReporter } from '@quimbyhq/reporter'
-import type { QuimbyState } from '@quimbyhq/types'
-import { exists } from '@quimbyhq/utils'
+import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
+import { exists, readYaml } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -108,6 +108,29 @@ describe('autoDispatchOutboxes', () => {
     // drained from the outbox = it was carried to the recipient
     expect(await exists(getAgentOutboxDraftDir(dir, 'review', 'builder'))).toBe(false)
     expect(events.some((e) => e.level === 'success' && /delivered/.test(e.message))).toBe(true)
+  })
+
+  it('embeds the sender attestation in the auto-dispatched parcel meta', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await writeFile(
+      join(getAgentDir(dir, 'review'), 'status.md'),
+      '```quimby-attest\ncommand: npm run ci\nresult: pass\n```',
+    )
+    await stageDraft('review', 'builder', 'please review')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+
+    await autoDispatchOutboxes(dir, state, tracker) // settle
+    await autoDispatchOutboxes(dir, state, tracker) // deliver
+
+    const inbox = join(getAgentDir(dir, 'builder'), 'inbox')
+    const parcels = (await readdir(inbox)).filter((n) => n.startsWith('review-'))
+    expect(parcels).toHaveLength(1)
+    const meta = (await readYaml(join(inbox, parcels[0], 'meta.yaml'))) as {
+      attestation?: AgentAttestation
+    }
+    expect(meta.attestation).toEqual({ command: 'npm run ci', result: 'pass' })
   })
 
   it('bounces an unknown recipient with a warning, leaving the draft in place', async () => {

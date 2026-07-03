@@ -1,5 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 
+import { getAgentAttestation } from '@quimbyhq/agent'
 import {
   dispatchOutbox,
   inboxNoticeText,
@@ -55,7 +56,18 @@ export async function autoDispatchOutboxes(
     if (stable.length === 0) continue
 
     reporter.info(`[auto-dispatch] "${sender}" → ${stable.join(', ')}`)
-    const results = await dispatchOutbox({ state, repoRoot, sender, recipients: stable })
+    // Embed the code source's attestation in the carried parcel — the hands-off channel is exactly
+    // where the recipient most needs it; without this the server-carried parcel would lose it.
+    const results = await dispatchOutbox({
+      state,
+      repoRoot,
+      sender,
+      recipients: stable,
+      resolveAttestation: (name) =>
+        state.agents[name]
+          ? getAgentAttestation(repoRoot, state.id, state.agents[name])
+          : Promise.resolve(null),
+    })
     for (const result of results) {
       if (result.status === 'delivered') {
         reporter.success(`  delivered "${sender}" → "${result.recipient}" (${result.parcelName})`)

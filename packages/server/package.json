@@ -19,6 +19,7 @@
     "clean": "tsc -b --clean"
   },
   "dependencies": {
+    "@quimbyhq/agent": "*",
     "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
     "@quimbyhq/reporter": "*",

@@ -6,6 +6,9 @@
   },
   "references": [
     {
+      "path": "../agent"
+    },
+    {
       "path": "../handoff"
     },
     {
