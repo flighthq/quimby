@@ -283,6 +283,54 @@ describe('assembleRemoteHandoff', () => {
     expect(capture).not.toContain('git add -A &&')
     await rm(repoRoot, { recursive: true, force: true })
   })
+
+  it('excludes remote ignored directories from commits-mode patch generation', async () => {
+    const repoRoot = await setupRepoRoot()
+    const calls: string[] = []
+    const transport = {
+      exec: vi.fn(async (cmd: string) => {
+        calls.push(cmd)
+        if (cmd === 'git rev-parse quimby/seed') return 'seed123\n'
+        if (cmd === 'git log quimby/seed..HEAD --format=%s') return 'real commit\n'
+        if (cmd.includes('git ls-files --others --ignored --exclude-standard --directory -z')) {
+          return 'target/\0'
+        }
+        if (cmd.includes('git diff --name-only -z quimby/seed')) return 'tree\n'
+        if (cmd === 'git diff --binary quimby/seed tree') return 'diff --git a/src/lib.rs b/src/lib.rs\n'
+        if (cmd.includes('git diff --name-only -z HEAD')) return 'headtree\n'
+        if (cmd === 'git diff --binary HEAD headtree') return ''
+        if (cmd.includes("git log quimby/seed..HEAD --format='%H|%s|%an|%aI'")) {
+          return 'abc|real commit|A|2026-01-01T00:00:00Z\n'
+        }
+        return ''
+      }),
+      readFile: vi.fn(async () => ''),
+      writeFile: vi.fn(),
+      fileExists: vi.fn(async () => false),
+      ensureDir: vi.fn(),
+      rsyncFrom: vi.fn(async (_remote: string, local: string) => {
+        await mkdir(local, { recursive: true })
+        await writeFile(join(local, '0001-real-commit.patch'), 'patch')
+      }),
+      rsyncTo: vi.fn(),
+    } as unknown as ReturnType<typeof getSSHTransport>
+    vi.mocked(getSSHTransport).mockReturnValue(transport)
+
+    await assembleRemoteHandoff({
+      repoRoot,
+      from: 'remote',
+      codeSourceId: 'remote-id',
+      codeSourceLocation: sshLocation,
+      projectId: 'proj',
+      note: 'n',
+    })
+
+    const format = calls.find((c) => c.includes('git format-patch'))
+    expect(format).toBeDefined()
+    expect(format).toContain("':(exclude)target/'")
+    expect(format).toContain("':(exclude).quimby'")
+    await rm(repoRoot, { recursive: true, force: true })
+  })
 })
 
 describe('getWorkingParcelName', () => {

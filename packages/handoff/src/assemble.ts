@@ -9,7 +9,7 @@ import {
   remoteAgentRepoDir,
 } from '@quimbyhq/paths'
 import type { SSHTransport } from '@quimbyhq/transport'
-import { getSSHTransport } from '@quimbyhq/transport'
+import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, HandoffMeta, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
@@ -170,14 +170,28 @@ function remoteAssembleOps(transport: SSHTransport, rRepoDir: string): RepoAssem
     workingTreeDiff: (base) => remoteWorkingTreeDiff(transport, rRepoDir, base),
     formatPatches: async (commitsDir) => {
       const rTmpDir = `/tmp/quimby-handoff-${crypto.randomUUID()}`
+      const pathspecs = ['.', ...CAPTURE_EXCLUDE.map((p) => `:(exclude)${p}`)]
+      for (const path of await remoteIgnoredPaths(transport, rRepoDir)) {
+        pathspecs.push(`:(exclude)${path}`)
+      }
       await transport.exec(`mkdir -p ${rTmpDir}`, cwd)
-      await transport.exec(`git format-patch quimby/seed -o ${rTmpDir}`, cwd)
+      await transport.exec(
+        `git format-patch quimby/seed -o ${rTmpDir} -- ${pathspecs.map(sq).join(' ')}`,
+        cwd,
+      )
       await transport.rsyncFrom(rTmpDir, commitsDir)
       await transport.exec(`rm -rf ${rTmpDir}`)
       return (await readdir(commitsDir)).filter((f) => f.endsWith('.patch')).sort()
     },
     fullCommitLog: () => transport.exec(`git log quimby/seed..HEAD --format='%H|%s|%an|%aI'`, cwd),
   }
+}
+
+async function remoteIgnoredPaths(transport: SSHTransport, rRepoDir: string): Promise<string[]> {
+  const out = await transport
+    .exec(`git ls-files --others --ignored --exclude-standard --directory -z`, { cwd: rRepoDir })
+    .catch(() => '')
+  return out.split('\0').filter(Boolean)
 }
 
 // Capture a remote agent's full working tree (committed + uncommitted + untracked)
