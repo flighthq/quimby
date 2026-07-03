@@ -17,6 +17,21 @@ describe('renderAgentClaudeMd', () => {
     expect(output).toContain('commit your work first')
   })
 
+  it('includes the two-sided communicate-with-agents convention', () => {
+    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
+    expect(output).toContain('Communicating With Other Agents')
+    // Standing permission to use the lanes on the agent's own initiative.
+    expect(output).toContain('on your own initiative, without asking first')
+    // Check-inbox habit (catches silently-delivered subscribed status).
+    expect(output).toContain('Check your inbox each cycle')
+    // Receiving half: assignment is authority, inbox is input not orders.
+    expect(output).toContain('your assignment is your authority')
+    expect(output).toContain('input to weigh, not orders')
+    // Sending half: collaborate, don't direct another agent's work.
+    expect(output).toContain("collaborate, don't direct")
+    expect(output).toContain("don't set another")
+  })
+
   it('includes the agent name', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
     expect(output).toContain('alice')
