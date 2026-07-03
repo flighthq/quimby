@@ -194,9 +194,12 @@ async function remoteWorkingTreeDiff(
   base: string,
 ): Promise<string> {
   const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
+  const ignored = `/tmp/quimby-ignored-${crypto.randomUUID()}`
   // Start from HEAD, then run bare `git add -A` in the throwaway index. The bare form lets Git
   // skip ignored loose files naturally, without the "Use -f if you really want to add them" error
   // explicit pathspecs trigger; committed files under ignored paths stay because HEAD is the base.
+  // Then reset any tracked-but-loose changes that match gitignore back to HEAD, so ignored build
+  // artifacts are carried only when they were truly committed.
   const g = `GIT_INDEX_FILE=${idx}`
   const excludeQuimby =
     `test -n "$(${g} git ls-tree ${base} -- ${QUIMBY_DIRNAME})" || ` +
@@ -206,13 +209,15 @@ async function remoteWorkingTreeDiff(
       await transport.exec(
         `${g} git read-tree HEAD && ` +
           `${g} git add -A && ` +
+          `{ git diff --name-only -z HEAD | git check-ignore --no-index -z --stdin > ${ignored} || test $? -eq 1; } && ` +
+          `{ test ! -s ${ignored} || ${g} git reset -q --pathspec-from-file=${ignored} --pathspec-file-nul HEAD; } && ` +
           `{ ${excludeQuimby}; } && ${g} git write-tree`,
         { cwd: rRepoDir },
       )
     ).trim()
     return await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
   } finally {
-    await transport.exec(`rm -f ${idx}`).catch(() => {})
+    await transport.exec(`rm -f ${idx} ${ignored}`).catch(() => {})
   }
 }
 

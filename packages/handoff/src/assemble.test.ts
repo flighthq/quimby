@@ -279,11 +279,13 @@ describe('assembleRemoteHandoff', () => {
     expect(capture).toBeDefined()
     expect(capture).toContain('git read-tree HEAD')
     expect(capture).toContain('git add -A &&')
+    expect(capture).toContain('git check-ignore --no-index -z --stdin')
+    expect(capture).toContain('git reset -q --pathspec-from-file=')
     expect(capture).not.toContain('git add -A --')
     await rm(repoRoot, { recursive: true, force: true })
   })
 
-  it('uses bare add for loose remote capture while leaving committed patches unfiltered', async () => {
+  it('pulls commits plus not-ignored loose files, excluding ignored loose changes', async () => {
     const repoRoot = await setupRepoRoot()
     const calls: string[] = []
     const transport = {
@@ -326,6 +328,8 @@ describe('assembleRemoteHandoff', () => {
     expect(format).toContain("':(exclude).quimby'")
     const capture = calls.find((c) => c.includes('git read-tree HEAD') && c.includes('git add -A'))
     expect(capture).toContain('git add -A &&')
+    expect(capture).toContain('git check-ignore --no-index -z --stdin')
+    expect(capture).toContain('git reset -q --pathspec-from-file=')
     expect(capture).not.toContain("':(exclude)target/'")
     await rm(repoRoot, { recursive: true, force: true })
   })
