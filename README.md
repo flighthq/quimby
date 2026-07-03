@@ -6,14 +6,14 @@ Named after Chief Quimby from Inspector Gadget: you dispatch the work, agents de
 
 ## Overview
 
-Quimby manages the lifecycle of AI agent environments, carries work between them, and controls what crosses the boundary into your real repository. Each agent operates in its own clone of your source repo with a frozen baseline (`quimby/seed`). When an agent finishes, you review its diff and apply it — no stash/rebase churn.
+Quimby manages the lifecycle of AI agent environments, carries work between them, and controls what crosses the boundary into your real repository. Each agent operates in its own clone of your source repo with a frozen baseline (`quimby/seed`). When an agent finishes, you review its diff and merge it — no stash/rebase churn.
 
 **Core concepts:**
 
 - **Agent** — an isolated environment with its own source clone. Agents run an AI tool (their _entrypoint_) inside a sandbox. They can't see each other — Quimby mediates all cross-agent communication.
 - **Handoff** — a parcel Quimby hand-carries from one agent to another (or out to your repo). Contains a note, a diff, or both. Assembled on demand, carried, then discarded — durable history lives in git.
 - **Seed** — the `quimby/seed` tag in each agent's repo marking the baseline all diffs are computed against.
-- **Boundary** — the line between agent work and your real repo. Work only crosses it through explicit user action (`quimby apply`).
+- **Boundary** — the line between agent work and your real repo. Work only crosses it through explicit user action (`quimby merge`).
 - **Server** — a host-side process that polls agent status and routes updates between agents via subscriptions.
 
 ## Installation
@@ -42,8 +42,8 @@ quimby status backend
 # Preview the work
 quimby diff backend
 
-# Apply to your repo (squashed commit on a branch)
-quimby apply backend -b feature/auth
+# Merge to your repo (squashed commit on a branch)
+quimby merge backend -b feature/auth
 ```
 
 ### Multi-agent workflow
@@ -69,13 +69,14 @@ All commands follow `verb target [qualifiers]`. Work moves along a few axes:
 
 - **sideways** (agent-to-agent or host-to-agent): `handoff`
 - **outbox routing** (agent's authored queue to recipients): `dispatch`
-- **out** (agent to your repo, across the boundary): `apply`
+- **out** (agent to your repo, across the boundary): `merge`
 - **in** (you to an agent's task): `assign`
 
 ### Agents
 
 ```
-quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent
+quimby add <agent> [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>]   Create an agent
+quimby up <recipe>                                       Create missing agents/subscriptions from config
 quimby config <agent>                                     Interactively (re)configure an agent
 quimby run <agent> [-c <cmd>] [-r <runtime>]              Launch the agent interactively
 quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [-s <ref>]  Update agent config
@@ -96,7 +97,7 @@ quimby remove <agent> [--force]                           Remove agent
 quimby handoff <from> <to> [-m <note>] [--attach <w>]    Carry work between agents
 quimby handoff <to> [-m <note>]                           Carry host's work to an agent
 quimby dispatch <agent> [--no-nudge]                      Deliver agent's outbox parcels
-quimby apply <agent> [--commits|--patch] [--3way] [-b]    Apply agent's work to your repo
+quimby merge <agent> [--commits|--patch] [--3way] [-b]    Merge agent work to your repo
 ```
 
 ### Server & Subscriptions
@@ -105,6 +106,7 @@ quimby apply <agent> [--commits|--patch] [--3way] [-b]    Apply agent's work to 
 quimby serve [-p <port>] [--poll <secs>]                  Start the server (default port 7749)
 quimby subscribe <agent> <target>                         Agent receives target's status
 quimby unsubscribe <agent> <target>                       Remove subscription
+quimby doctor [agent] [-r <runtime>] [--host-alias <a>]   Check local/remote dependencies
 ```
 
 ### SSH Agents
@@ -117,9 +119,9 @@ quimby run researcher                                     Sync, init if needed, 
 
 SSH agents are initialized lazily on first `quimby run` — no SSH connection required at add time. Sessions run in named tmux sessions that persist across disconnects.
 
-## Apply Modes
+## Merge Modes
 
-`quimby apply` is the one verb that moves work across the boundary into your real repo.
+`quimby merge` is the one verb that moves work across the boundary into your real repo.
 
 | Mode               | Flag        | Description                                |
 | ------------------ | ----------- | ------------------------------------------ |
@@ -129,6 +131,51 @@ SSH agents are initialized lazily on first `quimby run` — no SSH connection re
 | Three-way          | `--3way`    | Merge conflicts instead of aborting        |
 
 Use `-b` to land on a named branch. On conflict the staged parcel is kept and its path reported.
+
+## Configuration
+
+Quimby works without a config file, but a tracked `quimby.yaml` can define reusable roles, recipes, and dashboard layouts. Private machine bindings belong in `~/.config/quimby/config.yaml` or ignored `.quimby/local.yaml`, so hostnames and IP addresses do not have to enter git.
+
+```yaml
+roles:
+  builder:
+    runtime: sbx
+    entrypoint: claude
+    check:
+      command: npm run ci
+      verifyByDefault: false
+
+  reviewer:
+    runtime: local
+    entrypoint: claude
+
+layouts:
+  review:
+    expr: 'reviewer | (builder integration) / ($ $):30'
+
+recipes:
+  review-loop:
+    agents:
+      builder:
+        role: builder
+        hostAlias: gpu
+      reviewer:
+        role: reviewer
+      integration:
+        role: builder
+    subscriptions:
+      reviewer: [builder]
+      integration: [builder, reviewer]
+    layout: review
+```
+
+```bash
+quimby add builder --role builder
+quimby up review-loop
+quimby run --layout review
+```
+
+Checks are advisory. `--verify` asks the agent to run its configured `check` in its own runtime and record an attestation; `merge` displays that signal but never blocks on it.
 
 ## Sync Targets
 
@@ -171,7 +218,7 @@ my-project/
   .quimby/
     state.yaml                  # workspace state (agents, subscriptions, IDs)
     server.json                 # server pidfile (when running)
-    staging/                    # host loading dock (parcels mid-apply)
+    staging/                    # host loading dock (parcels mid-merge)
     agents/
       <agent-id>/               # keyed by stable UUID, not name
         repo/                   # cloned source tree, tagged quimby/seed
@@ -204,7 +251,7 @@ An npm-workspace monorepo split by capability — one package per domain, no cat
 | `@quimbyhq/runtimes`  | `packages/runtimes`  | Runtime adapters (local, sbx, openshell)       |
 | `@quimbyhq/workspace` | `packages/workspace` | State lifecycle (resolve, load, save, migrate) |
 | `@quimbyhq/agent`     | `packages/agent`     | Agent lifecycle (add, remove, rename, sync)    |
-| `@quimbyhq/handoff`   | `packages/handoff`   | Parcel assembly, delivery, and apply           |
+| `@quimbyhq/handoff`   | `packages/handoff`   | Parcel assembly, delivery, and merge support   |
 | `@quimbyhq/server`    | `packages/server`    | HTTP server, status poller, client             |
 
 Dependency flow: types/errors/utils/paths/template → git/transport/runtimes → workspace → agent/handoff → server → apps/cli.

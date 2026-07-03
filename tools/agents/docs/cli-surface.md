@@ -8,27 +8,28 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 - **sideways**, agent → agent (direct), or host → agent: `handoff`
 - **outbox routing**, an agent's authored queue → its recipients: `dispatch`
-- **out**, agent → your repo (across the boundary): `merge` (`apply` is a deprecated alias)
+- **out**, agent → your repo (across the boundary): `merge`
 - **in**, you → an agent's task: `assign`
 
 ```
-quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
+quimby add <agent> [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
+quimby up <recipe>                                  Create missing agents and subscriptions from a configured recipe
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
-quimby run <agent> [--cmd <cmd>] [-r <runtime>]     Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
+quimby run <agent> [--cmd <cmd>] [-r <runtime>] | --layout <name>   Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session); --layout opens a saved layout or recipe layout
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop); a fresh start with a non-empty status.md nudges the agent to resume from it
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
-quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's self-verification command)
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's advisory self-check command)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
+quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, received/queued counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, received/queued, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s status mirror
 quimby log <agent> [-f]                              Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged; -f/--follow streams the durable transcript (session.log) as it grows
-quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends a self-verification request
+quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify|--no-verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends an advisory self-check request
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] [-c] [--verify] | --all [-m "..."] [-c] [--verify]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); --verify types a canned self-verification request; -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
 quimby dispatch <agent> | --all [--no-nudge]         Deliver the agent's queued outbox parcels to their recipients (--all dispatches every outbox; wakes each running recipient via its tmux session by default)
 quimby merge <agent> [--commits|--patch] [--3way] [-b] [-t] [-m "..."] [--sync <ref>|--no-sync]   Merge the agent's work into your repo (the boundary); squashed by default authors one commit (editor, or -m); advances the seed on a clean landing (--sync <ref> also retargets the sync ref; --no-sync skips)
-quimby apply <agent> …                               Deprecated alias for `quimby merge` (same flags)
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
@@ -44,11 +45,11 @@ quimby unsubscribe <agent> <target>                  Remove subscription
 quimby assign <agent> --status <agent>    Embed another agent's status in assignment
 ```
 
-### The verification guard: cooperative self-attestation (in progress)
+### Advisory checks: cooperative self-attestation
 
-An earlier version let each agent carry a `guard` command (e.g. `npm run ci`) that quimby ran before `handoff`/`apply`. It was **removed** because it could not be made honest: quimby is a host-side courier that runs _outside_ the agent's sandbox, while the agent installs its dependencies _inside_ it. So the guard ran in the wrong environment every time — wrong architecture, wrong permissions, missing version-manager PATH.
+Each agent may carry a `check` command (e.g. `npm run ci`). Quimby does not run it on the host and does not gate `merge` on it. Instead, quimby asks the agent to run the check inside its own runtime, the agent writes a `quimby-attest` block to `status.md`, and quimby relays that signal at handoff/merge time.
 
-The guard is now being rebuilt on the only honest model: **quimby asks, the agent verifies, quimby relays — never re-runs, never gates.** It is a cooperative convenience, not an enforced boundary. Pieces:
+The model is: **quimby asks, the agent checks, quimby relays — never re-runs, never gates.** It is a cooperative convenience, not an enforced boundary. Pieces:
 
 - **Per-agent `check` command** — `quimby set <agent> --check "npm run ci"` (an `AgentState.check` field). Implemented.
 - **Attestation display** — the agent appends a `quimby-attest` fenced block to `status.md` (`command` / `result: pass|fail` / `summary` / `atCommit`); quimby parses the latest one and **shows** it in `quimby status <agent>` and **prints** it (or "unverified") before `merge`/`handoff`. Informational — never gates. Implemented.
@@ -70,6 +71,10 @@ All flags support `-x` short and `--xxx` long forms:
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
 - `--verify` (nudge — type a canned self-verification request naming the agent's `check`; assign — append the same to the assignment, so the agent attests after finishing)
+- `--verify-by-default` / `--no-verify-by-default` (set — whether `assign` should append the advisory check request when neither `--verify` nor `--no-verify` is passed)
+- `--role` (add — creation defaults from `quimby.yaml`)
+- `--host-alias` (add, doctor — private host binding from user/local config)
+- `--layout` (run — saved dashboard layout or recipe layout)
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `-p` / `--port` (serve, add, set)
 - `--cmd` (run, start, set, add — the agent's entrypoint command; long-form only, so `-c` stays reserved for `--clear`)

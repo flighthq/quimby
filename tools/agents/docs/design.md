@@ -27,7 +27,7 @@ A `meta.yaml` manifest (sender, recipient, `createdAt`, code source) is written 
 
 **Seed** — The `quimby/seed` git tag in each agent's repo marking the baseline. A handoff's diff is the agent's working tree (committed + uncommitted + untracked) against this tag.
 
-**Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby merge`; `apply` is a deprecated alias), landing in git — the durable side of the boundary.
+**Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby merge`), landing in git — the durable side of the boundary.
 
 **Server** — The host-side process that enables cross-agent visibility. Agents in sandboxes are isolated from each other — the server is the only entity that can see all agents. It polls for status changes and routes updates to subscribing agents.
 
@@ -76,7 +76,7 @@ my-project/
   .quimby/
     state.yaml              # workspace state (agents, subscriptions, stable IDs)
     server.json             # server pidfile (when running)
-    staging/                # host loading dock: a parcel mid-apply (kept only on conflict)
+    staging/                # host loading dock: a parcel mid-merge (kept only on conflict)
     agents/
       backend/
         repo/               # cloned source tree, tagged quimby/seed
@@ -196,17 +196,61 @@ quimby remove researcher --force
 
 ## CLI Surface
 
-The complete command reference, planned commands, the deferred verification guard, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`merge`, formerly `apply`), or sets a task in (`assign`).
+The complete command reference, planned commands, advisory checks, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`merge`), or sets a task in (`assign`).
 
-## No Config File (For Now)
+## Configuration
 
-Quimby works without a config file. `quimby add <name>` implicitly creates `.quimby/` and initializes the workspace. A `quimby.config.ts` with `defineWorkspace()` may be added in the future for declaring roles, routing rules, and runtime overrides — populated via `quimby up`.
+Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. A tracked `quimby.yaml` is optional and exists to make useful project intent reusable without leaking private machine bindings.
 
-### Configuration is per-agent
+Configuration is split by boundary:
 
-There are deliberately **no workspace-level defaults**. An agent's configuration (runtime, entrypoint, location, tmux, sync ref) lives only on that agent's entry in `state.yaml` — a single source of truth, avoiding a second "defaults vs per-agent" config to reconcile.
+- **Tracked `quimby.yaml`** — roles, recipes, dashboard layouts, advisory checks, and other team-safe defaults.
+- **User config `~/.config/quimby/config.yaml`** — private host aliases and personal defaults.
+- **Ignored project-local `.quimby/local.yaml`** — per-checkout overrides such as binding a project role to a local machine.
+- **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, subscriptions, and created agents.
 
-`quimby config <agent>` is an interactive walkthrough (arrow-key selects via `@clack/prompts`) over exactly those fields — effectively an interactive `set`. A flag-less `quimby add <agent>` runs the same walkthrough to configure the new agent; passing config flags skips the prompts so `add` stays scriptable for unattended use. See build-and-tooling.md for the implementation.
+Resolution order is concrete to general: CLI flags, existing agent state, project-local config, user config, tracked project config, then built-ins.
+
+### Roles, Recipes, And Layouts
+
+Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Recipes create a named workspace shape from roles and subscriptions. Layouts name dashboard expressions, including panel dashboards.
+
+```yaml
+roles:
+  builder:
+    runtime: sbx
+    entrypoint: claude
+    check:
+      command: npm run ci
+      verifyByDefault: false
+
+  reviewer:
+    runtime: local
+    entrypoint: claude
+
+layouts:
+  review:
+    expr: 'reviewer | (builder integration) / ($ $):30'
+
+recipes:
+  review-loop:
+    agents:
+      builder:
+        role: builder
+        hostAlias: gpu
+      reviewer:
+        role: reviewer
+      integration:
+        role: builder
+    subscriptions:
+      reviewer: [builder]
+      integration: [builder, reviewer]
+    layout: review
+```
+
+`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents and subscriptions from the recipe. `quimby run --layout review` opens the saved dashboard layout.
+
+Host aliases resolve from private config, not the tracked file, so a repository can say `hostAlias: gpu` without committing a worker name or IP address.
 
 ## No Init Command
 
@@ -296,22 +340,22 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 ## Merge (crossing the boundary)
 
-`quimby merge <agent>` is the one verb that moves work **out** to the user's real repository (`quimby apply` remains as a deprecated alias with the same flags). It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
+`quimby merge <agent>` is the one verb that moves work **out** to the user's real repository. It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
 
 ### Merge-based strategy
 
-The agent's diff was generated against its seed. Applying it directly to a target repo that has moved past the seed fails — context lines don't match, `git apply` aborts, and the user faces a conflict they can't interpret (is it real overlap, or just a stale diff?). The merge-based flow solves this:
+The agent's diff was generated against its seed. Patching it directly onto a target repo that has moved past the seed fails — context lines don't match, `git apply` aborts, and the user faces a conflict they can't interpret (is it real overlap, or just a stale diff?). The merge-based flow solves this:
 
 1. Stage the parcel in `.quimby/staging/` (diff + patches + meta, same as before)
-2. Create a temp branch (`quimby/apply-<agent>-<seed>`) from the seed commit in the target repo
-3. Apply the diff on that branch — guaranteed clean, since the diff is against that exact commit
+2. Create a temp branch from the seed commit in the target repo
+3. Reconstruct the diff on that branch — guaranteed clean, since the diff is against that exact commit
 4. Merge the temp branch into the target
 
 The merge is where git's 3-way machinery kicks in. It knows what the agent changed (seed → temp branch) and what the user changed (seed → HEAD), and merges them with full context about both sides' intent. Conflicts are standard git merge conflicts — resolvable with `git mergetool`, the editor, or any workflow the user already knows. No special quimby commands needed.
 
 ### Modes
 
-- **Squashed** (default) — one commit on the temp branch, then a plain (fast-forward-if-possible) merge into the target. When the target is still at the seed this fast-forwards to the agent's own commit — clean linear history, no boundary node. When the target has moved past the seed, git creates a standard merge commit with its default `Merge branch …` message: visibly a merge, and an obvious candidate to rebase away if you want a linear history. (Earlier this forced `--no-ff` plus a parcel-derived merge message, which produced a same-message work-commit + merge-commit pair for every apply — the "duplicate commits" that read as noise.) **You author the squash commit's message**: with no `-m`, git's editor opens prefilled with the agent's own subject (save-quit accepts it, empty aborts). Crossing the boundary is an explicit act, so its one new commit is curated, not auto-stamped.
+- **Squashed** (default) — one commit on the temp branch, then a plain (fast-forward-if-possible) merge into the target. When the target is still at the seed this fast-forwards to the agent's own commit — clean linear history, no boundary node. When the target has moved past the seed, git creates a standard merge commit with its default `Merge branch …` message: visibly a merge, and an obvious candidate to rebase away if you want a linear history. (Earlier this forced `--no-ff` plus a parcel-derived merge message, which produced a same-message work-commit + merge-commit pair for every merge — the "duplicate commits" that read as noise.) **You author the squash commit's message**: with no `-m`, git's editor opens prefilled with the agent's own subject (save-quit accepts it, empty aborts). Crossing the boundary is an explicit act, so its one new commit is curated, not auto-stamped.
 - **`--commits`** — replay the agent's individual commits on the temp branch via `git am`, then merge (fast-forward when possible), preserving the agent's commit history in the target. Any **uncommitted remainder** (work the agent hadn't committed) is applied to the working tree **after** the merge and **left uncommitted** — the agent didn't commit it, so quimby doesn't either. `--commits -m "…"` opts that remainder into one trailing commit with your message.
 - **`--patch`** — one commit on the temp branch, merged with `--squash --no-commit`. Changes land in the working tree uncommitted — curate your own commits.
 - `-b` lands it on a fresh branch; `-t` targets a repo path other than the cwd.
@@ -333,11 +377,11 @@ An agent's diff is always its working tree against `quimby/seed` — **cumulativ
 - **The merge settled onto the branch the agent tracks**, in the host repo — no `-b`, no divergent `-t`, and `HEAD` resolves to the agent's `syncRef` tip. Otherwise the work isn't on `syncRef`, and advancing would snap the agent to a base that lacks it (reintroducing the cumulative-diff conflicts). A landing-branch or foreign-target merge is a deliberate deferral, so the seed stays put.
 - **The agent is unchanged since the snapshot the merge captured** — checked by recomputing the agent's live parcel name (its content hash) and comparing to the merged parcel's. Equal ⇒ identical tree ⇒ the `reset --hard` in `sync -f` loses nothing. If it drifted (the agent kept working), the seed is left alone with a pointer to `quimby sync <agent> --current -f`.
 
-Only a **fully-committed landing** (a "clean base hit") advances — squashed-committed, or `--commits` with no loose remainder. Anything that leaves work uncommitted (explicit `--patch`, the no-TTY degrade, a `--commits` remainder) is an incomplete landing: nothing has settled, so the seed stays put. In every case where the seed is _not_ advanced but a standard merge would have — an uncommitted landing, a guard-skip (`-b`/`-t`/off-branch or drift), or `--no-sync` — `merge` prints the catch-up (`quimby sync <agent> --current -f`) so the agent doesn't silently go stale and walk back into the cumulative-diff trap. When the advance does run it logs `Advanced "<agent>" seed → <sha>`, mirroring `assign`'s sync line. The celebratory quip fires only on a clean base hit, so a committed landing reads as success and an uncommitted one reads as "more to do."
+Only a **fully-committed landing** (a "clean base hit") advances — squashed-committed, or `--commits` with no loose remainder. Anything that leaves work uncommitted (explicit `--patch`, the no-TTY degrade, a `--commits` remainder) is an incomplete landing: nothing has settled, so the seed stays put. In every case where the seed is _not_ advanced but a standard merge would have — an uncommitted landing, a condition-skip (`-b`/`-t`/off-branch or drift), or `--no-sync` — `merge` prints the catch-up (`quimby sync <agent> --current -f`) so the agent doesn't silently go stale and walk back into the cumulative-diff trap. When the advance does run it logs `Advanced "<agent>" seed → <sha>`, mirroring `assign`'s sync line. The celebratory quip fires only on a clean base hit, so a committed landing reads as success and an uncommitted one reads as "more to do."
 
 ### Why merge, not patch
 
-The previous approach applied the diff as a patch directly onto the target's working tree. This failed whenever the target had moved past the seed — which is the common case with multiple agents (you apply agent A's work, agent B's diff is now stale). The patch approach led to a cascade of workarounds: `--3way` mode, classification (settled/drifted/fresh), pre-emption, reduced diffs. The merge-based approach eliminates all of this by letting git do what it does best: three-way merge.
+The previous approach applied the diff as a patch directly onto the target's working tree. This failed whenever the target had moved past the seed — which is the common case with multiple agents (you merge agent A's work, agent B's diff is now stale). The patch approach led to a cascade of workarounds: `--3way` mode, classification (settled/drifted/fresh), pre-emption, reduced diffs. The merge-based approach eliminates all of this by letting git do what it does best: three-way merge.
 
 Persisting an agent's work is git's job, reached through merge: `quimby merge <agent> -b feature/x` lands it on a branch you keep. There is no separate "save this work" store.
 
@@ -365,7 +409,7 @@ For SSH agents, rebuild rsyncs the latest source to the remote, deletes and re-c
 
 ## diff Semantics
 
-- `quimby diff <agent>` — live diff of the agent's commits against its seed (a preview of what a handoff or apply would carry)
+- `quimby diff <agent>` — live diff of the agent's commits against its seed (a preview of what a handoff or merge would carry)
 - `quimby diff <a> <b>` — show two agents' diffs side-by-side
 - `--stat` — diffstat summary only
 
@@ -373,4 +417,4 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 
 ## Key Design Decisions
 
-The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; the explicit-lifecycle `handoff/` tree (no dot-dirs); addressed-out / content-named-in; author-then-publish atomic rename; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-apply-by-default; apply-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; auto-dispatch-vs-subscribe; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.
+The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; the explicit-lifecycle `handoff/` tree (no dot-dirs); addressed-out / content-named-in; author-then-publish atomic rename; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-merge-by-default; merge-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; auto-dispatch-vs-subscribe; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.

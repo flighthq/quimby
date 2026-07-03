@@ -39,8 +39,8 @@ The user becomes a messenger relaying problems between agents. Builder hits an i
 
 Gets a green repo in one lane, dispatches work in others, something goes wrong, does `git stash → git rebase → git stash pop → merge conflicts`. Work outpaces ability to integrate. The more agents producing work, the worse this gets.
 
-**Quimby's answer**: Handoff model with frozen baselines (`quimby/seed`). No stash/rebase mid-flight. Apply handoffs one at a time on clean branches. `quimby sync` to advance baselines after integration (`sync -f` or `rebuild` to reset an agent). The boundary ensures the user controls what enters the real repo.
+**Quimby's answer**: Handoff model with frozen baselines (`quimby/seed`). No stash/rebase mid-flight. Merge agent outputs one at a time on clean branches. `quimby sync` to advance baselines after integration (`sync -f` or `rebuild` to reset an agent). The boundary ensures the user controls what enters the real repo.
 
 ## Key Insight
 
-The fundamental tension is: **agents produce work faster than a human can integrate it.** Every design decision should be evaluated against whether it makes integration easier, not just whether it makes agent work easier. The boundary, handoffs, squashed-by-default apply, sync/rebuild, and server-based routing all serve this goal.
+The fundamental tension is: **agents produce work faster than a human can integrate it.** Every design decision should be evaluated against whether it makes integration easier, not just whether it makes agent work easier. The boundary, handoffs, squashed-by-default merge, sync/rebuild, and server-based routing all serve this goal.
