@@ -278,12 +278,12 @@ describe('assembleRemoteHandoff', () => {
     const capture = calls.find((c) => c.includes('git read-tree') && c.includes('GIT_INDEX_FILE'))
     expect(capture).toBeDefined()
     expect(capture).toContain('git read-tree HEAD')
-    expect(capture).toContain('git add -A --')
-    expect(capture).not.toContain('git add -A &&')
+    expect(capture).toContain('git add -A &&')
+    expect(capture).not.toContain('git add -A --')
     await rm(repoRoot, { recursive: true, force: true })
   })
 
-  it('excludes root-ignored directories from loose remote capture but not committed patches', async () => {
+  it('uses bare add for loose remote capture while leaving committed patches unfiltered', async () => {
     const repoRoot = await setupRepoRoot()
     const calls: string[] = []
     const transport = {
@@ -291,12 +291,6 @@ describe('assembleRemoteHandoff', () => {
         calls.push(cmd)
         if (cmd === 'git rev-parse quimby/seed') return 'seed123\n'
         if (cmd === 'git log quimby/seed..HEAD --format=%s') return 'real commit\n'
-        if (cmd.includes('git ls-files --others --ignored --exclude-standard --directory -z')) {
-          return ''
-        }
-        if (cmd.includes('git check-ignore --no-index -v --stdin')) {
-          return '.gitignore:1:/target/\ttarget/debug/build/rustix/output\n'
-        }
         if (cmd.includes('git read-tree HEAD')) return 'tree\n'
         if (cmd === 'git diff --binary quimby/seed tree') return 'diff --git a/src/lib.rs b/src/lib.rs\n'
         if (cmd === 'git diff --binary HEAD tree') return ''
@@ -331,7 +325,8 @@ describe('assembleRemoteHandoff', () => {
     expect(format).not.toContain("':(exclude)target/'")
     expect(format).toContain("':(exclude).quimby'")
     const capture = calls.find((c) => c.includes('git read-tree HEAD') && c.includes('git add -A'))
-    expect(capture).toContain("':(exclude)target/'")
+    expect(capture).toContain('git add -A &&')
+    expect(capture).not.toContain("':(exclude)target/'")
     await rm(repoRoot, { recursive: true, force: true })
   })
 })

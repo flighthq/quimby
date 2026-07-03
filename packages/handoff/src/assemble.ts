@@ -184,35 +184,6 @@ function remoteAssembleOps(transport: SSHTransport, rRepoDir: string): RepoAssem
   }
 }
 
-async function remoteIgnoredPaths(transport: SSHTransport, rRepoDir: string): Promise<string[]> {
-  const untrackedIgnored = await transport
-    .exec(`git ls-files --others --ignored --exclude-standard --directory -z`, { cwd: rRepoDir })
-    .catch(() => '')
-  const committedIgnored = await transport
-    .exec(`git diff --name-only HEAD | git check-ignore --no-index -v --stdin`, {
-      cwd: rRepoDir,
-    })
-    .catch(() => '')
-
-  const paths = new Set<string>()
-  for (const path of untrackedIgnored.split('\0').filter(Boolean)) {
-    paths.add(path)
-  }
-  for (const line of committedIgnored.split('\n')) {
-    const path = parseCheckIgnorePattern(line)
-    if (path) paths.add(path)
-  }
-  return [...paths]
-}
-
-function parseCheckIgnorePattern(line: string): string | null {
-  const [source] = line.split('\t')
-  if (!source) return null
-  const pattern = source.slice(source.lastIndexOf(':') + 1)
-  if (!pattern || pattern.startsWith('!')) return null
-  return pattern.startsWith('/') ? pattern.slice(1) : pattern
-}
-
 // Capture a remote agent's full working tree (committed + uncommitted + untracked)
 // vs `base` without making a commit — the SSH twin of git.diffWorkingTree. The
 // GIT_INDEX_FILE prefix must stay on one &&-chained exec so it survives across the
@@ -223,14 +194,9 @@ async function remoteWorkingTreeDiff(
   base: string,
 ): Promise<string> {
   const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
-  const pathspecs = ['.', ...CAPTURE_EXCLUDE.map((p) => `:(exclude)${p}`)]
-  for (const path of await remoteIgnoredPaths(transport, rRepoDir)) {
-    pathspecs.push(`:(exclude)${path}`)
-  }
-  // Start from HEAD, then stage only loose working-tree changes that are not excluded by
-  // gitignore-derived pathspecs. This keeps committed files even under ignored paths (they are
-  // truly part of the agent's history) while omitting ignored build/cache artifacts that are only
-  // present in the remote working tree.
+  // Start from HEAD, then run bare `git add -A` in the throwaway index. The bare form lets Git
+  // skip ignored loose files naturally, without the "Use -f if you really want to add them" error
+  // explicit pathspecs trigger; committed files under ignored paths stay because HEAD is the base.
   const g = `GIT_INDEX_FILE=${idx}`
   const excludeQuimby =
     `test -n "$(${g} git ls-tree ${base} -- ${QUIMBY_DIRNAME})" || ` +
@@ -239,7 +205,7 @@ async function remoteWorkingTreeDiff(
     const tree = (
       await transport.exec(
         `${g} git read-tree HEAD && ` +
-          `${g} git add -A -- ${pathspecs.map(sq).join(' ')} && ` +
+          `${g} git add -A && ` +
           `{ ${excludeQuimby}; } && ${g} git write-tree`,
         { cwd: rRepoDir },
       )
