@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { rebaseAgentOntoBase, syncAgent } from '@quimbyhq/agent'
+import { getAgentAttestation, rebaseAgentOntoBase, syncAgent } from '@quimbyhq/agent'
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
@@ -22,6 +22,7 @@ import { colors } from 'consola/utils'
 import { execa } from 'execa'
 import { join, resolve } from 'pathe'
 
+import { formatAttestation } from '../attestation'
 import { getQuimbySuccessQuip } from '../quips'
 import { consolaReporter } from '../reporter'
 
@@ -120,6 +121,11 @@ export async function runMergeCommand({
   }
 
   const isAgent = Boolean(state.agents[args.agent])
+  // Relay the agent's self-attestation before crossing the boundary — informational, never a
+  // gate: the human decides. Absent/failed reads as "unverified".
+  if (isAgent) {
+    logger.info(formatAttestation(await getAgentAttestation(repoRoot, state.id, state.agents[args.agent]))) // prettier-ignore
+  }
   // When staging fresh, silently sweep a staging area left by an abandoned prior merge
   // (conflict, then `git merge --abort`) so it never collides. Skipped when merging a parcel
   // by name — that path points at staging deliberately, and a live conflict is preserved by

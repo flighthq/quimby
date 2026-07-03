@@ -2,6 +2,23 @@ import { QuimbyError } from '@quimbyhq/errors'
 import type { AgentLocation } from '@quimbyhq/types'
 import { loadState, saveState } from '@quimbyhq/workspace'
 
+export async function setAgentCheckCommand(
+  repoRoot: string,
+  name: string,
+  check: string | undefined,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!Object.hasOwn(state.agents, name)) {
+    throw new QuimbyError(`Agent "${name}" not found`)
+  }
+  if (check) {
+    state.agents[name].check = check
+  } else {
+    delete state.agents[name].check
+  }
+  await saveState(repoRoot, state)
+}
+
 export async function setAgentDefaults(
   repoRoot: string,
   name: string,

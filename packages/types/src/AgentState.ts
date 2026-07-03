@@ -23,4 +23,10 @@ export interface AgentState {
    * persistence; this opts a local agent into the same behavior.
    */
   tmux?: boolean
+  /**
+   * The agent's own verification command (e.g. `npm run ci`), run *inside* its sandbox when
+   * asked to self-verify (`nudge --verify`, `assign --verify`, or the CLAUDE.md convention).
+   * Quimby never runs it — it only relays the agent's attestation. Unset ⇒ a generic request.
+   */
+  check?: string
 }

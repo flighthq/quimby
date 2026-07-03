@@ -4,8 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 const setAgentLocation = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentDefaults = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentSyncRef = vi.hoisted(() => vi.fn(async () => {}))
+const setAgentCheckCommand = vi.hoisted(() => vi.fn(async () => {}))
 
-vi.mock('@quimbyhq/agent', () => ({ setAgentLocation, setAgentDefaults, setAgentSyncRef }))
+vi.mock('@quimbyhq/agent', () => ({
+  setAgentLocation,
+  setAgentDefaults,
+  setAgentSyncRef,
+  setAgentCheckCommand,
+}))
 
 let resolved: {
   state: { id: string; agents: Record<string, { location: AgentLocation }>; subscriptions: object }
@@ -47,6 +53,14 @@ describe('run', () => {
     const { default: cmd } = await import('./set')
     await cmd.run!({ args: { agent: 'researcher', local: true } } as never)
     expect(setAgentLocation).toHaveBeenCalledWith('/fake/root', 'researcher', { type: 'local' })
+  })
+
+  it('--check sets the agent verification command', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentCheckCommand.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', check: 'npm run ci' } } as never)
+    expect(setAgentCheckCommand).toHaveBeenCalledWith('/fake/root', 'builder', 'npm run ci')
   })
 
   it('--local errors clearly when the agent is already local', async () => {

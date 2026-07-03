@@ -1,9 +1,11 @@
-import { rebaseAgentOntoBase } from '@quimbyhq/agent'
+import { getAgentAttestation, rebaseAgentOntoBase } from '@quimbyhq/agent'
 import { handoffWork } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
+import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { formatAttestation } from '../attestation'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -65,6 +67,13 @@ export async function runHandoffCommand({
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
+
+  // Relay the code source's self-attestation (its own diff is what's carried) — informational.
+  // The host has none; an `--attach` overrides which agent's work (and attestation) travels.
+  const codeSource = args.attach ?? args.from
+  if (state.agents[codeSource]) {
+    logger.info(formatAttestation(await getAgentAttestation(repoRoot, state.id, state.agents[codeSource]))) // prettier-ignore
+  }
 
   const result = await handoffWork(
     {

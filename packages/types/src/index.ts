@@ -1,3 +1,4 @@
+export type { AgentAttestation } from './AgentAttestation'
 export { type AgentLocation, isSSH } from './AgentLocation'
 export type { AgentSessionState } from './AgentSessionState'
 export type { AgentState } from './AgentState'

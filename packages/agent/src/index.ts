@@ -1,4 +1,5 @@
 export * from './assign'
+export * from './attestation'
 export * from './config'
 export * from './lifecycle'
 export * from './sync'

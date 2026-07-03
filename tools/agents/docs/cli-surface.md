@@ -17,7 +17,7 @@ quimby config <agent>                                Interactively (re)configure
 quimby run <agent> [--cmd <cmd>] [-r <runtime>]     Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop)
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
-quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local]   Update agent config (--local converts an SSH agent back to local)
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's self-verification command)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
@@ -32,7 +32,7 @@ quimby apply <agent> …                               Deprecated alias for `qui
 quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) to their base, keeping work (-f hard-resets; --base/--current retarget)
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
-quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms, and for an SSH agent also skips remote cleanup)
+quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms + best-effort remote cleanup, tolerating an unreachable SSH host)
 quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits
 quimby subscribe <agent> <target>                    Agent receives target's status
 quimby unsubscribe <agent> <target>                  Remove subscription
@@ -44,11 +44,18 @@ quimby unsubscribe <agent> <target>                  Remove subscription
 quimby assign <agent> --status <agent>    Embed another agent's status in assignment
 ```
 
-### Deferred: a verification guard
+### The verification guard: cooperative self-attestation (in progress)
 
-An earlier version let each agent carry a `guard` command (e.g. `npm run ci`) that quimby ran before `handoff`/`apply`. It was **removed** because it could not be made honest: quimby is a host-side courier that runs _outside_ the agent's sandbox, while the agent installs its dependencies _inside_ it. So the guard ran in the wrong environment every time — wrong architecture, wrong permissions, missing version-manager PATH — failing on the environment rather than the work. Moving it host-side doesn't help either: the host has no copy of the agent's deps (and a worktree sharing the host's `node_modules` breaks the moment the agent adds a dependency), so the only correct host-side check is a full clean install per apply.
+An earlier version let each agent carry a `guard` command (e.g. `npm run ci`) that quimby ran before `handoff`/`apply`. It was **removed** because it could not be made honest: quimby is a host-side courier that runs _outside_ the agent's sandbox, while the agent installs its dependencies _inside_ it. So the guard ran in the wrong environment every time — wrong architecture, wrong permissions, missing version-manager PATH.
 
-The only place a build is verifiable is where the deps were installed — inside the agent's sandbox. So a guard can return **only** once runtimes expose **headless command execution in the sandbox** (`RuntimeAdapter.execSpec`), letting quimby run the check in the agent's own environment, or once agents **attest** their own result (write the outcome into the parcel `meta.yaml`) for quimby to display rather than re-run. Until then there is no guard: `apply` lands work on a branch (the real boundary) and the user verifies in their normal dev loop, where a dependency change is just a natural `npm install`.
+The guard is now being rebuilt on the only honest model: **quimby asks, the agent verifies, quimby relays — never re-runs, never gates.** It is a cooperative convenience, not an enforced boundary. Pieces:
+
+- **Per-agent `check` command** — `quimby set <agent> --check "npm run ci"` (an `AgentState.check` field). Implemented.
+- **Attestation display** — the agent appends a `quimby-attest` fenced block to `status.md` (`command` / `result: pass|fail` / `summary` / `atCommit`); quimby parses the latest one and **shows** it in `quimby status <agent>` and **prints** it (or "unverified") before `merge`/`handoff`. Informational — never gates. Implemented.
+- **Request paths** — `quimby nudge <agent> --verify` (a canned "run your check and attest" message), `quimby assign … --verify` (appends the same), and a CLAUDE.md convention making self-verify the default. _Planned._
+- **Travels with the work** — embed the attestation in parcel `meta.yaml` on carry, and mark it **stale** when the agent's live content-hash ≠ the attested `atCommit`. _Planned._
+
+Because quimby only relays a self-report, user-facing text says "attests", not "verified".
 
 ## Flag conventions
 
@@ -67,6 +74,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-r` / `--runtime` (run, start, set)
 - `-H` / `--host` (add, set)
 - `--local` (set — convert an SSH agent back to local, dropping its remote location; errors if already local)
+- `--check` (set — the agent's self-verification command, e.g. `"npm run ci"`; `""` clears it. Quimby never runs it — the agent does, and attests the result)
 - `-b` / `--branch` (merge)
 - `-t` / `--target` (merge)
 - `-s` / `--sync` (add, set)

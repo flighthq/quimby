@@ -1,5 +1,5 @@
 import type { AgentWorkSummary } from '@quimbyhq/agent'
-import { getAgentSyncStatus, getAgentWorkSummary } from '@quimbyhq/agent'
+import { getAgentSyncStatus, getAgentWorkSummary, parseAttestation } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { readInboxParcelNames, readOutboxRecipients } from '@quimbyhq/handoff'
 import { getAgentDir, remoteAgentDir } from '@quimbyhq/paths'
@@ -13,7 +13,8 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { join } from 'pathe'
 
-import { bold, cyan, dim, green, yellow } from '../colors'
+import { formatAttestation } from '../attestation'
+import { bold, cyan, dim, green, red, yellow } from '../colors'
 import { page } from '../pager'
 import { formatWorkSummary } from '../workSummary'
 
@@ -152,6 +153,18 @@ async function renderDeepDive(
   console.log(row('assignment', assignment ? firstLine(assignment) : dim('(none)')))
   console.log(row('base', `seed ${seed} · tracks ${snap.syncRef}${behind}`))
   console.log(row('work', formatWorkSummary(snap.summary)))
+  // The agent's own attestation (relayed, never a quimby-run guarantee) — shown when it recorded
+  // one or a check command is configured, so a stale/absent self-report is visible before merge.
+  const attestation = parseAttestation(status)
+  if (attestation || agent.check) {
+    const text = formatAttestation(attestation)
+    console.log(
+      row(
+        'verify',
+        !attestation ? dim(text) : attestation.result === 'pass' ? green(text) : red(text),
+      ),
+    )
+  }
   console.log(row('inbox', renderParcelList(snap.inbox, 'unprocessed')))
   console.log(row('outbox', renderParcelList(snap.outbox, 'queued')))
 

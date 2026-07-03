@@ -1,4 +1,9 @@
-import { setAgentDefaults, setAgentLocation, setAgentSyncRef } from '@quimbyhq/agent'
+import {
+  setAgentCheckCommand,
+  setAgentDefaults,
+  setAgentLocation,
+  setAgentSyncRef,
+} from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import { mergeSSHLocation } from '@quimbyhq/transport'
@@ -47,6 +52,11 @@ export default defineCommand({
       alias: 's',
       description: 'Retarget the ref `quimby sync` syncs against (e.g. main, release)',
     },
+    check: {
+      type: 'string',
+      description:
+        'The agent\'s self-verification command (e.g. "npm run ci"); the agent runs it and attests. Pass "" to clear',
+    },
   },
   run: runSetCommand,
 })
@@ -62,6 +72,7 @@ export async function runSetCommand({
     port?: string
     sync?: string
     local?: boolean
+    check?: string
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -77,10 +88,11 @@ export async function runSetCommand({
     !args.host &&
     !args.port &&
     args.sync === undefined &&
-    !args.local
+    !args.local &&
+    args.check === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --cmd, --host, --port, --sync, or --local',
+      'Specify at least one of --runtime, --cmd, --host, --port, --sync, --local, or --check',
     )
   }
 
@@ -107,6 +119,10 @@ export async function runSetCommand({
       throw new QuimbyError('--sync requires a ref (e.g. main, release)')
     }
     await setAgentSyncRef(repoRoot, args.agent, args.sync)
+  }
+
+  if (args.check !== undefined) {
+    await setAgentCheckCommand(repoRoot, args.agent, args.check || undefined)
   }
 
   if (args.local) {

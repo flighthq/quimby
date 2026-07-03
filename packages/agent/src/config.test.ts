@@ -7,7 +7,13 @@ import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { setAgentDefaults, setAgentLocation, setAgentSyncRef, setAgentTmux } from './config'
+import {
+  setAgentCheckCommand,
+  setAgentDefaults,
+  setAgentLocation,
+  setAgentSyncRef,
+  setAgentTmux,
+} from './config'
 import { addAgent } from './lifecycle'
 
 vi.mock('@quimbyhq/git', async (importOriginal) => {
@@ -47,6 +53,20 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
   vi.clearAllMocks()
+})
+
+describe('setAgentCheckCommand', () => {
+  it('throws QuimbyError when the agent does not exist', async () => {
+    await expect(setAgentCheckCommand(dir, 'ghost', 'npm run ci')).rejects.toThrow('not found')
+  })
+
+  it('sets and clears the check command', async () => {
+    await addAgent(dir, 'alice')
+    await setAgentCheckCommand(dir, 'alice', 'npm run ci')
+    expect((await loadState(dir)).agents.alice.check).toBe('npm run ci')
+    await setAgentCheckCommand(dir, 'alice', undefined)
+    expect((await loadState(dir)).agents.alice.check).toBeUndefined()
+  })
 })
 
 describe('setAgentDefaults', () => {
