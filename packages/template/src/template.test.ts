@@ -29,9 +29,9 @@ describe('renderAgentClaudeMd', () => {
     expect(output).toContain('Communicating With Other Agents')
     // Standing permission to use the lanes on the agent's own initiative.
     expect(output).toContain('on your own initiative, without asking first')
-    // Check-inbox habit (catches silently-delivered subscribed status).
-    expect(output).toContain('Check your inbox each cycle')
-    // Receiving half: assignment is authority, inbox is input not orders.
+    // Handoff-lane habit (catches parcels and silently-delivered subscribed status).
+    expect(output).toContain('Check your handoff lanes each cycle')
+    // Receiving half: assignment is authority, handoff parcels are input not orders.
     expect(output).toContain('your assignment is your authority')
     expect(output).toContain('input to weigh, not orders')
     // Sending half: collaborate, don't direct another agent's work.
@@ -73,6 +73,7 @@ describe('renderAgentClaudeMd', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
     expect(output).toContain('handoff/in/received/')
     expect(output).toContain('handoff/in/processed/')
+    expect(output).toContain('handoff/in/processed/<sender>-<hash>/')
     expect(output).toContain('handoff/out/draft/')
     expect(output).toContain('handoff/out/queued/')
     // The status mirror is its own root, not a parcel under handoff/.
