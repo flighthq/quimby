@@ -77,9 +77,10 @@ export function renderTmuxConfig(): string {
 export function renderVerifyRequest(check?: string): string {
   const cmd = check ? `\`${check}\`` : "your project's tests/build"
   return (
-    `Run your verification (${cmd}), then append a \`quimby-attest\` fenced block to the end of ` +
-    `status.md with: command, result (pass|fail), summary, and atCommit (your current short commit ` +
-    `hash). See "Verifying Your Work" in your agent instructions for the exact format.`
+    `Commit your work first, then run your verification (${cmd}) and append a \`quimby-attest\` ` +
+    `fenced block to the end of status.md with: command, result (pass|fail), summary, and atCommit ` +
+    `(the short hash of that commit). Committing first is what makes atCommit match the tree that ` +
+    `gets carried. See "Verifying Your Work" in your agent instructions for the exact format.`
   )
 }
 
@@ -173,16 +174,19 @@ export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }
     ``,
     `## Verifying Your Work`,
     ``,
-    `After you finish an assignment (or whenever asked to verify), run your verification — the`,
-    `command quimby recorded as your \`check\` (named in the request), or your project's tests/build`,
-    `— and record the outcome by appending a fenced \`quimby-attest\` block to the end of \`status.md\`:`,
+    `After you finish an assignment (or whenever asked to verify): **commit your work first**, then`,
+    `run your verification — the command quimby recorded as your \`check\` (named in the request), or`,
+    `your project's tests/build — and record the outcome by appending a fenced \`quimby-attest\` block`,
+    `to the end of \`status.md\`:`,
     ``,
     ATTEST_BLOCK_EXAMPLE,
     ``,
     `Quimby reads the **latest** such block and relays it at the boundary — it never runs the check`,
-    `itself, and never blocks on the result (the human decides). Set \`atCommit\` to your current`,
-    `commit so quimby can tell whether the attestation is stale (your work changed since you`,
-    `verified). Report honestly: \`result: fail\` with a short reason is more useful than a false pass.`,
+    `itself, and never blocks on the result (the human decides). Set \`atCommit\` to the commit you`,
+    `just made: quimby compares it to your live \`HEAD\` to flag a stale attestation (you changed`,
+    `things after verifying). Committing first is what makes \`atCommit\` cover the tree that gets`,
+    `carried — uncommitted edits after attesting won't be reflected. Report honestly: \`result: fail\``,
+    `with a short reason is more useful than a false pass.`,
     ``,
     `## Project Instructions`,
     ``,

@@ -13,6 +13,8 @@ describe('renderAgentClaudeMd', () => {
     expect(output).toContain('Verifying Your Work')
     expect(output).toContain('```quimby-attest')
     expect(output).toContain('result: pass')
+    // Commit-then-attest so atCommit covers the carried tree (the staleness convention).
+    expect(output).toContain('commit your work first')
   })
 
   it('includes the agent name', () => {
@@ -120,6 +122,7 @@ describe('renderVerifyRequest', () => {
     const out = renderVerifyRequest('npm run ci')
     expect(out).toContain('npm run ci')
     expect(out).toContain('quimby-attest')
+    expect(out).toContain('Commit your work first')
   })
 
   it('falls back to a generic instruction when no check is configured', () => {
