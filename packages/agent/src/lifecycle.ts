@@ -9,7 +9,7 @@ import {
   remoteAgentRepoDir,
   remoteProjectRoot,
 } from '@quimbyhq/paths'
-import { renderAgentClaudeMd } from '@quimbyhq/template'
+import { renderAgentAgentsMd, renderAgentClaudeMd } from '@quimbyhq/template'
 import type { SSHTransport, Transport } from '@quimbyhq/transport'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, AgentState } from '@quimbyhq/types'
@@ -227,7 +227,7 @@ export async function cloneAndSeedRemoteAgentRepo(
 
 /**
  * Create a remote agent's mailbox dirs and baseline files (assignment/status, optionally
- * CLAUDE.md) over transport — the remote twin of {@link writeAgentScaffold}. Shared by
+ * AGENTS.md/CLAUDE.md) over transport — the remote twin of {@link writeAgentScaffold}. Shared by
  * `rebuildAgent` (SSH) and the first-run init in `prepareSshLaunch`.
  */
 export async function writeRemoteAgentScaffold(
@@ -243,6 +243,7 @@ export async function writeRemoteAgentScaffold(
   await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
   if (opts.withClaudeMd) {
     const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
+    await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd())
     await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
   }
 }
@@ -316,7 +317,7 @@ async function cloneAndSeedAgentRepo(
   return git.getCurrentRef(repoDir)
 }
 
-/** Create a local agent's mailbox tree and baseline files (assignment/status, optional CLAUDE.md). */
+/** Create a local agent's mailbox tree and baseline files (assignment/status, optional instructions). */
 async function writeAgentScaffold(
   agentDir: string,
   opts: { agentName: string; agentId: string; withClaudeMd: boolean },
@@ -331,6 +332,7 @@ async function writeAgentScaffold(
   await writeText(join(agentDir, 'status.md'), 'idle')
   if (opts.withClaudeMd) {
     const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
+    await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd())
     await writeText(join(agentDir, 'CLAUDE.md'), claudeMd)
   }
 }

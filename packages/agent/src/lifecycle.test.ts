@@ -87,10 +87,11 @@ describe('addAgent', () => {
     expect(state.agents.alice.id).toBe(agent.id)
   })
 
-  it('creates the agent directory and CLAUDE.md scaffold', async () => {
+  it('creates the agent directory and instruction scaffolds', async () => {
     const agent = await addAgent(dir, 'bob')
     const agentDir = getAgentDir(dir, agent.id)
     expect(await exists(agentDir)).toBe(true)
+    expect(await exists(join(agentDir, 'AGENTS.md'))).toBe(true)
     expect(await exists(join(agentDir, 'CLAUDE.md'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
     expect(await exists(join(agentDir, 'status.md'))).toBe(true)

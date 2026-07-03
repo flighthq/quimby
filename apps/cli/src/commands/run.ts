@@ -15,7 +15,7 @@ import {
   tmuxSessionName,
 } from '@quimbyhq/paths'
 import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
-import { renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
+import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -560,6 +560,7 @@ async function buildSSHWindow(
     await transport.writeFile(`${rAgentDir}/assignment.md`, '')
     await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
     const claudeMd = renderAgentClaudeMd({ agentName: name, agentId: agent.id })
+    await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd())
     await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
 
     state.agents[name].seedCommit = seedCommit

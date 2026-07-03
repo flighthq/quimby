@@ -108,6 +108,10 @@ const ATTEST_BLOCK_EXAMPLE = [
   '    ```',
 ].join('\n')
 
+export function renderAgentAgentsMd(): string {
+  return '@CLAUDE.md\n'
+}
+
 export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }): string {
   const { agentName, agentId } = opts
 

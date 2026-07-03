@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  renderAgentAgentsMd,
   renderAgentClaudeMd,
   renderResumeRequest,
   renderTmuxConfig,
   renderVerifyRequest,
 } from './template'
+
+describe('renderAgentAgentsMd', () => {
+  it('links Codex instructions to the generated CLAUDE.md', () => {
+    expect(renderAgentAgentsMd()).toBe('@CLAUDE.md\n')
+  })
+})
 
 describe('renderAgentClaudeMd', () => {
   it('includes the self-verify convention and the quimby-attest block format', () => {
