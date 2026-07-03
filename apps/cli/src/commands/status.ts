@@ -13,17 +13,9 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { join } from 'pathe'
 
+import { bold, cyan, dim, green, yellow } from '../colors'
 import { page } from '../pager'
 import { formatWorkSummary } from '../workSummary'
-
-// Color is opt-out via NO_COLOR (honored here rather than emitting raw escapes blindly).
-const useColor = process.env.NO_COLOR === undefined
-const style = (code: string) => (s: string) => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s)
-const bold = style('1')
-const dim = style('2')
-const green = style('32')
-const yellow = style('33')
-const cyan = style('36')
 
 const STATUS_EXCERPT_LINES = 8
 
