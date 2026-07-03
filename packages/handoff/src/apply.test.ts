@@ -449,6 +449,78 @@ describe('applyHandoff', () => {
     }
   })
 
+  it('commits mode is idempotent when retrying a parcel whose commits already landed', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'a.txt'), 'a\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'first change')
+    await writeFile(join(agentRepoDir, 'b.txt'), 'b\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'second change')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const first = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(first.alreadyApplied).toBe(false)
+      const headAfterFirst = await git.revParse(targetDir, 'HEAD')
+
+      const retry = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(retry.alreadyApplied).toBe(true)
+      expect(await git.revParse(targetDir, 'HEAD')).toBe(headAfterFirst)
+      const { stdout: subjects } = await execa('git', ['log', '--format=%s'], { cwd: targetDir })
+      expect(subjects.split('\n').filter((s) => s === 'first change')).toHaveLength(1)
+      expect(subjects.split('\n').filter((s) => s === 'second change')).toHaveLength(1)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('stops clearly when retrying from an interrupted temporary apply branch', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit!.slice(0, 8)}`
+      await git.createBranch(targetDir, tempBranch, meta.seedCommit)
+      await git.am(
+        targetDir,
+        [join(getStagingHandoffDir(dir, meta.name), 'commits', '0001-add-feature.patch')],
+        {
+          skipHooks: true,
+        },
+      )
+
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'commits',
+        }),
+      ).rejects.toThrow('temporary merge branch')
+      expect(await getCurrentBranch(targetDir)).toBe(tempBranch)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('commits mode replays commits and leaves the uncommitted remainder loose in the working tree', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)

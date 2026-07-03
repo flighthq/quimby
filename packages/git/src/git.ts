@@ -48,6 +48,31 @@ export async function checkout(cwd: string, ref: string): Promise<void> {
   await git(['checkout', ref], cwd)
 }
 
+export interface CherryCommit {
+  /** True when the commit has an equivalent patch already reachable from upstream. */
+  equivalent: boolean
+  sha: string
+}
+
+export async function cherry(
+  cwd: string,
+  upstream: string,
+  head: string,
+  limit?: string,
+): Promise<CherryCommit[]> {
+  const args = ['cherry', upstream, head]
+  if (limit) args.push(limit)
+  const stdout = await git(args, cwd)
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => ({
+      equivalent: line.startsWith('-'),
+      sha: line.slice(2),
+    }))
+}
+
 export async function clone(
   url: string,
   dest: string,

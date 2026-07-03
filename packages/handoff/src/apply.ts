@@ -23,6 +23,11 @@ export interface ApplyResult {
    * The caller treats this as an incomplete landing: no celebration, no seed advance.
    */
   leftUncommitted: boolean
+  /**
+   * True when the target already contained every committed patch in the parcel. This is
+   * the retry path after an interrupted post-apply cleanup/seed sync.
+   */
+  alreadyApplied: boolean
 }
 
 /**
@@ -66,6 +71,12 @@ export async function applyHandoff(opts: {
   const previousRef =
     (await git.getCurrentBranch(targetRepoPath)) ?? (await git.getCurrentRef(targetRepoPath))
   const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit.slice(0, 8)}`
+  if (previousRef === tempBranch) {
+    throw new QuimbyError(
+      `Target repo is on Quimby's temporary merge branch "${tempBranch}". ` +
+        `Checkout the branch you meant to merge into, then rerun quimby merge.`,
+    )
+  }
 
   // If a landing branch was requested, create it from the current position before we
   // start — so the merge lands on that branch, not wherever the user was.
@@ -139,6 +150,15 @@ export async function applyHandoff(opts: {
     const mergeTarget = landingBranch ?? previousRef
     await git.checkout(targetRepoPath, mergeTarget)
 
+    if (
+      mode !== 'patch' &&
+      (await alreadyContainsCommittedPatches(targetRepoPath, tempBranch, meta.seedCommit))
+    ) {
+      await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
+      if (landingBranch) await git.checkout(targetRepoPath, previousRef)
+      return { mode, tempBranch, conflicts: [], leftUncommitted: false, alreadyApplied: true }
+    }
+
     // Step 3: Merge the temp branch in. No --no-ff: when the target is still at the seed
     // this fast-forwards to the agent's own commit (clean linear history, no boundary node);
     // when the target has diverged git creates a standard merge commit with its default
@@ -193,7 +213,7 @@ export async function applyHandoff(opts: {
     // (Without `-b` the merge already happened on previousRef, so there is nothing to undo.)
     if (landingBranch) await git.checkout(targetRepoPath, previousRef)
 
-    return { mode, tempBranch, conflicts: [], leftUncommitted }
+    return { mode, tempBranch, conflicts: [], leftUncommitted, alreadyApplied: false }
   } catch (err) {
     if (err instanceof ConflictError) throw err
     // On unexpected failure, try to restore the user to where they were.
@@ -205,4 +225,16 @@ export async function applyHandoff(opts: {
       `Failed to apply handoff "${name}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
     )
   }
+}
+
+async function alreadyContainsCommittedPatches(
+  targetRepoPath: string,
+  tempBranch: string,
+  seedCommit: string,
+): Promise<boolean> {
+  if ((await git.countCommits(targetRepoPath, `${seedCommit}..${tempBranch}`)) === 0) {
+    return false
+  }
+  const commits = await git.cherry(targetRepoPath, 'HEAD', tempBranch, seedCommit)
+  return commits.length === 0 || commits.every((commit) => commit.equivalent)
 }

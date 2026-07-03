@@ -136,6 +136,31 @@ describe('runMergeCommand', () => {
     expect((await loadState(host)).agents.alice.seedCommit).toBe(before)
   })
 
+  it('does not replay commits again when retrying after the host already contains them', async () => {
+    const { host } = await setupHostAndAgent()
+    const before = (await loadState(host)).agents.alice.seedCommit
+    const { default: cmd } = await import('./merge')
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    await cmd.run!(mergeArgs({ commits: true, target: host, sync: false }))
+    const headAfterFirst = await git(host, 'rev-parse', 'HEAD')
+    expect((await loadState(host)).agents.alice.seedCommit).toBe(before)
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    await cmd.run!(mergeArgs({ commits: true, target: host }))
+
+    expect(await git(host, 'rev-parse', 'HEAD')).toBe(headAfterFirst)
+    expect((await loadState(host)).agents.alice.seedCommit).toBe(headAfterFirst)
+    const subjects = (await git(host, 'log', '--format=%s')).split('\n')
+    expect(subjects.filter((subject) => subject === 'add feature')).toHaveLength(1)
+  })
+
   it('retargets the agent sync ref with --sync <ref> while advancing', async () => {
     const { host } = await setupHostAndAgent()
     await git(host, 'branch', 'release') // a ref to retarget onto (must resolve)

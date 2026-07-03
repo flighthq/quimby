@@ -188,7 +188,11 @@ export async function runMergeCommand({
 
     await discardHandoff(repoRoot, name)
 
-    logger.success(`Merged "${name}"`)
+    logger.success(
+      result.alreadyApplied
+        ? `Merged "${name}" was already present; finishing cleanup`
+        : `Merged "${name}"`,
+    )
 
     // Work left uncommitted (explicit --patch, the no-TTY degrade, or a --commits
     // remainder): an incomplete landing — no quip, no seed advance. Say what to commit,
