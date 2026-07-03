@@ -7,7 +7,7 @@ import {
   pickupRemoteOutbox,
   readOutboxRecipients,
 } from '@quimbyhq/handoff'
-import { getAgentOutboxDraftDir } from '@quimbyhq/paths'
+import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
@@ -115,7 +115,7 @@ async function outboxDraftMtime(
   recipient: string,
 ): Promise<number | null> {
   try {
-    return await maxMtime(getAgentOutboxDraftDir(repoRoot, senderId, recipient))
+    return await maxMtime(getAgentHandoffOutQueuedRecipientDir(repoRoot, senderId, recipient))
   } catch {
     return null
   }

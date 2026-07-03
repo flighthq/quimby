@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentInboxStatusDir } from '@quimbyhq/paths'
+import { getAgentStatusMirrorDir } from '@quimbyhq/paths'
 import type { AgentState } from '@quimbyhq/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 })
 
 describe('deliverStatusSnapshot', () => {
-  it('writes the payload into a local recipient inbox/status/<from>.md', async () => {
+  it('writes the payload into a local recipient status/<from>.md mirror', async () => {
     const toAgent = { id: 'to-id', name: 'reviewer', location: { type: 'local' } } as AgentState
     const payload = formatStatusSnapshot('builder', 'halfway done', '2026-07-02T00:00:00.000Z')
 
@@ -32,7 +32,7 @@ describe('deliverStatusSnapshot', () => {
     })
 
     const written = await readFile(
-      join(getAgentInboxStatusDir(dir, 'to-id'), 'builder.md'),
+      join(getAgentStatusMirrorDir(dir, 'to-id'), 'builder.md'),
       'utf-8',
     )
     expect(written).toBe(payload)

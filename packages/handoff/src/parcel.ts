@@ -4,10 +4,10 @@ import { HandoffError, QuimbyError } from '@quimbyhq/errors'
 import { isMergeInProgress } from '@quimbyhq/git'
 import {
   getAgentDir,
-  getAgentInboxParcelDir,
+  getAgentHandoffInReceivedParcelDir,
   getStagingDir,
   getStagingHandoffDir,
-  remoteAgentDir,
+  remoteAgentHandoffInReceivedDir,
 } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentLocation, HandoffMeta } from '@quimbyhq/types'
@@ -34,18 +34,18 @@ export async function deliverHandoff(opts: {
 
   if (isSSH(toLocation)) {
     const transport = getSSHTransport(toLocation)
-    const rInboxDir = `${remoteAgentDir(projectId, toId, toLocation.base)}/inbox/${name}`
-    await transport.ensureDir(rInboxDir)
-    await transport.rsyncTo(stagingDir, rInboxDir)
+    const rReceivedDir = `${remoteAgentHandoffInReceivedDir(projectId, toId, toLocation.base)}/${name}`
+    await transport.ensureDir(rReceivedDir)
+    await transport.rsyncTo(stagingDir, rReceivedDir)
     return
   }
 
   if (!(await exists(getAgentDir(repoRoot, toId)))) {
     throw new QuimbyError(`Agent "${to}" not found`)
   }
-  const inboxDir = getAgentInboxParcelDir(repoRoot, toId, name)
-  await ensureDir(inboxDir)
-  await cp(stagingDir, inboxDir, { recursive: true })
+  const receivedDir = getAgentHandoffInReceivedParcelDir(repoRoot, toId, name)
+  await ensureDir(receivedDir)
+  await cp(stagingDir, receivedDir, { recursive: true })
 }
 
 /** Remove a staged parcel once it has been consumed (applied, delivered, exported). */

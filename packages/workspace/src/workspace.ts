@@ -1,8 +1,8 @@
-import { appendFile, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import { getQuimbyDir, getStatePath } from '@quimbyhq/paths'
+import { getAgentDir, getQuimbyDir, getStatePath } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, exists, readYaml } from '@quimbyhq/utils'
@@ -54,7 +54,97 @@ export async function resolveWorkspace(): Promise<{
   // place. Runs after IDs are guaranteed present, before any id-keyed path is used.
   await migrateAgentDirs(repoRoot, state)
 
+  // Reshape any legacy `inbox/`+`outbox/` mailbox into the explicit-lifecycle `handoff/` tree.
+  // Runs after the dir is at its id-keyed path so it operates on the right agent dir.
+  await migrateAgentMailboxes(repoRoot, state)
+
   return { state, repoRoot }
+}
+
+/**
+ * One-time migration of each local agent's mailbox from the legacy `inbox/`+`outbox/`+dot-archive
+ * layout to the explicit-lifecycle `handoff/` tree (plus the `status/` mirror at the agent root):
+ *
+ *   outbox/<t>/          → handoff/out/queued/<t>/
+ *   outbox/.sent/<t>/    → handoff/out/sent/<t>/
+ *   inbox/<sender-hash>/ → handoff/in/received/<sender-hash>/
+ *   inbox/.done/*        → handoff/in/processed/*
+ *   inbox/status/*       → status/*
+ *
+ * Idempotent: an agent with neither legacy dir is skipped, and the legacy dirs are removed once
+ * migrated, so a second load is a no-op. Remote (SSH) agents migrate lazily on their next
+ * `quimby run` (see `renderRemoteMailboxMigration`). Best-effort per agent — a single agent's
+ * failure never aborts workspace load for the others.
+ */
+async function migrateAgentMailboxes(repoRoot: string, state: QuimbyState): Promise<void> {
+  for (const agent of Object.values(state.agents)) {
+    if (isSSH(agent.location)) continue
+    try {
+      await migrateAgentMailbox(getAgentDir(repoRoot, agent.id))
+    } catch {
+      // Leave a partially-migrated agent for a human to inspect rather than crash load.
+    }
+  }
+}
+
+async function migrateAgentMailbox(agentDir: string): Promise<void> {
+  const legacyInbox = join(agentDir, 'inbox')
+  const legacyOutbox = join(agentDir, 'outbox')
+  const hasInbox = await exists(legacyInbox)
+  const hasOutbox = await exists(legacyOutbox)
+  if (!hasInbox && !hasOutbox) return
+
+  const handoff = join(agentDir, 'handoff')
+  const outQueued = join(handoff, 'out', 'queued')
+  const outSent = join(handoff, 'out', 'sent')
+  const inReceived = join(handoff, 'in', 'received')
+  const inProcessed = join(handoff, 'in', 'processed')
+  const statusMirror = join(agentDir, 'status')
+  for (const dir of [outQueued, outSent, inReceived, inProcessed, statusMirror]) {
+    await ensureDir(dir)
+  }
+
+  if (hasOutbox) {
+    // Recipient dirs (skip the `.sent` ledger) → out/queued; `.sent/<t>` → out/sent.
+    await moveChildDirsInto(legacyOutbox, outQueued, { skip: ['.sent'] })
+    await moveChildDirsInto(join(legacyOutbox, '.sent'), outSent)
+    await rm(legacyOutbox, { recursive: true, force: true })
+  }
+
+  if (hasInbox) {
+    // `status/` is a flat set of `<peer>.md` files, not parcels — move the files, not a dir.
+    await moveChildEntriesInto(join(legacyInbox, 'status'), statusMirror)
+    await moveChildDirsInto(join(legacyInbox, '.done'), inProcessed)
+    // Remaining parcel dirs; `status`/`.done` are already drained, so only `<sender>-<hash>` remain.
+    await moveChildDirsInto(legacyInbox, inReceived, { skip: ['status', '.done'] })
+    await rm(legacyInbox, { recursive: true, force: true })
+  }
+}
+
+/** Move each child *directory* of `srcDir` into `destDir` (by rename), skipping named entries. */
+async function moveChildDirsInto(
+  srcDir: string,
+  destDir: string,
+  opts?: { skip?: readonly string[] },
+): Promise<void> {
+  if (!(await exists(srcDir))) return
+  const skip = new Set(opts?.skip ?? [])
+  for (const entry of await readdir(srcDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || skip.has(entry.name)) continue
+    const dest = join(destDir, entry.name)
+    if (await exists(dest)) continue
+    await rename(join(srcDir, entry.name), dest)
+  }
+}
+
+/** Move every child entry (files and dirs) of `srcDir` into `destDir` (by rename). */
+async function moveChildEntriesInto(srcDir: string, destDir: string): Promise<void> {
+  if (!(await exists(srcDir))) return
+  for (const entry of await readdir(srcDir)) {
+    const dest = join(destDir, entry)
+    if (await exists(dest)) continue
+    await rename(join(srcDir, entry), dest)
+  }
 }
 
 /**

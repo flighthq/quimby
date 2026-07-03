@@ -1,4 +1,8 @@
-import { cloneAndSeedRemoteAgentRepo, writeRemoteAgentScaffold } from '@quimbyhq/agent'
+import {
+  cloneAndSeedRemoteAgentRepo,
+  renderRemoteMailboxMigration,
+  writeRemoteAgentScaffold,
+} from '@quimbyhq/agent'
 import {
   remoteAgentDir,
   remoteAgentRepoDir,
@@ -63,6 +67,10 @@ export async function prepareSshLaunch(
       `if [ -d ${rLegacyAgentDir} ] && [ ! -d ${rAgentDir} ]; then mkdir -p "$(dirname ${rAgentDir})" && mv ${rLegacyAgentDir} ${rAgentDir}; fi`,
     )
   }
+
+  // Reshape a legacy inbox/outbox mailbox into the handoff/ tree (once), after the dir is at
+  // its id-keyed path so it operates on the right agent dir.
+  await transport.exec(renderRemoteMailboxMigration(rAgentDir))
 
   // Lazy remote init: clone + scaffold the agent if this is the first launch. Reuses the
   // same provisioning primitives as `rebuildAgent`, so remote clone/seed/scaffold lives

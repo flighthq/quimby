@@ -82,7 +82,9 @@ describe('handoffWork', () => {
       to: 'r',
       message: 'please review',
     })
-    expect(withNote.nudgeText).toBe('Please review: @inbox/builder-abc123/\n\nplease review')
+    expect(withNote.nudgeText).toBe(
+      'Please review: @handoff/in/received/builder-abc123/\n\nplease review',
+    )
 
     const noNote = await handoffWork({
       state: stateWith('b', 'r'),

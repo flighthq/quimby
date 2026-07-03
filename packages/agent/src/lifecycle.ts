@@ -102,7 +102,7 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
-    await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/inbox ${rAgentDir}/outbox`)
+    await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/handoff ${rAgentDir}/status`)
     state.agents[name].seedCommit = await cloneAndSeedRemoteAgentRepo(transport, {
       rRoot,
       rRepoDir,
@@ -128,8 +128,8 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
 
   // A rebuilt agent is a fresh start — clear the mailbox so stale parcels and a prior
   // task don't carry over, then re-scaffold. CLAUDE.md is left in place.
-  await rm(join(agentDir, 'inbox'), { recursive: true, force: true })
-  await rm(join(agentDir, 'outbox'), { recursive: true, force: true })
+  await rm(join(agentDir, 'handoff'), { recursive: true, force: true })
+  await rm(join(agentDir, 'status'), { recursive: true, force: true })
   await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id, withClaudeMd: false })
 }
 
@@ -235,14 +235,42 @@ export async function writeRemoteAgentScaffold(
   rAgentDir: string,
   opts: { agentName: string; agentId: string; withClaudeMd: boolean },
 ): Promise<void> {
-  await transport.ensureDir(`${rAgentDir}/inbox/status`)
-  await transport.ensureDir(`${rAgentDir}/outbox`)
+  await transport.ensureDir(`${rAgentDir}/handoff/out/draft`)
+  await transport.ensureDir(`${rAgentDir}/handoff/out/queued`)
+  await transport.ensureDir(`${rAgentDir}/handoff/in/received`)
+  await transport.ensureDir(`${rAgentDir}/status`)
   await transport.writeFile(`${rAgentDir}/assignment.md`, '')
   await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
   if (opts.withClaudeMd) {
     const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
     await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
   }
+}
+
+/**
+ * A guarded shell one-liner that migrates a *remote* agent's legacy `inbox/`+`outbox/` mailbox
+ * into the explicit-lifecycle `handoff/` tree (the SSH twin of `migrateAgentMailbox`). Runs only
+ * when a legacy dir exists and `handoff/` does not, so it is idempotent and a no-op for a
+ * freshly-scaffolded remote agent. Reused by `prepareSshLaunch` and the dashboard's SSH window so
+ * the reshape happens on the next `run` wherever the agent is launched. Uses `sh` glob semantics:
+ * `*` skips dotfiles, so `.sent`/`.done` are excluded from the plain loops and handled explicitly.
+ */
+export function renderRemoteMailboxMigration(rAgentDir: string): string {
+  const a = rAgentDir
+  return (
+    `if { [ -d ${a}/inbox ] || [ -d ${a}/outbox ]; } && [ ! -d ${a}/handoff ]; then ` +
+    `mkdir -p ${a}/handoff/out/queued ${a}/handoff/out/sent ${a}/handoff/in/received ${a}/handoff/in/processed ${a}/status; ` +
+    `if [ -d ${a}/outbox ]; then ` +
+    `if [ -d ${a}/outbox/.sent ]; then for d in ${a}/outbox/.sent/*/; do [ -d "$d" ] && mv "$d" ${a}/handoff/out/sent/; done; fi; ` +
+    `for d in ${a}/outbox/*/; do [ -d "$d" ] && mv "$d" ${a}/handoff/out/queued/; done; ` +
+    `rm -rf ${a}/outbox; fi; ` +
+    `if [ -d ${a}/inbox ]; then ` +
+    `if [ -d ${a}/inbox/status ]; then for f in ${a}/inbox/status/* ${a}/inbox/status/.[!.]*; do [ -e "$f" ] && mv "$f" ${a}/status/; done; rm -rf ${a}/inbox/status; fi; ` +
+    `if [ -d ${a}/inbox/.done ]; then for d in ${a}/inbox/.done/*/; do [ -d "$d" ] && mv "$d" ${a}/handoff/in/processed/; done; rm -rf ${a}/inbox/.done; fi; ` +
+    `for d in ${a}/inbox/*/; do [ -d "$d" ] && mv "$d" ${a}/handoff/in/received/; done; ` +
+    `rm -rf ${a}/inbox; fi; ` +
+    `fi`
+  )
 }
 
 /**
@@ -288,13 +316,17 @@ async function cloneAndSeedAgentRepo(
   return git.getCurrentRef(repoDir)
 }
 
-/** Create a local agent's mailbox dirs and baseline files (assignment/status, optional CLAUDE.md). */
+/** Create a local agent's mailbox tree and baseline files (assignment/status, optional CLAUDE.md). */
 async function writeAgentScaffold(
   agentDir: string,
   opts: { agentName: string; agentId: string; withClaudeMd: boolean },
 ): Promise<void> {
-  await ensureDir(join(agentDir, 'inbox', 'status'))
-  await ensureDir(join(agentDir, 'outbox'))
+  // The explicit-lifecycle tree: agents author under out/draft and publish into out/queued;
+  // parcels arrive in in/received; status mirrors sit at their own `status/` root.
+  await ensureDir(join(agentDir, 'handoff', 'out', 'draft'))
+  await ensureDir(join(agentDir, 'handoff', 'out', 'queued'))
+  await ensureDir(join(agentDir, 'handoff', 'in', 'received'))
+  await ensureDir(join(agentDir, 'status'))
   await writeText(join(agentDir, 'assignment.md'), '')
   await writeText(join(agentDir, 'status.md'), 'idle')
   if (opts.withClaudeMd) {

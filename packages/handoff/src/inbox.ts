@@ -1,20 +1,21 @@
 import { readdir } from 'node:fs/promises'
 
-import { getAgentInboxDir } from '@quimbyhq/paths'
+import { getAgentHandoffInReceivedDir } from '@quimbyhq/paths'
 import { exists } from '@quimbyhq/utils'
 
 /**
  * Names of the unprocessed parcels in an agent's inbox — the delivered `<from>-<hash>`
- * directories, excluding the live `status/` mirror and the `.done/` archive. Sorted, and
- * empty when the inbox is absent. Local only (the twin of `readOutboxRecipients`); a remote
- * agent's inbox lives on its own host.
+ * directories under `handoff/in/received/`. Status mirrors (`status/`) and the processed
+ * archive (`handoff/in/processed/`) are separate trees, so no filtering is needed. Sorted, and
+ * empty when the received dir is absent. Local only (the twin of `readOutboxRecipients`); a
+ * remote agent's inbox lives on its own host.
  */
 export async function readInboxParcelNames(repoRoot: string, agentId: string): Promise<string[]> {
-  const inboxDir = getAgentInboxDir(repoRoot, agentId)
-  if (!(await exists(inboxDir))) return []
-  const entries = await readdir(inboxDir, { withFileTypes: true })
+  const receivedDir = getAgentHandoffInReceivedDir(repoRoot, agentId)
+  if (!(await exists(receivedDir))) return []
+  const entries = await readdir(receivedDir, { withFileTypes: true })
   return entries
-    .filter((e) => e.isDirectory() && e.name !== 'status' && !e.name.startsWith('.'))
+    .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort()
 }
