@@ -190,23 +190,28 @@ async function remoteWorkingTreeDiff(
   base: string,
 ): Promise<string> {
   const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
-  // Stage all, then unstage Quimby's own state dir so it never enters the diff — the
-  // remote twin of git.diffWorkingTree's `exclude`. A pathspec on `add` can't do this
-  // (git errors on an ignored match); the unstage is guarded on `base` so a path that
-  // is genuinely tracked isn't shown as a spurious deletion.
+  const paths = `/tmp/quimby-paths-${crypto.randomUUID()}`
+  // Build an explicit path list instead of relying on a broad `git add -A`: tracked changes
+  // come from `git diff --name-only`, while untracked files come from `git ls-files --others
+  // --exclude-standard`, so ignored build/cache artifacts are never captured.
   const g = `GIT_INDEX_FILE=${idx}`
   const excludeQuimby =
     `test -n "$(${g} git ls-tree ${base} -- ${QUIMBY_DIRNAME})" || ` +
     `${g} git rm -r --cached --quiet --ignore-unmatch -- ${QUIMBY_DIRNAME}`
-  const tree = (
-    await transport.exec(
-      `${g} git read-tree ${base} && ${g} git add -A && { ${excludeQuimby}; } && ${g} git write-tree`,
-      { cwd: rRepoDir },
-    )
-  ).trim()
-  const diff = await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
-  await transport.exec(`rm -f ${idx}`)
-  return diff
+  try {
+    const tree = (
+      await transport.exec(
+        `{ git diff --name-only -z ${base}; git ls-files --others --exclude-standard -z; } > ${paths} && ` +
+          `${g} git read-tree ${base} && ` +
+          `{ test ! -s ${paths} || ${g} git add -A --pathspec-from-file=${paths} --pathspec-file-nul; } && ` +
+          `{ ${excludeQuimby}; } && ${g} git write-tree`,
+        { cwd: rRepoDir },
+      )
+    ).trim()
+    return await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
+  } finally {
+    await transport.exec(`rm -f ${idx} ${paths}`).catch(() => {})
+  }
 }
 
 // Quimby's own state dir is never carried: excluded from every working-tree capture

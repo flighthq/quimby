@@ -259,7 +259,7 @@ describe('assembleRemoteHandoff', () => {
     await rm(repoRoot, { recursive: true, force: true })
   })
 
-  it('issues the expected remote git reads (seed, subjects, working-tree diff)', async () => {
+  it('issues the expected remote git reads and captures only non-ignored untracked files', async () => {
     const repoRoot = await setupRepoRoot()
     const { transport, calls } = recordingTransport()
     vi.mocked(getSSHTransport).mockReturnValue(transport)
@@ -275,10 +275,12 @@ describe('assembleRemoteHandoff', () => {
 
     expect(calls).toContain('git rev-parse quimby/seed')
     expect(calls).toContain('git log quimby/seed..HEAD --format=%s')
-    // the commit-free working-tree capture uses a throwaway index
-    expect(calls.some((c) => c.includes('git read-tree') && c.includes('GIT_INDEX_FILE'))).toBe(
-      true,
-    )
+    const capture = calls.find((c) => c.includes('git read-tree') && c.includes('GIT_INDEX_FILE'))
+    expect(capture).toBeDefined()
+    expect(capture).toContain('git diff --name-only -z')
+    expect(capture).toContain('git ls-files --others --exclude-standard -z')
+    expect(capture).toContain('git add -A --pathspec-from-file=')
+    expect(capture).not.toContain('git add -A &&')
     await rm(repoRoot, { recursive: true, force: true })
   })
 })
