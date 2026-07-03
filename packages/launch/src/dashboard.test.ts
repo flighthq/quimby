@@ -57,9 +57,17 @@ describe('buildDashboardPlan', () => {
     expect(commands[0]).toEqual(
       expect.arrayContaining(['-f', '/tmux.conf', 'new-session', '-d', '-s', 'dash', '-n', 'host']),
     )
-    expect(commands[1]).toEqual(
+    expect(commands.find((c) => c.includes('new-window') && c.includes('-t'))).toEqual(
       expect.arrayContaining(['new-window', '-t', 'dash', '-n', 'builder', '-e', 'K=v']),
     )
+  })
+
+  it('binds prefix+c and records the dashboard root cwd', () => {
+    const flat = buildDashboardPlan('dash', '/c', windows)
+      .commands.map((c) => c.join(' '))
+      .join('\n')
+    expect(flat).toContain('bind c new-window -c #{?@quimby-root')
+    expect(flat).toContain('set-option -t dash @quimby-root /repo')
   })
 
   it('sets activity/silence monitoring and the tab-status formats', () => {
@@ -88,7 +96,9 @@ describe('buildDashboardWindows', () => {
 
   it('adds a login-shell window for the reserved host name', async () => {
     const windows = await buildDashboardWindows(stateWith({}), '/repo', [HOST_WINDOW])
-    expect(windows).toEqual([{ name: 'host', cwd: '/repo', cmd: ['bash', '-l'] }])
+    expect(windows).toEqual([
+      { name: 'host', cwd: '/repo', rootCwd: '/repo', cmd: ['bash', '-l'] },
+    ])
   })
 
   it('builds a local window that runs the entrypoint and holds the pane open on failure', async () => {

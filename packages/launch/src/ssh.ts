@@ -21,6 +21,7 @@ import { saveState } from '@quimbyhq/workspace'
 
 import type { LaunchOptions } from './local'
 import { resolveRuntimeSelection } from './runtime'
+import { tmuxSetQuimbyRootShell } from './tmux'
 
 /**
  * The remote-side twin of a local launch: the pieces of a `tmux … new-session` to run
@@ -34,6 +35,7 @@ export interface SshLaunch {
   sessionName: string
   tmuxConf: string
   cwd: string
+  rootCwd: string
   shellCmd: string
   windowName: string
   runtimeLabel: string
@@ -116,7 +118,8 @@ export async function prepareSshLaunch(
     ' ',
   )
   // Refresh the window label on every (re)attach so it tracks renames.
-  const shellCmd = `tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}`
+  const rootCmd = tmuxSetQuimbyRootShell(rRoot)
+  const shellCmd = `${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}`
 
   // Quimby runs its own tmux server (-L) with its own config (-f); written fresh each
   // launch since tmux reads -f only at server start.
@@ -129,6 +132,7 @@ export async function prepareSshLaunch(
     sessionName: tmuxSessionName(agent.id),
     tmuxConf,
     cwd: rAgentDir,
+    rootCwd: rRoot,
     shellCmd,
     windowName: agent.name,
     runtimeLabel,

@@ -11,6 +11,7 @@ import type { AgentState, QuimbyState, RunSpec } from '@quimbyhq/types'
 import { writeText } from '@quimbyhq/utils'
 
 import { resolveRuntimeSelection } from './runtime'
+import { tmuxSetQuimbyRootShell } from './tmux'
 
 export interface LaunchOptions {
   state: QuimbyState
@@ -29,6 +30,7 @@ export interface LocalTmuxLaunch {
   sessionName: string
   tmuxConf: string
   cwd: string
+  rootCwd: string
   envArgs: string[]
   shellCmd: string
   windowName: string
@@ -118,10 +120,11 @@ export async function prepareLocalTmuxLaunch(
   // respawn), targeting `$TMUX_PANE` so it needs no session lookup; failures are ignored.
   const logPath = getAgentSessionLogPath(repoRoot, agent.id)
   const pipeCmd = `tmux pipe-pane -t "$TMUX_PANE" ${sq(`cat >> ${sq(logPath)}`)} 2>/dev/null; `
+  const rootCmd = tmuxSetQuimbyRootShell(repoRoot)
   // Refresh the window label on every (re)attach so it tracks renames, then hold the
   // pane open if the agent command fails so its error is readable instead of the
   // session vanishing with a bare "[exited]"; a clean exit closes it normally.
-  const shellCmd = `${pipeCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
+  const shellCmd = `${pipeCmd}${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
 
   const tmuxConf = getTmuxConfigPath(repoRoot)
   await writeText(tmuxConf, renderTmuxConfig())
@@ -130,6 +133,7 @@ export async function prepareLocalTmuxLaunch(
     sessionName: tmuxSessionName(agent.id),
     tmuxConf,
     cwd: spec.cwd ?? repoRoot,
+    rootCwd: repoRoot,
     envArgs,
     shellCmd,
     windowName: agent.name,

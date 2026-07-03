@@ -2,7 +2,15 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import { readAgentStatus } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
-import { localNewSessionArgs, prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
+import {
+  QUIMBY_ROOT_TMUX_FORMAT,
+  QUIMBY_ROOT_TMUX_OPTION,
+  localNewSessionArgs,
+  prepareLocalTmuxLaunch,
+  prepareSshLaunch,
+  quimbyRootNewWindowBindingArgs,
+  tmuxSetQuimbyRootShell,
+} from '@quimbyhq/launch'
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import { getAgentSessionState, nudgeAgentSession } from '@quimbyhq/session'
@@ -20,6 +28,39 @@ import { consolaReporter } from '../reporter'
 // A freshly-launched agent needs a beat to bring up its prompt before the resume nudge is typed,
 // or the text races into a not-yet-ready TUI.
 const RESUME_SETTLE_MS = 1500
+
+async function applyLocalRootBehavior(session: string, rootCwd: string): Promise<void> {
+  const serverRunning = await execa('tmux', ['-L', quimbyTmuxSocket, 'list-sessions']).then(
+    () => true,
+    () => false,
+  )
+  if (!serverRunning) return
+  await execa('tmux', ['-L', quimbyTmuxSocket, ...quimbyRootNewWindowBindingArgs()]).catch(
+    () => {},
+  )
+  await execa('tmux', [
+    '-L',
+    quimbyTmuxSocket,
+    'set-option',
+    '-t',
+    session,
+    QUIMBY_ROOT_TMUX_OPTION,
+    rootCwd,
+  ]).catch(() => {})
+}
+
+function remoteRootBehaviorShell(session: string, rootCwd: string): string {
+  return (
+    `if tmux -L ${sq(quimbyTmuxSocket)} list-sessions >/dev/null 2>&1; then ` +
+    `tmux -L ${sq(quimbyTmuxSocket)} bind c new-window -c ` +
+    `${sq(QUIMBY_ROOT_TMUX_FORMAT)} 2>/dev/null; ` +
+    tmuxSetQuimbyRootShell(rootCwd, {
+      socket: quimbyTmuxSocket,
+      target: sq(session),
+    }) +
+    `fi; `
+  )
+}
 
 export default defineCommand({
   meta: {
@@ -98,6 +139,9 @@ export async function runStartCommand({
       sq(launch.shellCmd),
     ].join(' ')
     await launch.transport.exec(cmd)
+    await launch.transport
+      .exec(`${remoteRootBehaviorShell(launch.sessionName, launch.rootCwd)}true`)
+      .catch(() => {})
 
     await resumeFromPredecessor(state, repoRoot, agent, args.agent)
     reportStarted(args.agent, launch.sessionName, launch.host, launch.runtimeLabel)
@@ -122,6 +166,7 @@ export async function runStartCommand({
   })
 
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))
+  await applyLocalRootBehavior(launch.sessionName, launch.rootCwd)
 
   await resumeFromPredecessor(state, repoRoot, state.agents[args.agent], args.agent)
   reportStarted(args.agent, launch.sessionName, undefined, launch.runtimeLabel)

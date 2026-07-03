@@ -9,6 +9,11 @@ import { isSSH } from '@quimbyhq/types'
 
 import { resolveRuntimeSelection } from './runtime'
 import { prepareSshLaunch } from './ssh'
+import {
+  QUIMBY_ROOT_TMUX_FORMAT,
+  QUIMBY_ROOT_TMUX_OPTION,
+  quimbyRootNewWindowBindingArgs,
+} from './tmux'
 
 /** The reserved name that adds a plain login-shell window (the user's command line). */
 export const HOST_WINDOW = 'host'
@@ -17,6 +22,7 @@ export const HOST_WINDOW = 'host'
 export interface WindowSpec {
   name: string
   cwd: string
+  rootCwd?: string
   cmd: string[]
   env?: [string, string][]
 }
@@ -48,7 +54,7 @@ export async function buildDashboardWindows(
   const windows: WindowSpec[] = []
   for (const name of names) {
     if (name === HOST_WINDOW) {
-      windows.push({ name: HOST_WINDOW, cwd: repoRoot, cmd: ['bash', '-l'] })
+      windows.push({ name: HOST_WINDOW, cwd: repoRoot, rootCwd: repoRoot, cmd: ['bash', '-l'] })
       continue
     }
     const agent = state.agents[name]
@@ -90,6 +96,15 @@ export function buildDashboardPlan(
     first.cwd,
     ...envArgs(first),
     ...first.cmd,
+  ])
+  commands.push([...tmux, ...quimbyRootNewWindowBindingArgs()])
+  commands.push([
+    ...tmux,
+    'set-option',
+    '-t',
+    session,
+    QUIMBY_ROOT_TMUX_OPTION,
+    first.rootCwd ?? first.cwd,
   ])
 
   for (const w of windows.slice(1)) {
@@ -151,6 +166,7 @@ function buildLocalWindow(
   return {
     name,
     cwd: spec.cwd ?? repoRoot,
+    rootCwd: repoRoot,
     cmd: ['bash', '-l', '-c', windowCmd],
     env: env.length > 0 ? env : undefined,
   }
@@ -186,10 +202,16 @@ async function buildSshWindow(
     '-l',
     '-c',
     sq(launch.shellCmd),
+    '\\;',
+    'bind',
+    'c',
+    'new-window',
+    '-c',
+    sq(QUIMBY_ROOT_TMUX_FORMAT),
   ].join(' ')
 
   const sshFlags = loc.port ? ['-p', String(loc.port)] : []
-  return { name, cwd: repoRoot, cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs] }
+  return { name, cwd: repoRoot, rootCwd: repoRoot, cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs] }
 }
 
 function envArgs(window: Readonly<WindowSpec>): string[] {

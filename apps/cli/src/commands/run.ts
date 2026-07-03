@@ -1,6 +1,13 @@
 import { configureRemoteAgentIdentity, renderRemoteMailboxMigration } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
-import { prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
+import {
+  QUIMBY_ROOT_TMUX_FORMAT,
+  QUIMBY_ROOT_TMUX_OPTION,
+  prepareLocalTmuxLaunch,
+  prepareSshLaunch,
+  quimbyRootNewWindowBindingArgs,
+  tmuxSetQuimbyRootShell,
+} from '@quimbyhq/launch'
 import {
   dashboardSessionName,
   dashboardViewPrefix,
@@ -126,6 +133,10 @@ export async function runRunCommand({
       runtime: args.runtime,
     })
 
+    await launch.transport
+      .exec(`${remoteTmuxRootBehaviorShell(launch.sessionName, launch.rootCwd)}true`)
+      .catch(() => {})
+
     // Restore the status bar (a previous dashboard session turns it off on SSH agents).
     await launch.transport
       .exec(
@@ -187,6 +198,7 @@ export async function runRunCommand({
   }
 
   // Restore the status bar (a previous dashboard session turns it off on linked agents).
+  await applyTmuxRootBehavior(['-L', quimbyTmuxSocket], launch.sessionName, launch.rootCwd)
   await execa('tmux', [
     '-L',
     quimbyTmuxSocket,
@@ -251,6 +263,40 @@ const DASH_PLACEHOLDER = '__quimby__'
 // both open a plain login shell in the repo root, and either may appear more than once.
 function isHostToken(name: string): boolean {
   return name === HOST_WINDOW || name === HOST_TAB_NAME
+}
+
+async function applyTmuxRootBehavior(
+  TMUX: string[],
+  session: string,
+  rootCwd: string,
+): Promise<void> {
+  const serverRunning = await execa('tmux', [...TMUX, 'list-sessions']).then(
+    () => true,
+    () => false,
+  )
+  if (!serverRunning) return
+  await execa('tmux', [...TMUX, ...quimbyRootNewWindowBindingArgs()]).catch(() => {})
+  await execa('tmux', [
+    ...TMUX,
+    'set-option',
+    '-t',
+    session,
+    QUIMBY_ROOT_TMUX_OPTION,
+    rootCwd,
+  ]).catch(() => {})
+}
+
+function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
+  return (
+    `if tmux -L ${sq(quimbyTmuxSocket)} list-sessions >/dev/null 2>&1; then ` +
+    `tmux -L ${sq(quimbyTmuxSocket)} bind c new-window -c ` +
+    `${sq(QUIMBY_ROOT_TMUX_FORMAT)} 2>/dev/null; ` +
+    tmuxSetQuimbyRootShell(rootCwd, {
+      socket: quimbyTmuxSocket,
+      target: sq(session),
+    }) +
+    `fi; `
+  )
 }
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Color
@@ -340,6 +386,7 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
     '-c',
     repoRoot,
   ])
+  await applyTmuxRootBehavior(TMUX, session, repoRoot)
 
   for (const tab of tabs) {
     if (tab.kind === 'link') {
@@ -438,6 +485,7 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
   const session = (
     await execa('tmux', [...TMUX, 'display-message', '-p', '#{session_name}'])
   ).stdout.trim()
+  await applyTmuxRootBehavior(TMUX, session, repoRoot)
   const { stdout: winList } = await execa('tmux', [
     ...TMUX,
     'list-windows',
@@ -517,6 +565,7 @@ async function ensureLocalAgentSession(
       launch.shellCmd,
     ])
   }
+  await applyTmuxRootBehavior(tmux, launch.sessionName, launch.rootCwd)
   return launch.sessionName
 }
 
@@ -593,6 +642,7 @@ async function buildSSHWindow(
   const launchCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
     ' ',
   )
+  const remoteShellCmd = `${tmuxSetQuimbyRootShell(rRoot)}${launchCmd}`
 
   // Write the remote tmux config (for the nested remote session).
   const rTmuxConf = remoteTmuxConfigPath(state.id, loc.base)
@@ -619,11 +669,17 @@ async function buildSSHWindow(
     'bash',
     '-l',
     '-c',
-    sq(launchCmd),
+    sq(remoteShellCmd),
     '\\;',
     'set',
     'status',
     'off',
+    '\\;',
+    'bind',
+    'c',
+    'new-window',
+    '-c',
+    sq(QUIMBY_ROOT_TMUX_FORMAT),
   ].join(' ')
 
   const sshFlags: string[] = []
@@ -828,6 +884,7 @@ async function runPanelDashboard(expr: string): Promise<void> {
   // Rebuild the wrapper from scratch (it owns no durable state; the views/agents are separate).
   await execa('tmux', [...TMUX, 'kill-session', '-t', dash]).catch(() => {})
   await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', dash, '-c', repoRoot])
+  await applyTmuxRootBehavior(TMUX, dash, repoRoot)
   const { stdout: firstPaneOut } = await execa('tmux', [...TMUX, 'list-panes', '-t', dash, '-F', '#{pane_id}']) // prettier-ignore
   const firstPane = firstPaneOut.split('\n').filter(Boolean)[0]
 
@@ -910,6 +967,7 @@ async function buildViewSession(
 ): Promise<boolean> {
   await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', session, '-n', DASH_PLACEHOLDER, '-c', repoRoot]) // prettier-ignore
+  await applyTmuxRootBehavior(TMUX, session, repoRoot)
 
   let enrolled = false
   for (const name of names) {

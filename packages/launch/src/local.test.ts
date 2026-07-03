@@ -35,6 +35,7 @@ describe('localNewSessionArgs', () => {
     sessionName: 'qb-proj-a1',
     tmuxConf: '/repo/.quimby/tmux.conf',
     cwd: '/agent/dir',
+    rootCwd: '/repo',
     envArgs: ['-e', 'FOO=bar'],
     shellCmd: 'run claude',
     windowName: 'builder',
@@ -76,7 +77,9 @@ describe('prepareLocalTmuxLaunch', () => {
 
     expect(launch.sessionName).toContain('qb-')
     expect(launch.windowName).toBe('builder')
+    expect(launch.rootCwd).toBe('/repo')
     expect(launch.runtimeLabel).toBe(' [sbx]')
+    expect(launch.shellCmd).toContain('@quimby-root')
     expect(launch.shellCmd).toContain('rename-window')
     expect(launch.shellCmd).toContain('claude')
     // Starts the durable transcript: the pane pipes its output to session.log.

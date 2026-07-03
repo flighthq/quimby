@@ -166,6 +166,16 @@ describe('renderTmuxConfig', () => {
       conf.indexOf('set-clipboard on'),
     )
   })
+
+  it('opens prefix+c windows from the recorded project root when available', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain(
+      'bind c new-window -c "#{?@quimby-root,#{@quimby-root},#{pane_current_path}}"',
+    )
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.indexOf('bind c new-window'),
+    )
+  })
 })
 
 describe('renderVerifyRequest', () => {

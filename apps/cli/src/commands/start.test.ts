@@ -16,6 +16,17 @@ vi.mock('@quimbyhq/session', () => ({ getAgentSessionState: sessionState, nudgeA
 vi.mock('@quimbyhq/launch', () => ({
   prepareLocalTmuxLaunch,
   prepareSshLaunch,
+  QUIMBY_ROOT_TMUX_FORMAT: '#{?@quimby-root,#{@quimby-root},#{pane_current_path}}',
+  QUIMBY_ROOT_TMUX_OPTION: '@quimby-root',
+  quimbyRootNewWindowBindingArgs: () => [
+    'bind',
+    'c',
+    'new-window',
+    '-c',
+    '#{?@quimby-root,#{@quimby-root},#{pane_current_path}}',
+  ],
+  tmuxSetQuimbyRootShell: (rootCwd: string) =>
+    `__quimby_root='${rootCwd}'; tmux set-option @quimby-root "$__quimby_root"; `,
   localNewSessionArgs: (launch: { sessionName: string }, opts: { detached: boolean }) => [
     'new-session',
     '-A',
@@ -70,6 +81,7 @@ describe('runStartCommand', () => {
       sessionName: 'qb-b1',
       tmuxConf: '/fake/tmux.conf',
       cwd: '/fake/root',
+      rootCwd: '/fake/root',
       envArgs: [],
       shellCmd: 'claude',
       windowName: 'builder',
@@ -90,6 +102,7 @@ describe('runStartCommand', () => {
       sessionName: 'qb-b1',
       tmuxConf: '/fake/tmux.conf',
       cwd: '/fake/root',
+      rootCwd: '/fake/root',
       envArgs: [],
       shellCmd: 'claude',
       windowName: 'builder',

@@ -111,6 +111,7 @@ describe('prepareSshLaunch', () => {
     expect(launch.sessionName).toBe('qb-r-id')
     expect(launch.host).toBe('user@box')
     expect(launch.cwd).toBe('~/.quimby/agents/r-id')
+    expect(launch.rootCwd).toBe('~')
     expect(launch.windowName).toBe('researcher')
     expect(launch.runtimeLabel).toBe('')
     expect(launch.shellCmd).toContain('claude')
@@ -134,13 +135,17 @@ describe('prepareSshLaunch', () => {
     // Still returns a valid launch spec.
     expect(launch.sessionName).toBe('qb-r-id')
     expect(launch.cwd).toBe('~/.quimby/agents/r-id')
+    expect(launch.rootCwd).toBe('~')
     expect(launch.shellCmd).toContain('claude')
   })
 
-  it('builds a shellCmd that begins with the tmux window-label refresh', async () => {
+  it('builds a shellCmd that records the root cwd before refreshing the window label', async () => {
     mockedGetSSH.mockReturnValue(fakeSSHTransport(false))
     const launch = await prepareSshLaunch(optsFrom(makeState()))
-    expect(launch.shellCmd.startsWith('tmux rename-window')).toBe(true)
+    expect(launch.shellCmd).toContain('@quimby-root')
+    expect(launch.shellCmd.indexOf('@quimby-root')).toBeLessThan(
+      launch.shellCmd.indexOf('tmux rename-window'),
+    )
   })
 
   it('reports sync and init progress to the reporter on first launch', async () => {
