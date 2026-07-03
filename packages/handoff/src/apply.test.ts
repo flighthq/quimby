@@ -117,6 +117,43 @@ describe('applyHandoff', () => {
     })
   }
 
+  // Regression: `quimby merge` runs in the user's real repo, which carries a gitignored
+  // `.quimby/` workspace dir in its working tree. The staging `git add` used to error out
+  // ("paths are ignored by .gitignore") and abort the whole merge. The merge must ignore it.
+  it('applies cleanly when the target has a gitignored .quimby directory present', async () => {
+    const sourceDir = await setupSourceRepo()
+    // The seed itself ignores `.quimby` (as a real workspace does — the ignore lands at
+    // `quimby add` time, before the agent's seed is tagged). This is the case the merge
+    // used to choke on: an explicit `git add` pathspec errors on a matched-but-ignored path.
+    await writeFile(join(sourceDir, '.gitignore'), '.quimby\n')
+    await execa('git', ['add', '.gitignore'], { cwd: sourceDir })
+    await execa('git', ['commit', '-m', 'ignore .quimby'], { cwd: sourceDir })
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    await mkdir(join(targetDir, '.quimby', 'agents'), { recursive: true })
+    await writeFile(join(targetDir, '.quimby', 'state.yaml'), 'id: workspace\n')
+    try {
+      await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'squashed',
+      })
+      expect(await exists(join(targetDir, 'feature.txt'))).toBe(true)
+      // The workspace state is left untouched in the working tree, never committed.
+      expect(await exists(join(targetDir, '.quimby', 'state.yaml'))).toBe(true)
+      const { stdout: tracked } = await execa('git', ['ls-files', '.quimby'], { cwd: targetDir })
+      expect(tracked).toBe('')
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('applies cleanly in patch mode leaving changes in the working tree', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)

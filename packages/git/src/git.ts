@@ -15,16 +15,20 @@ async function git(args: string[], cwd: string, opts?: { raw?: boolean }): Promi
 }
 
 export async function addAll(cwd: string, opts?: { exclude?: readonly string[] }): Promise<void> {
-  const args = ['add', '-A']
-  // `:(exclude)` pathspecs keep the named paths out of the index regardless of `.gitignore`
-  // — used to guarantee Quimby's own state never enters a temp-branch commit even when
-  // applying against a seed that predates the workspace `.gitignore`. Both pathspecs are
-  // `top`-anchored (`:/`) so exclusion is repo-root-relative and holds when the command
-  // runs from a subdirectory of the repo, not just its root.
+  // Bare `git add -A` (no pathspec) silently skips `.gitignore`d paths and exits 0. An
+  // explicit pathspec instead — even one whose only intent is a `:(exclude)` — turns a
+  // matched-but-ignored path into a hard exit-1 error ("paths are ignored by .gitignore"),
+  // which neither `advice.addIgnoredFile=false` nor `--ignore-errors` suppresses. So stage
+  // with the bare form, then unstage the excluded paths: this keeps Quimby's own state
+  // (`.quimby`) out of a temp-branch commit both when it is ignored (skipped by `add`) and
+  // when applying against a seed whose `.gitignore` predates it (staged by `add`, then reset
+  // back out). The `:(top)` prefix anchors each path at the repo root so it holds when the
+  // command runs from a subdirectory. `git reset` only touches the index, never the working
+  // tree, and no-ops cleanly when the path matched nothing.
+  await git(['add', '-A'], cwd)
   if (opts?.exclude?.length) {
-    args.push('--', ':/', ...opts.exclude.map((p) => `:(top,exclude)${p}`))
+    await git(['reset', '-q', '--', ...opts.exclude.map((p) => `:(top)${p}`)], cwd)
   }
-  await git(args, cwd)
 }
 
 export async function addRemote(cwd: string, name: string, url: string): Promise<void> {

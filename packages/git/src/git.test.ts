@@ -72,7 +72,7 @@ describe('addAll', () => {
     expect(stdout).toContain('A  a.txt')
   })
 
-  it('keeps excluded paths out of the index regardless of .gitignore', async () => {
+  it('keeps excluded paths out of the index when they are not gitignored', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello')
     await mkdir(join(dir, '.quimby'), { recursive: true })
     await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x')
@@ -82,6 +82,21 @@ describe('addAll', () => {
     expect(stdout).toContain('A  a.txt')
     expect(stdout).not.toMatch(/A\s+\.quimby/)
     expect(stdout).toContain('?? .quimby/')
+  })
+
+  // The failure mode that motivated the bare-add + reset form: when the excluded path IS
+  // gitignored, an explicit `:(exclude)` pathspec still made `git add` exit 1 ("paths are
+  // ignored by .gitignore"), aborting the whole merge. addAll must stage the rest cleanly.
+  it('does not error when an excluded path is gitignored', async () => {
+    await writeFile(join(dir, '.gitignore'), '.quimby\n')
+    await makeCommit(dir, 'seed.txt', 'seed', 'seed')
+    await writeFile(join(dir, 'a.txt'), 'hello')
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeFile(join(dir, '.quimby', 'state.yaml'), 'id: x')
+    await addAll(dir, { exclude: ['.quimby'] })
+    const { stdout } = await execa('git', ['status', '--porcelain'], { cwd: dir })
+    expect(stdout).toContain('A  a.txt')
+    expect(stdout).not.toMatch(/A\s+\.quimby/)
   })
 })
 
