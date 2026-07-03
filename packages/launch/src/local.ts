@@ -1,4 +1,9 @@
-import { getTmuxConfigPath, quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import {
+  getAgentSessionLogPath,
+  getTmuxConfigPath,
+  quimbyTmuxSocket,
+  tmuxSessionName,
+} from '@quimbyhq/paths'
 import { buildContext, getRuntime } from '@quimbyhq/runtimes'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import { sq } from '@quimbyhq/transport'
@@ -105,10 +110,15 @@ export async function prepareLocalTmuxLaunch(
   // user's profile; without it tmux execs in the tmux server's environment, which
   // may lack user-installed tools (`sbx`/`claude`), and the session exits instantly.
   const baseCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(' ')
+  // Start a durable transcript of this pane (`quimby log --follow` tails it) — the pane
+  // pipes its own output to session.log. Runs once per pane lifetime (fresh session /
+  // respawn), targeting `$TMUX_PANE` so it needs no session lookup; failures are ignored.
+  const logPath = getAgentSessionLogPath(repoRoot, agent.id)
+  const pipeCmd = `tmux pipe-pane -t "$TMUX_PANE" ${sq(`cat >> ${sq(logPath)}`)} 2>/dev/null; `
   // Refresh the window label on every (re)attach so it tracks renames, then hold the
   // pane open if the agent command fails so its error is readable instead of the
   // session vanishing with a bare "[exited]"; a clean exit closes it normally.
-  const shellCmd = `tmux rename-window ${sq(agent.name)} 2>/dev/null; ${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
+  const shellCmd = `${pipeCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
 
   const tmuxConf = getTmuxConfigPath(repoRoot)
   await writeText(tmuxConf, renderTmuxConfig())

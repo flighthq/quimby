@@ -37,6 +37,13 @@ export function getAgentRepoDir(repoRoot: string, agentId: string): string {
   return join(repoRoot, '.quimby', 'agents', agentId, 'repo')
 }
 
+// Durable transcript of the agent's tmux pane, appended via `pipe-pane` on launch and
+// tailed by `quimby log --follow`. Survives detaches and context resets, unlike the
+// live scrollback (bounded by history-limit).
+export function getAgentSessionLogPath(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'session.log')
+}
+
 // The host loading dock: a parcel is assembled here while being applied or carried,
 // then discarded. Transient staging, never an archive.
 export function getStagingDir(repoRoot: string): string {

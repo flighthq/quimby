@@ -77,6 +77,9 @@ describe('prepareLocalTmuxLaunch', () => {
     expect(launch.runtimeLabel).toBe(' [sbx]')
     expect(launch.shellCmd).toContain('rename-window')
     expect(launch.shellCmd).toContain('claude')
+    // Starts the durable transcript: the pane pipes its output to session.log.
+    expect(launch.shellCmd).toContain('pipe-pane')
+    expect(launch.shellCmd).toContain('session.log')
     expect(writeText).toHaveBeenCalledOnce()
   })
 

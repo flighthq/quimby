@@ -21,7 +21,7 @@ quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
-quimby log <agent>                                   Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged
+quimby log <agent> [-f]                              Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged; -f/--follow streams the durable transcript (session.log) as it grows
 quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends a self-verification request
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] [-c] [--verify] | --all [-m "..."] [-c] [--verify]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); --verify types a canned self-verification request; -m also carries CLI control commands ("/clear", "/model …")
@@ -84,6 +84,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-f` / `--force` (sync — hard reset; rebuild, remove — confirm)
 - `--to` (status — push `<from>`'s status snapshot to another agent's `inbox/status`)
 - `-i` / `--interactive` (status — page the agent's full status.md instead of the digest)
+- `-f` / `--follow` (log — stream the durable transcript `session.log` as it grows, like `tail -f`; local agents only)
 - `--stat` (diff)
 - `--commits`, `--patch` (merge)
 - `--3way` (merge — accepted for compatibility; the merge-based flow is inherently 3-way)
