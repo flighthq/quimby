@@ -17,7 +17,7 @@ quimby config <agent>                                Interactively (re)configure
 quimby run <agent> [--cmd <cmd>] [-r <runtime>]     Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop)
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
-quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>]   Update agent config
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local]   Update agent config (--local converts an SSH agent back to local)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
@@ -65,6 +65,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--cmd` (run, start, set, add — the agent's entrypoint command; long-form only, so `-c` stays reserved for `--clear`)
 - `-r` / `--runtime` (run, start, set)
 - `-H` / `--host` (add, set)
+- `--local` (set — convert an SSH agent back to local, dropping its remote location; errors if already local)
 - `-b` / `--branch` (apply)
 - `-t` / `--target` (apply)
 - `-s` / `--sync` (add, set)

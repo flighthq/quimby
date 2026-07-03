@@ -173,7 +173,10 @@ For an SSH agent, `sync` rsyncs the project to the remote before fast-forwarding
 quimby set researcher --host user@new-box
 quimby set researcher --port 2222
 quimby set researcher --host user@box:/different/path
+quimby set researcher --local                    # convert back to a local agent (drops the remote location)
 ```
+
+`--local` is the flag counterpart to what the `config` walkthrough could already do — it drops the SSH `location` so the agent runs locally. It errors if the agent is already local, and cannot be combined with `--host`/`--port` (which set a remote location).
 
 ### Removing an unreachable SSH agent
 
