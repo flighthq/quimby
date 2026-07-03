@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const execa = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({})))
 const removeAgent = vi.hoisted(() => vi.fn(async () => {}))
+const saveState = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('execa', () => ({ execa }))
 vi.mock('@quimbyhq/agent', () => ({ removeAgent }))
@@ -14,8 +15,12 @@ let resolved: {
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => resolved),
-  loadState: vi.fn(async () => ({ id: 'proj-id', agents: {}, subscriptions: {} })),
-  saveState: vi.fn(),
+  loadState: vi.fn(async () => ({
+    id: 'proj-id',
+    agents: { researcher: {} },
+    subscriptions: {},
+  })),
+  saveState,
 }))
 
 function workspace(agents: Record<string, unknown>) {
@@ -64,5 +69,20 @@ describe('runRemoveCommand', () => {
     await cmd.run!({ args: { agent: 'plain', force: true } } as never)
     expect(execa).not.toHaveBeenCalled()
     expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'plain')
+  })
+
+  it('tolerates an unreachable SSH host, removing local state anyway', async () => {
+    resolved = workspace({
+      researcher: { id: 'r1', name: 'researcher', location: { type: 'ssh', host: 'user@box' } },
+    })
+    removeAgent.mockRejectedValueOnce(new Error('ssh: connect timed out'))
+    saveState.mockClear()
+    const { default: cmd } = await import('./remove')
+    // Does not throw — the remote failure is tolerated.
+    await expect(
+      cmd.run!({ args: { agent: 'researcher', force: true } } as never),
+    ).resolves.toBeUndefined()
+    expect(removeAgent).toHaveBeenCalledWith('/fake/root', 'researcher')
+    expect(saveState).toHaveBeenCalled() // local state removed as the fallback
   })
 })

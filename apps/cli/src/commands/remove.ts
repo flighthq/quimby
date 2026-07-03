@@ -28,7 +28,8 @@ export default defineCommand({
     force: {
       type: 'boolean',
       alias: 'f',
-      description: 'Confirm removal (for an SSH agent, also skips remote cleanup)',
+      description:
+        'Confirm removal (best-effort remote cleanup — tolerates an unreachable SSH host)',
       default: false,
     },
   },
@@ -43,27 +44,11 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
-  // Removal is destructive, so gate it behind --force just like `rebuild`. For an SSH agent
-  // --force keeps its second duty of skipping remote cleanup, so the warning names that too.
+  // Removal is destructive, so gate it behind --force just like `rebuild`.
   if (!args.force) {
-    const remoteNote = isSSH(agent.location)
-      ? ' Its remote workspace is left in place (a forced removal skips remote cleanup).'
-      : ''
     logger.warn(
-      `This permanently removes "${args.agent}" — its repo, work, inbox, and outbox.${remoteNote} Pass --force (-f) to confirm.`,
+      `This permanently removes "${args.agent}" — its repo, work, inbox, and outbox. Pass --force (-f) to confirm.`,
     )
-    return
-  }
-
-  if (isSSH(agent.location)) {
-    // A forced SSH removal skips remote teardown (its tmux session and dir) — the escape hatch
-    // for an unreachable host — and removes state only. Scrub subscriptions here since this
-    // path bypasses removeAgent.
-    const s = await loadState(repoRoot)
-    delete s.agents[args.agent]
-    removeAgentFromSubscriptions(s, args.agent)
-    await saveState(repoRoot, s)
-    logger.success(`Agent "${args.agent}" removed from state (remote dir not cleaned up)`)
     return
   }
 
@@ -71,8 +56,23 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
   // doesn't leave an orphaned process pointing at a directory that no longer exists.
   await killAgentSession(agent)
 
-  await removeAgent(repoRoot, args.agent)
-  logger.success(`Agent "${args.agent}" removed`)
+  // Attempt full removal, including the remote `rm -rf` for an SSH agent. If the host is
+  // unreachable the remote teardown fails — tolerate it: remove the local state anyway so an
+  // agent on a dead host can still be cleaned up (no separate skip-remote flag needed).
+  try {
+    await removeAgent(repoRoot, args.agent)
+    logger.success(`Agent "${args.agent}" removed`)
+  } catch (err) {
+    if (!isSSH(agent.location)) throw err
+    const s = await loadState(repoRoot)
+    delete s.agents[args.agent]
+    removeAgentFromSubscriptions(s, args.agent)
+    await saveState(repoRoot, s)
+    logger.warn(
+      `Couldn't reach the remote host — removed "${args.agent}" from local state anyway ` +
+        `(its remote workspace was not cleaned up).`,
+    )
+  }
 }
 
 /**

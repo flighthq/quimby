@@ -184,7 +184,7 @@ quimby set researcher --local                    # convert back to a local agent
 quimby remove researcher --force
 ```
 
-`quimby remove` is destructive, so — like `rebuild` — a bare `quimby remove <agent>` only warns and removes nothing; `--force` confirms the removal. For an SSH agent `--force` additionally skips the remote `rm -rf` and removes only the local state entry, which is what you want when the SSH host is unreachable.
+`quimby remove` is destructive, so — like `rebuild` — a bare `quimby remove <agent>` only warns and removes nothing; `--force` confirms the removal. `--force` cleans up the remote workspace **best-effort**: it attempts the remote `rm -rf`, but if the SSH host is unreachable it tolerates the failure — it removes the local state entry anyway and warns that the remote wasn't cleaned. There is no separate "skip remote" flag: an unreachable host simply degrades to a local-only removal.
 
 ## CLI Surface
 
