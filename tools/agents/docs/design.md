@@ -282,7 +282,7 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Consumption (the recipient).** Parcels sit in `inbox/` until the agent processes them and moves them to `inbox/.done/`. Identity is content-derived, so a re-carried identical parcel overwrites in place rather than piling up.
 
-**Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by an explicit step (a cleanup, or folded into `sync`/`rebuild`). GC is archiving-then-pruning, never silent deletion on carry.
+**Garbage collection.** `.sent/` and `.done/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the outbox `.sent/` ledger and inbox `.done/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active inbox/outbox parcels, `assignment.md`, and `status.md` untouched; `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
 
 ## Apply (crossing the boundary)
 

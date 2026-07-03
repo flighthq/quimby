@@ -2,17 +2,29 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentRepoDir } from '@quimbyhq/paths'
+import {
+  getAgentDir,
+  getAgentInboxDoneDir,
+  getAgentOutboxSentDir,
+  getAgentRepoDir,
+} from '@quimbyhq/paths'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
+import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setAgentSyncRef } from './config'
 import { addAgent } from './lifecycle'
-import { getAgentPendingWork, getAgentSyncStatus, getAgentWorkSummary, syncAgent } from './sync'
+import {
+  getAgentPendingWork,
+  getAgentSyncStatus,
+  getAgentWorkSummary,
+  pruneAgentMailboxCaches,
+  syncAgent,
+} from './sync'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -245,7 +257,54 @@ describe('getAgentWorkSummary', () => {
   })
 })
 
+describe('pruneAgentMailboxCaches', () => {
+  it('sweeps .sent and .done but leaves active parcels, assignment, and status', async () => {
+    await registerLocalAgentClone('carol', 'carol-id')
+    const agentDir = getAgentDir(dir, 'carol-id')
+    // Archives to sweep:
+    await mkdir(join(getAgentOutboxSentDir(dir, 'carol-id'), 'reviewer'), { recursive: true })
+    await mkdir(join(getAgentInboxDoneDir(dir, 'carol-id'), 'builder-abc'), { recursive: true })
+    // Active mailbox that must survive:
+    await mkdir(join(agentDir, 'outbox', 'reviewer'), { recursive: true })
+    await mkdir(join(agentDir, 'inbox', 'builder-xyz'), { recursive: true })
+    await writeFile(join(agentDir, 'assignment.md'), 'do the thing')
+
+    const agent = (await loadState(dir)).agents.carol
+    await pruneAgentMailboxCaches(dir, agent, 'proj-id')
+
+    expect(await exists(getAgentOutboxSentDir(dir, 'carol-id'))).toBe(false)
+    expect(await exists(getAgentInboxDoneDir(dir, 'carol-id'))).toBe(false)
+    expect(await exists(join(agentDir, 'outbox', 'reviewer'))).toBe(true)
+    expect(await exists(join(agentDir, 'inbox', 'builder-xyz'))).toBe(true)
+    expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
+  })
+
+  it('rm -rf the remote .sent/.done over transport for an SSH agent', async () => {
+    const { transport, calls } = fakeSSHTransport('')
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remo', 'remo-id', 'seed-sha')
+    const agent = (await loadState(dir)).agents.remo
+
+    await pruneAgentMailboxCaches(dir, agent, 'proj-id')
+
+    expect(calls.some((c) => c.includes('rm -rf') && c.includes('/outbox/.sent'))).toBe(true)
+    expect(calls.some((c) => c.includes('/inbox/.done'))).toBe(true)
+  })
+})
+
 describe('syncAgent', () => {
+  it('prunes the .sent/.done caches after a successful sync', async () => {
+    await registerLocalAgentClone('gc', 'gc-id')
+    await mkdir(join(getAgentOutboxSentDir(dir, 'gc-id'), 'reviewer'), { recursive: true })
+    await mkdir(join(getAgentInboxDoneDir(dir, 'gc-id'), 'builder-abc'), { recursive: true })
+    await advanceHost('feature')
+
+    await syncAgent(dir, 'gc')
+
+    expect(await exists(getAgentOutboxSentDir(dir, 'gc-id'))).toBe(false)
+    expect(await exists(getAgentInboxDoneDir(dir, 'gc-id'))).toBe(false)
+  })
+
   it('throws a clear error when the sync ref does not resolve', async () => {
     await addAgent(dir, 'alice')
     await setAgentSyncRef(dir, 'alice', 'no-such-branch')

@@ -1,8 +1,13 @@
+import { rm } from 'node:fs/promises'
+
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
+  getAgentInboxDoneDir,
+  getAgentOutboxSentDir,
   getAgentRepoDir,
   QUIMBY_DIRNAME,
+  remoteAgentDir,
   remoteAgentRepoDir,
   remoteProjectRoot,
 } from '@quimbyhq/paths'
@@ -175,7 +180,34 @@ export async function syncAgent(
 
   state.agents[name].seedCommit = result.newSeed
   await saveState(repoRoot, state)
+
+  // GC the delivery/processing caches now that the agent has advanced — folded into sync per
+  // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
+  await pruneAgentMailboxCaches(repoRoot, agent, state.id).catch(() => {})
+
   return result
+}
+
+/**
+ * Prune an agent's mailbox caches — the outbox `.sent/` delivery ledger and the inbox `.done/`
+ * processed-parcel archive. These are caches bounded by agent lifetime, not the hot path, so GC
+ * is folded into `sync` (and covered by `rebuild`'s full mailbox wipe). Active inbox/outbox
+ * parcels, `assignment.md`, and `status.md` are left untouched — this only sweeps the archives.
+ */
+export async function pruneAgentMailboxCaches(
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+  stateId: string,
+): Promise<void> {
+  if (isSSH(agent.location)) {
+    const rAgentDir = remoteAgentDir(stateId, agent.id, agent.location.base)
+    await getSSHTransport(agent.location).exec(
+      `rm -rf ${rAgentDir}/outbox/.sent ${rAgentDir}/inbox/.done`,
+    )
+    return
+  }
+  await rm(getAgentOutboxSentDir(repoRoot, agent.id), { recursive: true, force: true })
+  await rm(getAgentInboxDoneDir(repoRoot, agent.id), { recursive: true, force: true })
 }
 
 /** Drive the sync algorithm against a local agent clone via the git CLI. */
