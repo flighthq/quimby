@@ -1,9 +1,11 @@
-import { readFile, rm } from 'node:fs/promises'
+import { readdir, readFile, rm } from 'node:fs/promises'
 
 import { HandoffError, QuimbyError } from '@quimbyhq/errors'
+import { isMergeInProgress } from '@quimbyhq/git'
 import {
   getAgentDir,
   getAgentInboxParcelDir,
+  getStagingDir,
   getStagingHandoffDir,
   remoteAgentDir,
 } from '@quimbyhq/paths'
@@ -49,6 +51,25 @@ export async function deliverHandoff(opts: {
 /** Remove a staged parcel once it has been consumed (applied, delivered, exported). */
 export async function discardHandoff(repoRoot: string, name: string): Promise<void> {
   await rm(getStagingHandoffDir(repoRoot, name), { recursive: true, force: true })
+}
+
+/**
+ * Sweep a staging area left over from an abandoned merge. A merge conflict keeps its staged
+ * parcel for retry; if the user then abandons the merge (`git merge --abort`) the parcel
+ * lingers with no merge in progress. On the next merge we clear it silently so the run starts
+ * clean — but only when no merge is in progress in `targetRepoPath`, since an in-progress merge
+ * is the live retry path whose parcel must be preserved. Returns whether anything was cleared.
+ */
+export async function healAbandonedStaging(
+  repoRoot: string,
+  targetRepoPath: string,
+): Promise<boolean> {
+  const stagingDir = getStagingDir(repoRoot)
+  if (!(await exists(stagingDir))) return false
+  if ((await readdir(stagingDir)).length === 0) return false
+  if (await isMergeInProgress(targetRepoPath)) return false
+  await rm(stagingDir, { recursive: true, force: true })
+  return true
 }
 
 export async function readHandoff(

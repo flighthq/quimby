@@ -7,6 +7,7 @@ import {
   getAgentDir,
   getAgentInboxParcelDir,
   getAgentRepoDir,
+  getStagingDir,
   getStagingHandoffDir,
 } from '@quimbyhq/paths'
 import { exists } from '@quimbyhq/utils'
@@ -15,7 +16,7 @@ import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { assembleHandoff } from './assemble'
-import { deliverHandoff, discardHandoff, readHandoff } from './parcel'
+import { deliverHandoff, discardHandoff, healAbandonedStaging, readHandoff } from './parcel'
 
 vi.mock('@quimbyhq/transport', async (importOriginal) => {
   const actual = await importOriginal()
@@ -73,6 +74,27 @@ async function withFeatureCommit(agentRepoDir: string): Promise<void> {
   await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
   await addAll(agentRepoDir)
   await commit(agentRepoDir, 'add feature')
+}
+
+// A standalone repo left mid-merge-conflict (MERGE_HEAD present), for the merge-in-progress guard.
+async function setupConflictedRepo(): Promise<string> {
+  const repo = join(tmpdir(), `quimby-target-${crypto.randomUUID()}`)
+  await mkdir(repo, { recursive: true })
+  await execa('git', ['init'], { cwd: repo })
+  await configureGit(repo)
+  await writeFile(join(repo, 'f.txt'), 'base\n')
+  await execa('git', ['add', '-A'], { cwd: repo })
+  await execa('git', ['commit', '-m', 'base'], { cwd: repo })
+  const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo })
+  const main = stdout.trim()
+  await execa('git', ['checkout', '-b', 'feature'], { cwd: repo })
+  await writeFile(join(repo, 'f.txt'), 'feature\n')
+  await execa('git', ['commit', '-am', 'feature'], { cwd: repo })
+  await execa('git', ['checkout', main], { cwd: repo })
+  await writeFile(join(repo, 'f.txt'), 'main\n')
+  await execa('git', ['commit', '-am', 'main'], { cwd: repo })
+  await execa('git', ['merge', 'feature'], { cwd: repo, reject: false }) // conflicts → leaves MERGE_HEAD
+  return repo
 }
 
 beforeEach(async () => {
@@ -165,6 +187,35 @@ describe('discardHandoff', () => {
     expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)
     await discardHandoff(dir, meta.name)
     expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(false)
+  })
+})
+
+describe('healAbandonedStaging', () => {
+  it('is a no-op when there is no staging area', async () => {
+    expect(await healAbandonedStaging(dir, dir)).toBe(false)
+  })
+
+  it('clears a leftover staging area when no merge is in progress in the target', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await withFeatureCommit(agentRepoDir)
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)
+    // `dir` is itself a clean git repo (no merge underway) — a valid target for the heal.
+    expect(await healAbandonedStaging(dir, dir)).toBe(true)
+    expect(await exists(getStagingDir(dir))).toBe(false)
+  })
+
+  it('preserves the staging area while a merge is in progress in the target (the retry path)', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await withFeatureCommit(agentRepoDir)
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const target = await setupConflictedRepo()
+    try {
+      expect(await healAbandonedStaging(dir, target)).toBe(false)
+      expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)
+    } finally {
+      await rm(target, { recursive: true, force: true })
+    }
   })
 })
 

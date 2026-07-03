@@ -310,7 +310,9 @@ The unifying rule: **the boundary never fabricates a commit message.** A commit 
 
 ### Conflict handling
 
-On conflict, the merge is left in progress. The user resolves with standard git tooling, then `git merge --continue`. The staged parcel is kept so a retry doesn't re-download from SSH agents.
+On conflict, the merge is left in progress. The user resolves with standard git tooling, then `git merge --continue` — no special quimby command. The staged parcel is kept so a retry doesn't re-download from SSH agents.
+
+If the user instead **abandons** the merge (`git merge --abort`), that staged parcel would linger. There is deliberately no `quimby merge --abort`/`--continue` to clean it up; quimby **auto-heals** instead. The next `quimby merge` (when it stages fresh work) silently clears a leftover staging area **only when no git merge is in progress** in the target — an in-progress merge is the live retry path, so its parcel is preserved. Nothing for the user to remember.
 
 ### Advancing the seed after a merge (on by default)
 

@@ -184,6 +184,17 @@ export async function isClean(cwd: string): Promise<boolean> {
   return stdout.trim() === ''
 }
 
+export async function isMergeInProgress(cwd: string): Promise<boolean> {
+  // A merge in progress is marked by MERGE_HEAD; `rev-parse -q --verify` exits non-zero (and
+  // the wrapper throws) when it is absent, so a caught error means "no merge in progress".
+  try {
+    await git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function log(cwd: string, range: string, format?: string): Promise<string> {
   return git(['log', range, `--format=${format ?? '%H|%s|%an|%aI'}`], cwd)
 }

@@ -9,6 +9,7 @@ import {
   type ApplyMode,
   discardHandoff,
   getWorkingParcelName,
+  healAbandonedStaging,
   readHandoff,
   stageParcel,
 } from '@quimbyhq/handoff'
@@ -115,6 +116,11 @@ export async function runMergeCommand({
   }
 
   const isAgent = Boolean(state.agents[args.agent])
+  // When staging fresh, silently sweep a staging area left by an abandoned prior merge
+  // (conflict, then `git merge --abort`) so it never collides. Skipped when merging a parcel
+  // by name — that path points at staging deliberately, and a live conflict is preserved by
+  // healAbandonedStaging's own merge-in-progress guard.
+  if (isAgent) await healAbandonedStaging(repoRoot, targetRepoPath)
   const name = isAgent
     ? (
         await stageParcel({

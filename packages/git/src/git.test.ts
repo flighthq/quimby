@@ -26,6 +26,7 @@ import {
   hasRemote,
   init,
   isClean,
+  isMergeInProgress,
   log,
   merge,
   mergeAbort,
@@ -414,6 +415,29 @@ describe('isClean', () => {
   it('returns true when working tree is clean', async () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     expect(await isClean(dir)).toBe(true)
+  })
+})
+
+describe('isMergeInProgress', () => {
+  it('is false in a clean repo with no merge underway', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    expect(await isMergeInProgress(dir)).toBe(false)
+  })
+
+  it('is true while a conflicted merge is unresolved, false again after abort', async () => {
+    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'file.txt', 'feature change\n', 'feature edit')
+    await checkout(dir, defaultBranch)
+    await makeCommit(dir, 'file.txt', 'main change\n', 'main edit')
+    await expect(merge(dir, 'feature')).rejects.toThrow() // conflict leaves the merge in progress
+    expect(await isMergeInProgress(dir)).toBe(true)
+    await mergeAbort(dir)
+    expect(await isMergeInProgress(dir)).toBe(false)
   })
 })
 
