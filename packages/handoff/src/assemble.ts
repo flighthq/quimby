@@ -171,9 +171,6 @@ function remoteAssembleOps(transport: SSHTransport, rRepoDir: string): RepoAssem
     formatPatches: async (commitsDir) => {
       const rTmpDir = `/tmp/quimby-handoff-${crypto.randomUUID()}`
       const pathspecs = ['.', ...CAPTURE_EXCLUDE.map((p) => `:(exclude)${p}`)]
-      for (const path of await remoteIgnoredPaths(transport, rRepoDir)) {
-        pathspecs.push(`:(exclude)${path}`)
-      }
       await transport.exec(`mkdir -p ${rTmpDir}`, cwd)
       await transport.exec(
         `git format-patch quimby/seed -o ${rTmpDir} -- ${pathspecs.map(sq).join(' ')}`,
@@ -188,10 +185,32 @@ function remoteAssembleOps(transport: SSHTransport, rRepoDir: string): RepoAssem
 }
 
 async function remoteIgnoredPaths(transport: SSHTransport, rRepoDir: string): Promise<string[]> {
-  const out = await transport
+  const untrackedIgnored = await transport
     .exec(`git ls-files --others --ignored --exclude-standard --directory -z`, { cwd: rRepoDir })
     .catch(() => '')
-  return out.split('\0').filter(Boolean)
+  const committedIgnored = await transport
+    .exec(`git diff --name-only HEAD | git check-ignore --no-index -v --stdin`, {
+      cwd: rRepoDir,
+    })
+    .catch(() => '')
+
+  const paths = new Set<string>()
+  for (const path of untrackedIgnored.split('\0').filter(Boolean)) {
+    paths.add(path)
+  }
+  for (const line of committedIgnored.split('\n')) {
+    const path = parseCheckIgnorePattern(line)
+    if (path) paths.add(path)
+  }
+  return [...paths]
+}
+
+function parseCheckIgnorePattern(line: string): string | null {
+  const [source] = line.split('\t')
+  if (!source) return null
+  const pattern = source.slice(source.lastIndexOf(':') + 1)
+  if (!pattern || pattern.startsWith('!')) return null
+  return pattern.startsWith('/') ? pattern.slice(1) : pattern
 }
 
 // Capture a remote agent's full working tree (committed + uncommitted + untracked)
@@ -204,10 +223,14 @@ async function remoteWorkingTreeDiff(
   base: string,
 ): Promise<string> {
   const idx = `/tmp/quimby-idx-${crypto.randomUUID()}`
-  const paths = `/tmp/quimby-paths-${crypto.randomUUID()}`
-  // Build an explicit path list instead of relying on a broad `git add -A`: tracked changes
-  // come from `git diff --name-only`, while untracked files come from `git ls-files --others
-  // --exclude-standard`, so ignored build/cache artifacts are never captured.
+  const pathspecs = ['.', ...CAPTURE_EXCLUDE.map((p) => `:(exclude)${p}`)]
+  for (const path of await remoteIgnoredPaths(transport, rRepoDir)) {
+    pathspecs.push(`:(exclude)${path}`)
+  }
+  // Start from HEAD, then stage only loose working-tree changes that are not excluded by
+  // gitignore-derived pathspecs. This keeps committed files even under ignored paths (they are
+  // truly part of the agent's history) while omitting ignored build/cache artifacts that are only
+  // present in the remote working tree.
   const g = `GIT_INDEX_FILE=${idx}`
   const excludeQuimby =
     `test -n "$(${g} git ls-tree ${base} -- ${QUIMBY_DIRNAME})" || ` +
@@ -215,16 +238,15 @@ async function remoteWorkingTreeDiff(
   try {
     const tree = (
       await transport.exec(
-        `{ git diff --name-only -z ${base}; git ls-files --others --exclude-standard -z; } > ${paths} && ` +
-          `${g} git read-tree ${base} && ` +
-          `{ test ! -s ${paths} || ${g} git add -A --pathspec-from-file=${paths} --pathspec-file-nul; } && ` +
+        `${g} git read-tree HEAD && ` +
+          `${g} git add -A -- ${pathspecs.map(sq).join(' ')} && ` +
           `{ ${excludeQuimby}; } && ${g} git write-tree`,
         { cwd: rRepoDir },
       )
     ).trim()
     return await transport.exec(`git diff --binary ${base} ${tree}`, { cwd: rRepoDir })
   } finally {
-    await transport.exec(`rm -f ${idx} ${paths}`).catch(() => {})
+    await transport.exec(`rm -f ${idx}`).catch(() => {})
   }
 }
 

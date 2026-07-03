@@ -277,14 +277,13 @@ describe('assembleRemoteHandoff', () => {
     expect(calls).toContain('git log quimby/seed..HEAD --format=%s')
     const capture = calls.find((c) => c.includes('git read-tree') && c.includes('GIT_INDEX_FILE'))
     expect(capture).toBeDefined()
-    expect(capture).toContain('git diff --name-only -z')
-    expect(capture).toContain('git ls-files --others --exclude-standard -z')
-    expect(capture).toContain('git add -A --pathspec-from-file=')
+    expect(capture).toContain('git read-tree HEAD')
+    expect(capture).toContain('git add -A --')
     expect(capture).not.toContain('git add -A &&')
     await rm(repoRoot, { recursive: true, force: true })
   })
 
-  it('excludes remote ignored directories from commits-mode patch generation', async () => {
+  it('excludes root-ignored directories from loose remote capture but not committed patches', async () => {
     const repoRoot = await setupRepoRoot()
     const calls: string[] = []
     const transport = {
@@ -293,12 +292,14 @@ describe('assembleRemoteHandoff', () => {
         if (cmd === 'git rev-parse quimby/seed') return 'seed123\n'
         if (cmd === 'git log quimby/seed..HEAD --format=%s') return 'real commit\n'
         if (cmd.includes('git ls-files --others --ignored --exclude-standard --directory -z')) {
-          return 'target/\0'
+          return ''
         }
-        if (cmd.includes('git diff --name-only -z quimby/seed')) return 'tree\n'
+        if (cmd.includes('git check-ignore --no-index -v --stdin')) {
+          return '.gitignore:1:/target/\ttarget/debug/build/rustix/output\n'
+        }
+        if (cmd.includes('git read-tree HEAD')) return 'tree\n'
         if (cmd === 'git diff --binary quimby/seed tree') return 'diff --git a/src/lib.rs b/src/lib.rs\n'
-        if (cmd.includes('git diff --name-only -z HEAD')) return 'headtree\n'
-        if (cmd === 'git diff --binary HEAD headtree') return ''
+        if (cmd === 'git diff --binary HEAD tree') return ''
         if (cmd.includes("git log quimby/seed..HEAD --format='%H|%s|%an|%aI'")) {
           return 'abc|real commit|A|2026-01-01T00:00:00Z\n'
         }
@@ -327,8 +328,10 @@ describe('assembleRemoteHandoff', () => {
 
     const format = calls.find((c) => c.includes('git format-patch'))
     expect(format).toBeDefined()
-    expect(format).toContain("':(exclude)target/'")
+    expect(format).not.toContain("':(exclude)target/'")
     expect(format).toContain("':(exclude).quimby'")
+    const capture = calls.find((c) => c.includes('git read-tree HEAD') && c.includes('git add -A'))
+    expect(capture).toContain("':(exclude)target/'")
     await rm(repoRoot, { recursive: true, force: true })
   })
 })
