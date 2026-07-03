@@ -496,7 +496,7 @@ describe('applyHandoff', () => {
     const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
     const targetDir = await setupTargetRepo(sourceDir)
     try {
-      const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit!.slice(0, 8)}`
+      const tempBranch = `quimby/merge-${meta.from}-${meta.seedCommit!.slice(0, 8)}`
       await git.createBranch(targetDir, tempBranch, meta.seedCommit)
       await git.am(
         targetDir,

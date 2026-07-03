@@ -29,4 +29,6 @@ export interface AgentState {
    * Quimby never runs it — it only relays the agent's attestation. Unset ⇒ a generic request.
    */
   check?: string
+  /** Advisory check request default. Quimby asks the agent to attest; it never gates a merge. */
+  verifyByDefault?: boolean
 }

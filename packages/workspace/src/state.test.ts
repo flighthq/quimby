@@ -58,6 +58,30 @@ describe('migrateState', () => {
     const dirty = migrateState(state)
     expect(dirty).toBe(false)
   })
+
+  it('preserves advisory check settings', () => {
+    const state = {
+      id: 'ws-id',
+      sourceRepo: '/repo',
+      sourceRef: 'main',
+      snapshot: 'abc',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {
+        builder: {
+          id: 'a1',
+          name: 'builder',
+          seedCommit: 'abc',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          check: 'npm run ci',
+          verifyByDefault: true,
+        },
+      },
+    } as QuimbyState
+    const dirty = migrateState(state)
+    expect(dirty).toBe(false)
+    expect(state.agents.builder.check).toBe('npm run ci')
+    expect(state.agents.builder.verifyByDefault).toBe(true)
+  })
 })
 
 describe('saveState', () => {

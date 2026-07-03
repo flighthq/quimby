@@ -2,7 +2,7 @@ import type { SSHLocation } from '@quimbyhq/types'
 import { exists } from '@quimbyhq/utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getSSHTransport, sq, SSHTransport, toRsyncExcludeList } from './sshTransport'
+import { getSSHTransport, sp, sq, SSHTransport, toRsyncExcludeList } from './sshTransport'
 
 const execa = vi.hoisted(() => vi.fn())
 vi.mock('execa', () => ({ execa }))
@@ -28,6 +28,16 @@ describe('getSSHTransport', () => {
     expect(transport).toBeDefined()
     expect(typeof transport.readFile).toBe('function')
     expect(typeof transport.exec).toBe('function')
+  })
+})
+
+describe('sp', () => {
+  it('quotes absolute paths', () => {
+    expect(sp('/remote dir/f.txt')).toBe("'/remote dir/f.txt'")
+  })
+
+  it('preserves leading tilde expansion while quoting path segments', () => {
+    expect(sp('~/work spaces/proj')).toBe("~/'work spaces'/'proj'")
   })
 })
 
@@ -68,21 +78,21 @@ describe('SSHTransport', () => {
       ]),
     )
     // The remote command and host are the final two positionals.
-    expect(args[args.length - 1]).toBe('cat /remote/f.txt')
+    expect(args[args.length - 1]).toBe("cat '/remote/f.txt'")
     expect(args[args.length - 2]).toBe('user@box')
   })
 
   it('writeFile ensures the parent dir and pipes content via stdin', async () => {
     await new SSHTransport(LOC).writeFile('/remote/dir/f.txt', 'hello')
     const [, args, opts] = callsTo('ssh')[0] as [string, string[], { input?: string }]
-    expect(args[args.length - 1]).toBe('mkdir -p /remote/dir && cat > /remote/dir/f.txt')
+    expect(args[args.length - 1]).toBe("mkdir -p '/remote/dir' && cat > '/remote/dir/f.txt'")
     expect(opts).toEqual(expect.objectContaining({ input: 'hello' }))
   })
 
   it('fileExists returns true when the remote test succeeds', async () => {
     expect(await new SSHTransport(LOC).fileExists('/remote/f')).toBe(true)
     const [, args] = callsTo('ssh')[0] as [string, string[]]
-    expect(args[args.length - 1]).toBe('test -e /remote/f')
+    expect(args[args.length - 1]).toBe("test -e '/remote/f'")
   })
 
   it('fileExists returns false when the remote test fails', async () => {
@@ -93,7 +103,7 @@ describe('SSHTransport', () => {
   it('ensureDir mkdir -p the remote path', async () => {
     await new SSHTransport(LOC).ensureDir('/remote/deep/dir')
     const [, args] = callsTo('ssh')[0] as [string, string[]]
-    expect(args[args.length - 1]).toBe('mkdir -p /remote/deep/dir')
+    expect(args[args.length - 1]).toBe("mkdir -p '/remote/deep/dir'")
   })
 
   it('exec prefixes cwd and passes the large maxBuffer without stripping newlines', async () => {
@@ -101,7 +111,7 @@ describe('SSHTransport', () => {
     const out = await new SSHTransport(LOC).exec('ls -la', { cwd: '/work' })
     expect(out).toBe('result\n')
     const [, args, opts] = callsTo('ssh')[0] as [string, string[], object]
-    expect(args[args.length - 1]).toBe('cd /work && ls -la')
+    expect(args[args.length - 1]).toBe("cd '/work' && ls -la")
     expect(opts).toEqual(
       expect.objectContaining({ maxBuffer: 256 * 1024 * 1024, stripFinalNewline: false }),
     )
@@ -120,7 +130,7 @@ describe('SSHTransport', () => {
     expect(args).toContain('-P')
     expect(args).not.toContain('-p')
     expect(args).toEqual(expect.arrayContaining(['-P', '2222', CONTROL_PATH]))
-    expect(args[args.length - 1]).toBe('user@box:/remote/f')
+    expect(args[args.length - 1]).toBe("user@box:'/remote/f'")
     expect(args[args.length - 2]).toBe('/local/f')
   })
 
@@ -142,13 +152,13 @@ describe('SSHTransport', () => {
     expect(args[eIdx + 1]).toContain('ssh ')
     expect(args[eIdx + 1]).toContain('/tmp/qb_user@box_2222')
     expect(args[eIdx + 1]).toContain('-p 2222')
-    expect(args).toEqual(expect.arrayContaining(['user@box:/remote/src/', '/local/dst/']))
+    expect(args).toEqual(expect.arrayContaining(["user@box:'/remote/src'/", '/local/dst/']))
   })
 
   it('rsyncTo pushes local→remote with trailing-slash paths', async () => {
     await new SSHTransport(LOC).rsyncTo('/local/src', '/remote/dst')
     const [, args] = callsTo('rsync')[0] as [string, string[]]
-    expect(args).toEqual(expect.arrayContaining(['/local/src/', 'user@box:/remote/dst/']))
+    expect(args).toEqual(expect.arrayContaining(['/local/src/', "user@box:'/remote/dst'/"]))
   })
 
   it('checkCapabilities probes each tool and throws when any are missing', async () => {
@@ -190,13 +200,13 @@ describe('SSHTransport', () => {
     )
     const excludeArg = args.find((a) => a.startsWith('--exclude-from='))
     expect(excludeArg).toBeDefined()
-    expect(args[args.length - 1]).toBe('user@box:/remote/root/')
+    expect(args[args.length - 1]).toBe("user@box:'/remote/root'/")
     // The temp exclude file is removed in the finally block.
     const excludeFile = excludeArg!.slice('--exclude-from='.length)
     expect(await exists(excludeFile)).toBe(false)
     // The remote target dir is created before the rsync.
     const mkdir = callsTo('ssh').map((c) => (c[1] as string[])[(c[1] as string[]).length - 1])
-    expect(mkdir).toContain('mkdir -p /remote/root')
+    expect(mkdir).toContain("mkdir -p '/remote/root'")
   })
 
   it('syncProjectTo omits the exclude-from plumbing when git is unavailable', async () => {

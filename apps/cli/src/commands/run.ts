@@ -1,10 +1,10 @@
 import { configureRemoteAgentIdentity, renderRemoteMailboxMigration } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import {
-  QUIMBY_ROOT_TMUX_FORMAT,
-  QUIMBY_ROOT_TMUX_OPTION,
   prepareLocalTmuxLaunch,
   prepareSshLaunch,
+  QUIMBY_ROOT_TMUX_FORMAT,
+  QUIMBY_ROOT_TMUX_OPTION,
   quimbyRootNewWindowBindingArgs,
   tmuxSetQuimbyRootShell,
 } from '@quimbyhq/launch'
@@ -21,13 +21,19 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from '@quimbyhq/paths'
-import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
+import { getRuntime, runtimeCli, runtimeTypes } from '@quimbyhq/runtimes'
 import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
+import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger, writeText } from '@quimbyhq/utils'
-import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
+import {
+  loadQuimbyConfig,
+  resolveLayoutExpr,
+  resolveRecipeLayout,
+  resolveWorkspace,
+  saveState,
+} from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 import { join } from 'pathe'
@@ -46,7 +52,7 @@ export default defineCommand({
     agent: {
       type: 'positional',
       description: 'Agent name(s)',
-      required: true,
+      required: false,
     },
     cmd: {
       type: 'string',
@@ -62,6 +68,10 @@ export default defineCommand({
       default: true,
       description: 'Include a host shell tab in the dashboard (default: true; --no-host to omit)',
     },
+    layout: {
+      type: 'string',
+      description: 'Saved layout or recipe name from quimby.yaml',
+    },
   },
   run: runRunCommand,
 })
@@ -69,8 +79,27 @@ export default defineCommand({
 export async function runRunCommand({
   args,
 }: {
-  args: { agent: string; _?: string[]; cmd?: string; runtime?: string; host?: boolean }
+  args: {
+    agent?: string
+    _?: string[]
+    cmd?: string
+    runtime?: string
+    host?: boolean
+    layout?: string
+  }
 }) {
+  if (args.layout) {
+    if (args.cmd || args.runtime) {
+      throw new QuimbyError('--cmd/--runtime apply to a single agent; omit them for a layout')
+    }
+    await runSavedLayout(args.layout, args.host !== false)
+    return
+  }
+
+  if (!args.agent) {
+    throw new QuimbyError('Provide an agent name, layout expression, or --layout <name>.')
+  }
+
   // A layout expression (uses `|` `/` `(` `)`) opens a multi-panel dashboard — split panes,
   // each a tabbed view over the retained agent sessions. Purely additive: bare `run a b`
   // (no operators) stays the flat tabbed dashboard below.
@@ -245,6 +274,33 @@ export async function runRunCommand({
       process.exit(e.exitCode)
     }
   }
+}
+
+async function runSavedLayout(name: string, includeHost: boolean): Promise<void> {
+  const { repoRoot } = await resolveWorkspace()
+  const config = await loadQuimbyConfig(repoRoot)
+  const expr = config.recipes?.[name]?.layout
+    ? resolveRecipeLayout(config, name)
+    : config.layouts?.[name]
+      ? resolveLayoutExpr(config, name)
+      : undefined
+  if (!expr) {
+    throw new QuimbyError(`Layout or recipe "${name}" not found in quimby config`)
+  }
+  if (isLayoutExpr(expr)) {
+    if (insideQuimbyTmux()) {
+      throw new QuimbyError(
+        'Run a panel layout from outside a quimby session — it builds its own dashboard.',
+      )
+    }
+    await runPanelDashboard(expr)
+    return
+  }
+  const names = expr
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((n) => n !== HOST_WINDOW)
+  await runDashboard(names, includeHost)
 }
 
 // ── Dashboard mode ────────────────────────────────────────────────────────────
@@ -587,7 +643,7 @@ async function buildSSHWindow(
   const rLegacyAgentDir = remoteAgentDir(state.id, name, loc.base)
   if (rLegacyAgentDir !== rAgentDir) {
     await transport.exec(
-      `if [ -d ${rLegacyAgentDir} ] && [ ! -d ${rAgentDir} ]; then mkdir -p "$(dirname ${rAgentDir})" && mv ${rLegacyAgentDir} ${rAgentDir}; fi`,
+      `if [ -d ${sp(rLegacyAgentDir)} ] && [ ! -d ${sp(rAgentDir)} ]; then mkdir -p "$(dirname ${sp(rAgentDir)})" && mv ${sp(rLegacyAgentDir)} ${sp(rAgentDir)}; fi`,
     )
   }
 
@@ -602,7 +658,7 @@ async function buildSSHWindow(
     await transport.ensureDir(`${rAgentDir}/handoff/out/queued`)
     await transport.ensureDir(`${rAgentDir}/handoff/in/received`)
     await transport.ensureDir(`${rAgentDir}/status`)
-    await transport.exec(`git clone ${rRoot} ${rRepoDir}`)
+    await transport.exec(`git clone ${sp(rRoot)} ${sp(rRepoDir)}`)
     await transport.exec(`git tag quimby/seed`, { cwd: rRepoDir })
     await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
@@ -626,6 +682,9 @@ async function buildSSHWindow(
     )
   }
 
+  const required = runtimeCli(runtime)
+  if (required) await transport.checkCapabilities([required])
+
   const adapter = getRuntime(runtime)
   const spec = await adapter.runSpec(
     {
@@ -639,9 +698,7 @@ async function buildSSHWindow(
     entrypoint,
   )
 
-  const launchCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
-    ' ',
-  )
+  const launchCmd = [spec.command, ...spec.args].map(sq).join(' ')
   const remoteShellCmd = `${tmuxSetQuimbyRootShell(rRoot)}${launchCmd}`
 
   // Write the remote tmux config (for the nested remote session).

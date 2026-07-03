@@ -96,9 +96,7 @@ describe('buildDashboardWindows', () => {
 
   it('adds a login-shell window for the reserved host name', async () => {
     const windows = await buildDashboardWindows(stateWith({}), '/repo', [HOST_WINDOW])
-    expect(windows).toEqual([
-      { name: 'host', cwd: '/repo', rootCwd: '/repo', cmd: ['bash', '-l'] },
-    ])
+    expect(windows).toEqual([{ name: 'host', cwd: '/repo', rootCwd: '/repo', cmd: ['bash', '-l'] }])
   })
 
   it('builds a local window that runs the entrypoint and holds the pane open on failure', async () => {

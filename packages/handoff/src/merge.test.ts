@@ -13,7 +13,7 @@ vi.mock('./stage', () => ({
 vi.mock('./apply', () => ({
   applyHandoff: vi.fn(async (opts: { mode: ApplyMode }) => ({
     mode: opts.mode,
-    tempBranch: 'quimby/apply-x',
+    tempBranch: 'quimby/merge-x',
     conflicts: [],
   })),
 }))

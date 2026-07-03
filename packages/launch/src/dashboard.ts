@@ -211,7 +211,12 @@ async function buildSshWindow(
   ].join(' ')
 
   const sshFlags = loc.port ? ['-p', String(loc.port)] : []
-  return { name, cwd: repoRoot, rootCwd: repoRoot, cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs] }
+  return {
+    name,
+    cwd: repoRoot,
+    rootCwd: repoRoot,
+    cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs],
+  }
 }
 
 function envArgs(window: Readonly<WindowSpec>): string[] {

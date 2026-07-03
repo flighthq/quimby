@@ -30,6 +30,7 @@ vi.mock('execa', () => ({
 
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local'],
+  runtimeCli: () => undefined,
   buildContext: () => ({}),
   getRuntime: () => ({
     setup: async () => {},
@@ -50,6 +51,10 @@ vi.mock('@quimbyhq/utils', async (importOriginal) => ({
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   saveState: vi.fn(async () => {}),
+  loadQuimbyConfig: vi.fn(async () => ({
+    layouts: { review: 'a | b' },
+    recipes: { loop: { layout: 'review' } },
+  })),
   resolveWorkspace: vi.fn(async () => ({
     state: {
       id: 'proj-id',
@@ -158,6 +163,18 @@ describe('run', () => {
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     expect(h.calls.some((c) => c.includes('respawn-window'))).toBe(false)
+  })
+
+  it('runs a saved layout from config', async () => {
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { layout: 'review' } } as never)
+    expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('runs a recipe layout from config', async () => {
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { layout: 'loop' } } as never)
+    expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
   })
 
   it('reuses a running per-agent session instead of restarting it', async () => {

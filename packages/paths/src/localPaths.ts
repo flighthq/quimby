@@ -16,6 +16,14 @@ export function getStatePath(repoRoot: string): string {
   return join(repoRoot, '.quimby', 'state.yaml')
 }
 
+export function getProjectConfigPath(repoRoot: string): string {
+  return join(repoRoot, 'quimby.yaml')
+}
+
+export function getLocalConfigPath(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'local.yaml')
+}
+
 // The tmux config Quimby runs its isolated server with (`tmux -L quimby -f …`).
 export function getTmuxConfigPath(repoRoot: string): string {
   return join(repoRoot, '.quimby', 'tmux.conf')

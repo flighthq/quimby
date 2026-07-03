@@ -64,13 +64,13 @@ export async function applyHandoff(opts: {
   if (!meta.seedCommit) {
     throw new QuimbyError(
       `Parcel "${name}" has no seed commit recorded — it was assembled before the merge-based ` +
-        `apply was available. Re-stage it with "quimby apply ${meta.from}".`,
+        `landing flow was available. Re-stage it with "quimby merge ${meta.from}".`,
     )
   }
 
   const previousRef =
     (await git.getCurrentBranch(targetRepoPath)) ?? (await git.getCurrentRef(targetRepoPath))
-  const tempBranch = `quimby/apply-${meta.from}-${meta.seedCommit.slice(0, 8)}`
+  const tempBranch = `quimby/merge-${meta.from}-${meta.seedCommit.slice(0, 8)}`
   if (previousRef === tempBranch) {
     throw new QuimbyError(
       `Target repo is on Quimby's temporary merge branch "${tempBranch}". ` +

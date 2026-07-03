@@ -19,6 +19,23 @@ export async function setAgentCheckCommand(
   await saveState(repoRoot, state)
 }
 
+export async function setAgentVerifyByDefault(
+  repoRoot: string,
+  name: string,
+  verifyByDefault: boolean | undefined,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!Object.hasOwn(state.agents, name)) {
+    throw new QuimbyError(`Agent "${name}" not found`)
+  }
+  if (verifyByDefault) {
+    state.agents[name].verifyByDefault = true
+  } else {
+    delete state.agents[name].verifyByDefault
+  }
+  await saveState(repoRoot, state)
+}
+
 export async function setAgentDefaults(
   repoRoot: string,
   name: string,

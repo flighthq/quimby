@@ -4,6 +4,7 @@ import type { RuntimeAdapter, RuntimeContext, RuntimeType } from '@quimbyhq/type
 import { local } from './local'
 import { openshell } from './openshell'
 import { sbx } from './sbx'
+export { parseCommand, splitCommand } from './command'
 
 const adapters: Record<RuntimeType, RuntimeAdapter> = {
   local,
@@ -12,6 +13,10 @@ const adapters: Record<RuntimeType, RuntimeAdapter> = {
 }
 
 export const runtimeTypes = Object.keys(adapters) as RuntimeType[]
+
+export function runtimeCli(type: RuntimeType): string | undefined {
+  return type === 'local' ? undefined : type
+}
 
 export function getRuntime(type: RuntimeType): RuntimeAdapter {
   const adapter = adapters[type]

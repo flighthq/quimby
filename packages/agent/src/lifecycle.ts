@@ -11,7 +11,7 @@ import {
 } from '@quimbyhq/paths'
 import { renderAgentAgentsMd, renderAgentClaudeMd } from '@quimbyhq/template'
 import type { SSHTransport, Transport } from '@quimbyhq/transport'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
+import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
@@ -33,6 +33,8 @@ export async function addAgent(
     location?: AgentLocation
     syncRef?: string
     tmux?: boolean
+    check?: string
+    verifyByDefault?: boolean
   },
 ): Promise<AgentState> {
   validateAgentName(name)
@@ -57,6 +59,8 @@ export async function addAgent(
     ...(opts?.defaults ? { defaults: opts.defaults } : {}),
     ...(opts?.location ? { location: opts.location } : {}),
     ...(opts?.tmux ? { tmux: true } : {}),
+    ...(opts?.check ? { check: opts.check } : {}),
+    ...(opts?.verifyByDefault ? { verifyByDefault: true } : {}),
   }
 
   if (isSSH(opts?.location)) {
@@ -102,7 +106,9 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
-    await transport.exec(`rm -rf ${rRepoDir} ${rAgentDir}/handoff ${rAgentDir}/status`)
+    await transport.exec(
+      `rm -rf ${sp(rRepoDir)} ${sp(`${rAgentDir}/handoff`)} ${sp(`${rAgentDir}/status`)}`,
+    )
     state.agents[name].seedCommit = await cloneAndSeedRemoteAgentRepo(transport, {
       rRoot,
       rRepoDir,
@@ -145,7 +151,7 @@ export async function removeAgent(repoRoot: string, name: string): Promise<void>
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
     const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
-    await transport.exec(`rm -rf ${rAgentDir}`)
+    await transport.exec(`rm -rf ${sp(rAgentDir)}`)
   } else {
     const agentDir = getAgentDir(repoRoot, agent.id)
     await rm(agentDir, { recursive: true, force: true })
@@ -219,7 +225,7 @@ export async function cloneAndSeedRemoteAgentRepo(
   transport: SSHTransport,
   opts: { rRoot: string; rRepoDir: string; agentName: string; hostRepoRoot: string },
 ): Promise<string> {
-  await transport.exec(`git clone ${opts.rRoot} ${opts.rRepoDir}`)
+  await transport.exec(`git clone ${sp(opts.rRoot)} ${sp(opts.rRepoDir)}`)
   await transport.exec(`git tag quimby/seed`, { cwd: opts.rRepoDir })
   await configureRemoteAgentIdentity(transport, opts.rRepoDir, opts.agentName, opts.hostRepoRoot)
   return (await transport.exec(`git rev-parse HEAD`, { cwd: opts.rRepoDir })).trim()
@@ -257,7 +263,7 @@ export async function writeRemoteAgentScaffold(
  * `*` skips dotfiles, so `.sent`/`.done` are excluded from the plain loops and handled explicitly.
  */
 export function renderRemoteMailboxMigration(rAgentDir: string): string {
-  const a = rAgentDir
+  const a = sp(rAgentDir)
   return (
     `if { [ -d ${a}/inbox ] || [ -d ${a}/outbox ]; } && [ ! -d ${a}/handoff ]; then ` +
     `mkdir -p ${a}/handoff/out/queued ${a}/handoff/out/sent ${a}/handoff/in/received ${a}/handoff/in/processed ${a}/status; ` +

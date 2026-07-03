@@ -12,6 +12,13 @@ export function sq(s: string): string {
   return `'${s.replace(/'/g, `'"'"'`)}'`
 }
 
+/** Quote a remote shell path while preserving leading ~/ expansion on the remote host. */
+export function sp(path: string): string {
+  if (path === '~') return '~'
+  if (path.startsWith('~/')) return `~/${path.slice(2).split('/').map(sq).join('/')}`
+  return sq(path)
+}
+
 /**
  * Convert `git ls-files -z --others --ignored` output into an anchored,
  * NUL-separated rsync exclude list. Each path is prefixed with `/` so it
@@ -60,21 +67,25 @@ export class SSHTransport implements Transport {
   }
 
   async readFile(path: string): Promise<string> {
-    const { stdout } = await execa('ssh', [...this.sshFlags, this.loc.host, `cat ${path}`])
+    const { stdout } = await execa('ssh', [...this.sshFlags, this.loc.host, `cat ${sp(path)}`])
     return stdout
   }
 
   async writeFile(path: string, content: string): Promise<void> {
     // Ensure parent dir exists, then pipe content via stdin to avoid escaping issues.
     const dir = dirname(path)
-    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${dir} && cat > ${path}`], {
-      input: content,
-    })
+    await execa(
+      'ssh',
+      [...this.sshFlags, this.loc.host, `mkdir -p ${sp(dir)} && cat > ${sp(path)}`],
+      {
+        input: content,
+      },
+    )
   }
 
   async fileExists(path: string): Promise<boolean> {
     try {
-      await execa('ssh', [...this.sshFlags, this.loc.host, `test -e ${path}`])
+      await execa('ssh', [...this.sshFlags, this.loc.host, `test -e ${sp(path)}`])
       return true
     } catch {
       return false
@@ -82,11 +93,11 @@ export class SSHTransport implements Transport {
   }
 
   async ensureDir(path: string): Promise<void> {
-    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${path}`])
+    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(path)}`])
   }
 
   async exec(cmd: string, opts?: { cwd?: string }): Promise<string> {
-    const remoteCmd = opts?.cwd ? `cd ${opts.cwd} && ${cmd}` : cmd
+    const remoteCmd = opts?.cwd ? `cd ${sp(opts.cwd)} && ${cmd}` : cmd
     const { stdout } = await execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
       maxBuffer: 256 * 1024 * 1024,
       stripFinalNewline: false,
@@ -96,7 +107,7 @@ export class SSHTransport implements Transport {
 
   async runInteractive(cmd: string, args: string[], cwd?: string): Promise<void> {
     const parts = [cmd, ...args].join(' ')
-    const remoteCmd = cwd ? `cd ${cwd} && ${parts}` : parts
+    const remoteCmd = cwd ? `cd ${sp(cwd)} && ${parts}` : parts
     await execa('ssh', ['-t', ...this.sshFlags, this.loc.host, remoteCmd], { stdio: 'inherit' })
   }
 
@@ -118,14 +129,14 @@ export class SSHTransport implements Transport {
 
   /** Copy a file from local to remote using scp. */
   async scpTo(localPath: string, remotePath: string): Promise<void> {
-    await execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${remotePath}`])
+    await execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${sp(remotePath)}`])
   }
 
   /** Copy a directory from remote to local using rsync. */
   async rsyncFrom(remotePath: string, localPath: string): Promise<void> {
     await execa(
       'rsync',
-      ['-a', '-e', this.sshRsyncCmd, `${this.loc.host}:${remotePath}/`, `${localPath}/`],
+      ['-a', '-e', this.sshRsyncCmd, `${this.loc.host}:${sp(remotePath)}/`, `${localPath}/`],
       {
         stdio: 'inherit',
       },
@@ -136,7 +147,7 @@ export class SSHTransport implements Transport {
   async rsyncTo(localPath: string, remotePath: string): Promise<void> {
     await execa(
       'rsync',
-      ['-a', '-e', this.sshRsyncCmd, `${localPath}/`, `${this.loc.host}:${remotePath}/`],
+      ['-a', '-e', this.sshRsyncCmd, `${localPath}/`, `${this.loc.host}:${sp(remotePath)}/`],
       {
         stdio: 'inherit',
       },
@@ -156,7 +167,7 @@ export class SSHTransport implements Transport {
    * own dir) and `flight/` (a sibling repo that may not be ignored).
    */
   async syncProjectTo(localRoot: string, remotePath: string): Promise<void> {
-    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${remotePath}`])
+    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(remotePath)}`])
     const excludeFile = await this.writeGitignoreExcludeFile(localRoot)
     try {
       await execa(
@@ -173,7 +184,7 @@ export class SSHTransport implements Transport {
           '-e',
           this.sshRsyncCmd,
           `${localRoot}/`,
-          `${this.loc.host}:${remotePath}/`,
+          `${this.loc.host}:${sp(remotePath)}/`,
         ],
         { stdio: 'inherit' },
       )

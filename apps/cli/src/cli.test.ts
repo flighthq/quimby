@@ -26,8 +26,8 @@ describe('cli', () => {
   it('all subcommands have a name in meta', async () => {
     const commands = [
       'add',
-      'apply',
       'assign',
+      'doctor',
       'diff',
       'dispatch',
       'handoff',
@@ -38,6 +38,7 @@ describe('cli', () => {
       'run',
       'serve',
       'set',
+      'up',
       'status',
       'subscribe',
       'sync',

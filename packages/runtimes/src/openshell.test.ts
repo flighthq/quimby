@@ -30,13 +30,14 @@ describe('openshell', () => {
   })
 
   it('execSpec splits command into parts', () => {
-    const spec = openshell.execSpec(ctx, 'claude --dangerously-skip-permissions')
+    const spec = openshell.execSpec(ctx, 'claude --model "gpt 5"')
     expect(spec.command).toBe('openshell')
     expect(spec.args).toContain('sandbox')
     expect(spec.args).toContain('create')
     expect(spec.args).toContain('--')
     expect(spec.args).toContain('claude')
-    expect(spec.args).toContain('--dangerously-skip-permissions')
+    expect(spec.args).toContain('--model')
+    expect(spec.args).toContain('gpt 5')
   })
 
   it('setup resolves when the openshell CLI is present', async () => {

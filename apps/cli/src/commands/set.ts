@@ -3,6 +3,7 @@ import {
   setAgentDefaults,
   setAgentLocation,
   setAgentSyncRef,
+  setAgentVerifyByDefault,
 } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { runtimeTypes } from '@quimbyhq/runtimes'
@@ -57,6 +58,10 @@ export default defineCommand({
       description:
         'The agent\'s self-verification command (e.g. "npm run ci"); the agent runs it and attests. Pass "" to clear',
     },
+    verifyByDefault: {
+      type: 'boolean',
+      description: 'Append the advisory check request on assign by default',
+    },
   },
   run: runSetCommand,
 })
@@ -73,6 +78,7 @@ export async function runSetCommand({
     sync?: string
     local?: boolean
     check?: string
+    verifyByDefault?: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -89,10 +95,11 @@ export async function runSetCommand({
     !args.port &&
     args.sync === undefined &&
     !args.local &&
-    args.check === undefined
+    args.check === undefined &&
+    args.verifyByDefault === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --cmd, --host, --port, --sync, --local, or --check',
+      'Specify at least one of --runtime, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
     )
   }
 
@@ -123,6 +130,10 @@ export async function runSetCommand({
 
   if (args.check !== undefined) {
     await setAgentCheckCommand(repoRoot, args.agent, args.check || undefined)
+  }
+
+  if (args.verifyByDefault !== undefined) {
+    await setAgentVerifyByDefault(repoRoot, args.agent, args.verifyByDefault)
   }
 
   if (args.local) {

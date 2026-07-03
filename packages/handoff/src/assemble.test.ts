@@ -294,7 +294,8 @@ describe('assembleRemoteHandoff', () => {
         if (cmd === 'git rev-parse quimby/seed') return 'seed123\n'
         if (cmd === 'git log quimby/seed..HEAD --format=%s') return 'real commit\n'
         if (cmd.includes('git read-tree HEAD')) return 'tree\n'
-        if (cmd === 'git diff --binary quimby/seed tree') return 'diff --git a/src/lib.rs b/src/lib.rs\n'
+        if (cmd === 'git diff --binary quimby/seed tree')
+          return 'diff --git a/src/lib.rs b/src/lib.rs\n'
         if (cmd === 'git diff --binary HEAD tree') return ''
         if (cmd.includes("git log quimby/seed..HEAD --format='%H|%s|%an|%aI'")) {
           return 'abc|real commit|A|2026-01-01T00:00:00Z\n'

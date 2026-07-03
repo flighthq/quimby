@@ -5,12 +5,14 @@ const setAgentLocation = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentDefaults = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentSyncRef = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentCheckCommand = vi.hoisted(() => vi.fn(async () => {}))
+const setAgentVerifyByDefault = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('@quimbyhq/agent', () => ({
   setAgentLocation,
   setAgentDefaults,
   setAgentSyncRef,
   setAgentCheckCommand,
+  setAgentVerifyByDefault,
 }))
 
 let resolved: {
@@ -61,6 +63,14 @@ describe('run', () => {
     const { default: cmd } = await import('./set')
     await cmd.run!({ args: { agent: 'builder', check: 'npm run ci' } } as never)
     expect(setAgentCheckCommand).toHaveBeenCalledWith('/fake/root', 'builder', 'npm run ci')
+  })
+
+  it('--verify-by-default updates the advisory check default', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentVerifyByDefault.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', verifyByDefault: true } } as never)
+    expect(setAgentVerifyByDefault).toHaveBeenCalledWith('/fake/root', 'builder', true)
   })
 
   it('--local errors clearly when the agent is already local', async () => {

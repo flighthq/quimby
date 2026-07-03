@@ -114,7 +114,7 @@ export async function prepareLocalTmuxLaunch(
   // Run the command through a login shell so the tmux pane resolves PATH from the
   // user's profile; without it tmux execs in the tmux server's environment, which
   // may lack user-installed tools (`sbx`/`claude`), and the session exits instantly.
-  const baseCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(' ')
+  const baseCmd = [spec.command, ...spec.args].map(sq).join(' ')
   // Start a durable transcript of this pane (`quimby log --follow` tails it) — the pane
   // pipes its own output to session.log. Runs once per pane lifetime (fresh session /
   // respawn), targeting `$TMUX_PANE` so it needs no session lookup; failures are ignored.

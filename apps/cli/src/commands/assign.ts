@@ -42,7 +42,6 @@ export default defineCommand({
       type: 'boolean',
       description:
         'Append a self-verification request to the assignment (the agent runs its `check` and records a quimby-attest block)',
-      default: false,
     },
   },
   run: runAssignCommand,
@@ -58,14 +57,16 @@ export async function runAssignCommand({
     // `--sync <ref>` → string, `--no-sync` → false, bare `--sync`/absent → '' / undefined.
     sync?: string | boolean
     clear: boolean
-    verify: boolean
+    verify?: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
+  const agent = state.agents[args.agent]
 
   // --no-sync yields `false`; a ref string retargets; absent/bare means "sync against the base".
   const doSync = args.sync !== false
   const syncRef = typeof args.sync === 'string' && args.sync !== '' ? args.sync : undefined
+  const verify = args.verify ?? agent?.verifyByDefault ?? false
 
   const result = await assignAgentTask(
     {
@@ -76,7 +77,7 @@ export async function runAssignCommand({
       sync: doSync,
       syncRef,
       nudge: args.nudge,
-      verify: args.verify,
+      verify,
     },
     consolaReporter,
   )

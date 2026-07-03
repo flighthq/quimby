@@ -12,10 +12,10 @@ import {
 } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import { getRuntime } from '@quimbyhq/runtimes'
+import { getRuntime, runtimeCli } from '@quimbyhq/runtimes'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import type { SSHTransport } from '@quimbyhq/transport'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
+import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
 import { saveState } from '@quimbyhq/workspace'
 
@@ -66,7 +66,7 @@ export async function prepareSshLaunch(
   const rLegacyAgentDir = remoteAgentDir(state.id, agent.name, loc.base)
   if (rLegacyAgentDir !== rAgentDir) {
     await transport.exec(
-      `if [ -d ${rLegacyAgentDir} ] && [ ! -d ${rAgentDir} ]; then mkdir -p "$(dirname ${rAgentDir})" && mv ${rLegacyAgentDir} ${rAgentDir}; fi`,
+      `if [ -d ${sp(rLegacyAgentDir)} ] && [ ! -d ${sp(rAgentDir)} ]; then mkdir -p "$(dirname ${sp(rAgentDir)})" && mv ${sp(rLegacyAgentDir)} ${sp(rAgentDir)}; fi`,
     )
   }
 
@@ -97,6 +97,8 @@ export async function prepareSshLaunch(
   }
 
   const { runtime, entrypoint, runtimeLabel } = resolveRuntimeSelection(opts)
+  const runtimeRequired = runtimeCli(runtime)
+  if (runtimeRequired) await transport.checkCapabilities([runtimeRequired])
 
   // Build the shell command for the remote machine using the runtime adapter; cwd is
   // handled by tmux -c, so we pass remote paths but don't use spec.cwd.
@@ -114,9 +116,7 @@ export async function prepareSshLaunch(
   )
   // Quote the user-supplied entrypoint wherever it appears; leave the runtime's own
   // static tokens (e.g. 'run', 'sandbox') unquoted.
-  const launchCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(
-    ' ',
-  )
+  const launchCmd = [spec.command, ...spec.args].map(sq).join(' ')
   // Refresh the window label on every (re)attach so it tracks renames.
   const rootCmd = tmuxSetQuimbyRootShell(rRoot)
   const shellCmd = `${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}`

@@ -3,11 +3,11 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { readAgentStatus } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import {
-  QUIMBY_ROOT_TMUX_FORMAT,
-  QUIMBY_ROOT_TMUX_OPTION,
   localNewSessionArgs,
   prepareLocalTmuxLaunch,
   prepareSshLaunch,
+  QUIMBY_ROOT_TMUX_FORMAT,
+  QUIMBY_ROOT_TMUX_OPTION,
   quimbyRootNewWindowBindingArgs,
   tmuxSetQuimbyRootShell,
 } from '@quimbyhq/launch'
@@ -35,9 +35,7 @@ async function applyLocalRootBehavior(session: string, rootCwd: string): Promise
     () => false,
   )
   if (!serverRunning) return
-  await execa('tmux', ['-L', quimbyTmuxSocket, ...quimbyRootNewWindowBindingArgs()]).catch(
-    () => {},
-  )
+  await execa('tmux', ['-L', quimbyTmuxSocket, ...quimbyRootNewWindowBindingArgs()]).catch(() => {})
   await execa('tmux', [
     '-L',
     quimbyTmuxSocket,

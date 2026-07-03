@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
+import { parseCommand } from './command'
 import { bestEffortExec, requireRuntimeCli } from './probe'
 
 // sbx is path-sensitive: it keys a sandbox off its working directory and persists
@@ -41,10 +42,10 @@ export const sbx: RuntimeAdapter = {
   },
 
   execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
-    const parts = entrypoint.split(/\s+/)
+    const parsed = parseCommand(entrypoint)
     return {
       command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx), parts[0], '--', ...parts.slice(1)],
+      args: ['run', '--name', sandboxName(ctx), parsed.command, '--', ...parsed.args],
       cwd: ctx.agentDir,
     }
   },

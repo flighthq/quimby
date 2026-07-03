@@ -97,6 +97,34 @@ describe('run', () => {
     expect(assignAgentTask.mock.calls[0][0]).toMatchObject({ verify: true })
   })
 
+  it('uses the agent advisory verify default when no verify flag is passed', async () => {
+    resolved = workspace({ builder: { id: 'b1', name: 'builder', verifyByDefault: true } })
+    assignAgentTask.mockResolvedValueOnce({
+      behind: 0,
+      syncFailed: false,
+      nudgeText: null,
+    } as never)
+    const { default: cmd } = await import('./assign')
+    await cmd.run!({
+      args: { agent: 'builder', message: 'do it', nudge: false, clear: false },
+    } as never)
+    expect(assignAgentTask.mock.calls[0][0]).toMatchObject({ verify: true })
+  })
+
+  it('lets --no-verify override the agent advisory verify default', async () => {
+    resolved = workspace({ builder: { id: 'b1', name: 'builder', verifyByDefault: true } })
+    assignAgentTask.mockResolvedValueOnce({
+      behind: 0,
+      syncFailed: false,
+      nudgeText: null,
+    } as never)
+    const { default: cmd } = await import('./assign')
+    await cmd.run!({
+      args: { agent: 'builder', message: 'do it', nudge: false, verify: false, clear: false },
+    } as never)
+    expect(assignAgentTask.mock.calls[0][0]).toMatchObject({ verify: false })
+  })
+
   it('does not nudge when nudgeText is null (e.g. sync failed or nudge not requested)', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
     assignAgentTask.mockResolvedValueOnce({

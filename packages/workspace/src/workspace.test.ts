@@ -121,7 +121,7 @@ describe('resolveWorkspace', () => {
     expect(state.agents).toBeDefined()
   })
 
-  it('migrates legacy schema keys (workers, defaults.agent) and drops the retired guard/check', async () => {
+  it('migrates legacy schema keys (workers, defaults.agent) and preserves advisory checks', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
       id: 'ws-id',
@@ -147,15 +147,12 @@ describe('resolveWorkspace', () => {
     expect(
       (state.agents.alice.defaults as unknown as Record<string, unknown>).agent,
     ).toBeUndefined()
-    // The per-agent guard was retired: quimby runs on the host, outside the agent's
-    // sandbox, so it could never run the guard where the agent's deps were installed.
-    expect((state.agents.alice as unknown as Record<string, unknown>).guard).toBeUndefined()
-    expect((state.agents.alice as unknown as Record<string, unknown>).check).toBeUndefined()
+    expect(state.agents.alice.check).toBe('npm run ci')
 
     // Persisted: a fresh load sees the migrated shape with no further changes.
     const reloaded = await loadState(dir)
     expect(reloaded.agents.alice.defaults?.entrypoint).toBe('claude')
-    expect((reloaded.agents.alice as unknown as Record<string, unknown>).guard).toBeUndefined()
+    expect(reloaded.agents.alice.check).toBe('npm run ci')
   })
 
   it('migrates a legacy inbox/outbox mailbox into the handoff/ tree, idempotently', async () => {

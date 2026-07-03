@@ -20,6 +20,7 @@ vi.mock('@quimbyhq/agent', () => ({
 }))
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
+  runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
   getRuntime: () => ({
     runSpec: () => ({ command: 'sbx', args: ['run', 'claude'], cwd: '/agent/dir', env: {} }),
   }),
@@ -157,5 +158,16 @@ describe('prepareSshLaunch', () => {
     expect(events).toContainEqual({ level: 'start', message: 'Syncing project to user@box...' })
     expect(events).toContainEqual({ level: 'start', message: 'Initializing remote agent...' })
     expect(events).toContainEqual({ level: 'success', message: 'Remote agent initialized' })
+  })
+
+  it('checks the selected runtime on the remote host', async () => {
+    const transport = fakeSSHTransport(true)
+    mockedGetSSH.mockReturnValue(transport)
+    const state = makeState()
+    state.agents.researcher.defaults = { runtime: 'sbx' }
+
+    await prepareSshLaunch(optsFrom(state))
+
+    expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx'])
   })
 })

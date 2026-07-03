@@ -63,10 +63,11 @@ describe('sbx', () => {
   })
 
   it('execSpec splits command and args with -- separator', () => {
-    const spec = sbx.execSpec(ctx, 'claude --dangerously-skip-permissions')
+    const spec = sbx.execSpec(ctx, 'claude --model "gpt 5"')
     expect(spec.command).toBe('sbx')
     expect(spec.args).toContain('--')
-    expect(spec.args).toContain('--dangerously-skip-permissions')
+    expect(spec.args).toContain('--model')
+    expect(spec.args).toContain('gpt 5')
   })
 
   it('setup resolves when the sbx CLI is present', async () => {

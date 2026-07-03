@@ -17,9 +17,9 @@ describe('local', () => {
   })
 
   it('runSpec returns a RunSpec with command, args, and cwd', () => {
-    const spec = local.runSpec(ctx, 'claude --resume')
+    const spec = local.runSpec(ctx, 'claude --model "gpt 5"')
     expect(spec.command).toBe('claude')
-    expect(spec.args).toEqual(['--resume'])
+    expect(spec.args).toEqual(['--model', 'gpt 5'])
     expect(spec.cwd).toBe(ctx.agentDir)
   })
 

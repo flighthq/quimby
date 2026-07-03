@@ -1,5 +1,5 @@
 export type { Transport } from './localTransport'
 export { buildSSHLocation, mergeSSHLocation, parseSSHHostSpec } from './location'
 export type { SSHTransport } from './sshTransport'
-export { getSSHTransport, sq, toRsyncExcludeList } from './sshTransport'
+export { getSSHTransport, sp, sq, toRsyncExcludeList } from './sshTransport'
 export { getTransport } from './transport'

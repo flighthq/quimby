@@ -5,6 +5,12 @@ import { runtimeTypes } from '@quimbyhq/runtimes'
 import { buildSSHLocation } from '@quimbyhq/transport'
 import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
+import {
+  loadQuimbyConfig,
+  normalizeCheck,
+  resolveHostAlias,
+  resolveRole,
+} from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { runAgentWalkthrough } from '../walkthrough'
@@ -43,6 +49,14 @@ export default defineCommand({
       alias: 's',
       description: 'Ref to sync against (default: current host branch)',
     },
+    role: {
+      type: 'string',
+      description: 'Role from quimby.yaml to use as creation defaults',
+    },
+    hostAlias: {
+      type: 'string',
+      description: 'Private host alias from user/local config',
+    },
   },
   run: runAddCommand,
 })
@@ -57,6 +71,8 @@ export async function runAddCommand({
     host?: string
     port?: string
     sync?: string
+    role?: string
+    hostAlias?: string
   }
 }) {
   const repoRoot = await git.findRoot(process.cwd())
@@ -66,25 +82,50 @@ export async function runAddCommand({
 
   // With no config flags, walk the user through the agent's setup; with flags,
   // honor them verbatim so `add` stays scriptable for unattended use.
-  const hasFlags = Boolean(args.runtime || args.cmd || args.host || args.port || args.sync)
+  const hasFlags = Boolean(
+    args.runtime || args.cmd || args.host || args.port || args.sync || args.role || args.hostAlias,
+  )
 
   let defaults: { runtime?: string; entrypoint?: string } | undefined
   let location: SSHLocation | undefined
   let syncRef: string | undefined
   let tmux: boolean | undefined
+  let check: string | undefined
+  let verifyByDefault: boolean | undefined
 
   if (hasFlags) {
+    const config = await loadQuimbyConfig(repoRoot)
+    const role = args.role ? resolveRole(config, args.role) : config.defaults
     if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
       throw new QuimbyError(
         `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
       )
     }
     defaults =
-      args.runtime || args.cmd ? { runtime: args.runtime, entrypoint: args.cmd } : undefined
+      role?.runtime || role?.entrypoint || args.runtime || args.cmd
+        ? {
+            runtime: args.runtime ?? role?.runtime,
+            entrypoint: args.cmd ?? role?.entrypoint,
+          }
+        : undefined
     if (args.host) {
       location = buildSSHLocation(args.host, args.port ? Number.parseInt(args.port, 10) : undefined)
+    } else {
+      const alias = resolveHostAlias(config, args.hostAlias)
+      if (alias) {
+        location = {
+          type: 'ssh',
+          host: alias.host,
+          ...(alias.port ? { port: alias.port } : {}),
+          ...(alias.base ? { base: alias.base } : {}),
+        }
+      }
     }
-    syncRef = args.sync
+    syncRef = args.sync ?? role?.syncRef
+    tmux = role?.tmux
+    const checkConfig = normalizeCheck(role?.check)
+    check = checkConfig?.command
+    verifyByDefault = checkConfig?.verifyByDefault ?? role?.verifyByDefault
   } else {
     const config = await runAgentWalkthrough(args.agent)
     if (!config) return
@@ -99,6 +140,8 @@ export async function runAddCommand({
     location,
     ...(syncRef ? { syncRef } : {}),
     ...(tmux ? { tmux: true } : {}),
+    ...(check ? { check } : {}),
+    ...(verifyByDefault ? { verifyByDefault: true } : {}),
   })
 
   const locationHint = location ? ` [ssh: ${location.host}]` : ''

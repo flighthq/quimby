@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
+import { parseCommand } from './command'
 import { bestEffortExec, requireRuntimeCli } from './probe'
 
 // A stable per-agent sandbox handle, mirroring sbx's UUID-keyed naming so a rename reuses the
@@ -31,10 +32,10 @@ export const openshell: RuntimeAdapter = {
   },
 
   execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
-    const parts = entrypoint.split(/\s+/)
+    const parts = parseCommand(entrypoint)
     return {
       command: 'openshell',
-      args: ['sandbox', 'create', '--name', sandboxName(ctx), '--', ...parts],
+      args: ['sandbox', 'create', '--name', sandboxName(ctx), '--', parts.command, ...parts.args],
       cwd: ctx.agentDir,
     }
   },
