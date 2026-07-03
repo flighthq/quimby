@@ -7,7 +7,12 @@ import type { AgentState } from '@quimbyhq/types'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { getAgentAttestation, getAgentHeadHash, parseAttestation } from './attestation'
+import {
+  getAgentAttestation,
+  getAgentHeadHash,
+  parseAttestation,
+  readAgentStatus,
+} from './attestation'
 
 const BLOCK = [
   '# Status',
@@ -113,5 +118,27 @@ describe('parseAttestation', () => {
       '```quimby-attest\ncommand: new\nresult: pass\n```'
     expect(parseAttestation(text)?.command).toBe('new')
     expect(parseAttestation(text)?.result).toBe('pass')
+  })
+})
+
+describe('readAgentStatus', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = join(tmpdir(), `quimby-status-${crypto.randomUUID()}`)
+    await mkdir(getAgentDir(dir, 'a1'), { recursive: true })
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const agent = { id: 'a1', name: 'alice', location: { type: 'local' } } as AgentState
+
+  it('returns the local agent status.md content', async () => {
+    await writeFile(join(getAgentDir(dir, 'a1'), 'status.md'), '# resume from here')
+    expect(await readAgentStatus(dir, 'proj', agent)).toBe('# resume from here')
+  })
+
+  it('returns null when status.md is absent', async () => {
+    expect(await readAgentStatus(dir, 'proj', agent)).toBeNull()
   })
 })

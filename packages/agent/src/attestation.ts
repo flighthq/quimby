@@ -18,17 +18,26 @@ export async function getAgentAttestation(
   stateId: string,
   agent: Readonly<AgentState>,
 ): Promise<AgentAttestation | null> {
+  const statusText = await readAgentStatus(repoRoot, stateId, agent)
+  return statusText === null ? null : parseAttestation(statusText)
+}
+
+/**
+ * The agent's `status.md` content (local or SSH), or `null` when it's absent/unreadable. The
+ * agent's handoff to its own successor — read on a fresh launch to resume a crashed/reset session.
+ */
+export async function readAgentStatus(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<string | null> {
   try {
-    let statusText: string
     if (isSSH(agent.location)) {
       const rAgentDir = remoteAgentDir(stateId, agent.id, agent.location.base)
-      statusText = await getTransport(agent.location).readFile(`${rAgentDir}/status.md`)
-    } else {
-      const path = join(getAgentDir(repoRoot, agent.id), 'status.md')
-      if (!(await exists(path))) return null
-      statusText = await readText(path)
+      return await getTransport(agent.location).readFile(`${rAgentDir}/status.md`)
     }
-    return parseAttestation(statusText)
+    const path = join(getAgentDir(repoRoot, agent.id), 'status.md')
+    return (await exists(path)) ? await readText(path) : null
   } catch {
     return null
   }

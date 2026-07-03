@@ -15,7 +15,7 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 quimby add <agent> [-H <host>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
 quimby run <agent> [--cmd <cmd>] [-r <runtime>]     Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session)
-quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop)
+quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop); a fresh start with a non-empty status.md nudges the agent to resume from it
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
 quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's self-verification command)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command

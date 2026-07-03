@@ -1,9 +1,14 @@
+import { setTimeout as delay } from 'node:timers/promises'
+
+import { readAgentStatus } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { localNewSessionArgs, prepareLocalTmuxLaunch, prepareSshLaunch } from '@quimbyhq/launch'
 import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { runtimeTypes } from '@quimbyhq/runtimes'
-import { getAgentSessionState } from '@quimbyhq/session'
+import { getAgentSessionState, nudgeAgentSession } from '@quimbyhq/session'
+import { renderResumeRequest } from '@quimbyhq/template'
 import { sq } from '@quimbyhq/transport'
+import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
@@ -11,6 +16,10 @@ import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
 import { consolaReporter } from '../reporter'
+
+// A freshly-launched agent needs a beat to bring up its prompt before the resume nudge is typed,
+// or the text races into a not-yet-ready TUI.
+const RESUME_SETTLE_MS = 1500
 
 export default defineCommand({
   meta: {
@@ -90,6 +99,7 @@ export async function runStartCommand({
     ].join(' ')
     await launch.transport.exec(cmd)
 
+    await resumeFromPredecessor(state, repoRoot, agent, args.agent)
     reportStarted(args.agent, launch.sessionName, launch.host, launch.runtimeLabel)
     return
   }
@@ -113,7 +123,32 @@ export async function runStartCommand({
 
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))
 
+  await resumeFromPredecessor(state, repoRoot, state.agents[args.agent], args.agent)
   reportStarted(args.agent, launch.sessionName, undefined, launch.runtimeLabel)
+}
+
+/**
+ * The recovery loop: a `start` always creates a *fresh* session (it returns early when the agent
+ * is already up), so if `status.md` carries a predecessor's handoff, point the new instance at it —
+ * type a resume request into its session after a short settle so a crashed/reset agent picks up
+ * where it left off. Empty/absent status ⇒ nothing to resume, no nudge.
+ */
+async function resumeFromPredecessor(
+  state: Readonly<QuimbyState>,
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+  name: string,
+): Promise<void> {
+  const status = await readAgentStatus(repoRoot, state.id, agent)
+  if (!status || !status.trim()) return
+  logger.info(`"${name}" has a predecessor status.md — pointing it at @status.md to resume.`)
+  await delay(RESUME_SETTLE_MS)
+  await nudgeAgentSession({
+    agent,
+    displayName: name,
+    text: renderResumeRequest(),
+    reporter: consolaReporter,
+  })
 }
 
 function reportStarted(

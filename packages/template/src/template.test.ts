@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { renderAgentClaudeMd, renderTmuxConfig, renderVerifyRequest } from './template'
+import {
+  renderAgentClaudeMd,
+  renderResumeRequest,
+  renderTmuxConfig,
+  renderVerifyRequest,
+} from './template'
 
 describe('renderAgentClaudeMd', () => {
   it('includes the self-verify convention and the quimby-attest block format', () => {
@@ -58,6 +63,15 @@ describe('renderAgentClaudeMd', () => {
   it('ends with a newline', () => {
     const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
     expect(output.endsWith('\n')).toBe(true)
+  })
+})
+
+describe('renderResumeRequest', () => {
+  it('points a resuming agent at its predecessor status.md, on one line', () => {
+    const out = renderResumeRequest()
+    expect(out).toContain('status.md')
+    expect(out).toContain('resuming')
+    expect(out).not.toContain('\n')
   })
 })
 

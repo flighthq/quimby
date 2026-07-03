@@ -83,6 +83,18 @@ export function renderVerifyRequest(check?: string): string {
   )
 }
 
+/**
+ * The message quimby types into a freshly-launched agent that has a non-empty `status.md` from a
+ * prior session — the recovery loop. Points it at its predecessor's handoff so it resumes rather
+ * than starting cold. Single-line so it types cleanly into the tmux prompt.
+ */
+export function renderResumeRequest(): string {
+  return (
+    'You are resuming a session — a previous instance of you left a handoff in status.md. Read ' +
+    '@status.md first and continue from where it left off (check assignment.md and inbox/ too).'
+  )
+}
+
 // The canonical `quimby-attest` block shape — the contract between an agent (writes it) and
 // quimby's parser (reads it). Shown in the generated CLAUDE.md so agents emit the exact format.
 const ATTEST_BLOCK_EXAMPLE = [
@@ -119,10 +131,13 @@ export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }
     ``,
     `## How to Work`,
     ``,
-    `1. **Read your assignment**: Check \`assignment.md\` for your task`,
-    `2. **Work in repo/**: Make changes and commit to the repo as you go`,
-    `3. **Update your status**: Write progress to \`status.md\` periodically`,
-    `4. **Commit against the baseline**: All your commits are measured against the \`quimby/seed\` tag`,
+    `1. **Resume if you have a predecessor**: If \`status.md\` is non-empty, a prior instance of you`,
+    `   left it as a handoff — read it first and continue from where it left off (quimby will also`,
+    `   point you at it on a fresh launch).`,
+    `2. **Read your assignment**: Check \`assignment.md\` for your task`,
+    `3. **Work in repo/**: Make changes and commit to the repo as you go`,
+    `4. **Update your status**: Write progress to \`status.md\` periodically`,
+    `5. **Commit against the baseline**: All your commits are measured against the \`quimby/seed\` tag`,
     ``,
     `## Status Updates`,
     ``,
