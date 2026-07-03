@@ -22,7 +22,7 @@ quimby help [command]                                 Root help (grouped, with b
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, inbox/outbox counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, inbox/outbox, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s inbox/status
 quimby log <agent>                                   Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged
-quimby assign <agent> -m "..." | @file [--no-sync] [--no-nudge] [-c]  Set an agent's current task; syncs the agent to its base first (--no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge
+quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge
 quimby diff <agent> [agent2]                         Show an agent's live diff against its seed
 quimby nudge <agent> [-m "..."] [-c] | --all [-m "..."] [-c]   Wake a running agent by typing a message (default "continue") into its tmux session; -c/--clear types /clear first to reset context; --all broadcasts to every agent with a live tmux session (probed); -m also carries CLI control commands ("/clear", "/model …")
 quimby handoff <from> <to> | <to> [-m "..."] [--attach <w>] [--nudge|--no-nudge] [-c]   Carry <from>'s work to <to>; with one arg, the host's work → that agent (nudges the recipient by default only when a note is present); -c/--clear types /clear before the nudge
@@ -57,7 +57,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-m` / `--message` (merge — the commit message for the landed work; with no `-m`, squashed opens git's editor, or degrades to `--patch` when there's no TTY)
 - `-m` / `--message` (nudge — the text to type; defaults to `"continue"`)
 - `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
-- `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default)
+- `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default; `--sync <ref>` retargets the agent's sync ref to `<ref>` and syncs onto it first, `--no-sync` skips)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
 - `--attach` (handoff — carry a different agent's diff than the source)
@@ -76,7 +76,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--stat` (diff)
 - `--commits`, `--patch` (apply)
 - `--3way` (apply — accepted for compatibility; the merge-based flow is inherently 3-way)
-- `--sync` / `--no-sync` (merge — advance the agent's seed onto a clean, committed merge that landed on its branch, on by default)
+- `--advance` / `--no-advance` (merge — advance the agent's seed onto a clean, committed merge that landed on its branch, on by default). Renamed from the former `--sync`/`--no-sync` so `--sync` is a ref-string everywhere and never an overloaded boolean; `--no-sync` on `merge` no longer exists.
 - `--rebase` (handoff, dispatch, apply)
 - `--poll` (serve)
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)

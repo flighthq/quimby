@@ -58,6 +58,24 @@ afterEach(async () => {
 })
 
 describe('assignAgentTask', () => {
+  it('retargets via syncAgent { base } when syncRef is set, even at 0 behind', async () => {
+    mockedStatus.mockResolvedValue({ behind: 0, syncRef: 'main', targetCommit: 'tip' })
+    const { reporter } = collectingReporter()
+    await assignAgentTask(
+      {
+        state: stateWithLocalAgent(),
+        repoRoot: dir,
+        name: 'alice',
+        message: 'go',
+        sync: true,
+        syncRef: 'release',
+        nudge: false,
+      },
+      reporter,
+    )
+    expect(mockedSync).toHaveBeenCalledWith(dir, 'alice', { base: 'release' })
+  })
+
   it('writes assignment.md, reports success, and returns the nudge text', async () => {
     const { reporter, events } = collectingReporter()
     const result = await assignAgentTask(

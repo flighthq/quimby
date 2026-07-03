@@ -65,6 +65,24 @@ describe('run', () => {
     })
   })
 
+  it('decodes --sync <ref> into a retarget and --no-sync into a skip', async () => {
+    resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
+    assignAgentTask.mockResolvedValue({ behind: 0, syncFailed: false, nudgeText: null } as never)
+    const { default: cmd } = await import('./assign')
+
+    // `--sync main` → retarget: sync on, syncRef carried through.
+    await cmd.run!({
+      args: { agent: 'builder', message: 'x', nudge: false, sync: 'main', clear: false },
+    } as never)
+    expect(assignAgentTask.mock.calls[0][0]).toMatchObject({ sync: true, syncRef: 'main' })
+
+    // `--no-sync` → citty yields `false`: skip, no retarget.
+    await cmd.run!({
+      args: { agent: 'builder', message: 'x', nudge: false, sync: false, clear: false },
+    } as never)
+    expect(assignAgentTask.mock.calls[1][0]).toMatchObject({ sync: false, syncRef: undefined })
+  })
+
   it('does not nudge when nudgeText is null (e.g. sync failed or nudge not requested)', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
     assignAgentTask.mockResolvedValueOnce({

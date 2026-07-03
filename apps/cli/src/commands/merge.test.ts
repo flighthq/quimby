@@ -59,7 +59,7 @@ function mergeArgs(overrides: Record<string, unknown>) {
       patch: false,
       '3way': false,
       rebase: false,
-      sync: true,
+      advance: true,
       ...overrides,
     },
   } as never

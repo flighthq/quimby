@@ -71,10 +71,10 @@ export default defineCommand({
       description: 'Rebase the agent onto host HEAD before merging',
       default: false,
     },
-    sync: {
+    advance: {
       type: 'boolean',
       description:
-        "Advance the agent's seed onto the merge when it lands cleanly on the agent's branch (on by default; --no-sync to skip)",
+        "Advance the agent's seed onto the merge when it lands cleanly on the agent's branch (on by default; --no-advance to skip)",
       default: true,
     },
   },
@@ -93,7 +93,7 @@ export async function runMergeCommand({
     target?: string
     message?: string
     rebase: boolean
-    sync: boolean
+    advance: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
@@ -185,7 +185,7 @@ export async function runMergeCommand({
     // A clean base hit: the work is fully committed. Advance the agent's seed when that's
     // safe (else point at the manual catch-up), then celebrate.
     if (isAgent) {
-      if (args.sync) {
+      if (args.advance) {
         await settleAgentSeed({
           state,
           repoRoot,
@@ -197,7 +197,7 @@ export async function runMergeCommand({
         })
       } else {
         logger.info(
-          `Seed left unchanged (--no-sync) — catch "${args.agent}" up with ` +
+          `Seed left unchanged (--no-advance) — catch "${args.agent}" up with ` +
             `\`quimby sync ${args.agent} --current -f\` before its next revision.`,
         )
       }

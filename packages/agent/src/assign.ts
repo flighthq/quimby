@@ -18,6 +18,11 @@ export interface AssignAgentTaskOptions {
   message?: string
   /** Sync the agent to its base before assigning (the durable message is written first). */
   sync: boolean
+  /**
+   * When set, retarget the agent's `syncRef` to this ref and sync onto it (even at 0 behind),
+   * instead of syncing against the current base. Ignored when `sync` is false.
+   */
+  syncRef?: string
   /** Whether a nudge was requested; the returned `nudgeText` honors the stale-agent rule. */
   nudge: boolean
 }
@@ -76,12 +81,23 @@ export async function assignAgentTask(
   let behind = 0
   let syncFailed = false
   if (opts.sync) {
+    const retargetRef = opts.syncRef && opts.syncRef !== '' ? opts.syncRef : undefined
     const status = await getAgentSyncStatus(repoRoot, agent, state.sourceRef)
     behind = status.behind
-    if (behind > 0) {
-      reporter.start(`"${name}" is ${behind} commit(s) behind ${status.syncRef} — syncing`)
+    // Sync when the agent trails its base, or whenever a retarget was requested — the new ref
+    // can differ from the current base even at 0 behind, so `--sync <ref>` always moves it.
+    if (retargetRef || behind > 0) {
+      reporter.start(
+        retargetRef
+          ? `Retargeting "${name}" to ${retargetRef} and syncing`
+          : `"${name}" is ${behind} commit(s) behind ${status.syncRef} — syncing`,
+      )
       try {
-        const result = await syncAgent(repoRoot, name)
+        const result = await syncAgent(
+          repoRoot,
+          name,
+          retargetRef ? { base: retargetRef } : undefined,
+        )
         if (result.rebased) {
           reporter.success(
             `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,

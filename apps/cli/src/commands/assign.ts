@@ -34,9 +34,9 @@ export default defineCommand({
       default: false,
     },
     sync: {
-      type: 'boolean',
-      description: 'Sync the agent to its base before assigning (on by default; --no-sync to skip)',
-      default: true,
+      type: 'string',
+      description:
+        'Sync the agent to its base before assigning (on by default; --sync <ref> retargets to <ref> first; --no-sync skips)',
     },
   },
   run: runAssignCommand,
@@ -45,9 +45,20 @@ export default defineCommand({
 export async function runAssignCommand({
   args,
 }: {
-  args: { agent: string; message?: string; nudge: boolean; sync: boolean; clear: boolean }
+  args: {
+    agent: string
+    message?: string
+    nudge: boolean
+    // `--sync <ref>` → string, `--no-sync` → false, bare `--sync`/absent → '' / undefined.
+    sync?: string | boolean
+    clear: boolean
+  }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
+
+  // --no-sync yields `false`; a ref string retargets; absent/bare means "sync against the base".
+  const doSync = args.sync !== false
+  const syncRef = typeof args.sync === 'string' && args.sync !== '' ? args.sync : undefined
 
   const result = await assignAgentTask(
     {
@@ -55,7 +66,8 @@ export async function runAssignCommand({
       repoRoot,
       name: args.agent,
       message: args.message,
-      sync: args.sync,
+      sync: doSync,
+      syncRef,
       nudge: args.nudge,
     },
     consolaReporter,
