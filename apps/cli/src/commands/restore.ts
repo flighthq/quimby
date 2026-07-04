@@ -10,7 +10,7 @@ import {
   normalizeCheck,
   resolveAgentRoleConfig,
   resolveConfiguredAgent,
-  resolveRecipe,
+  resolvePreset,
   restoreWorkspaceLink,
   saveState,
 } from '@quimbyhq/workspace'
@@ -33,9 +33,9 @@ export default defineCommand({
       type: 'string',
       description: 'Host alias to reconstruct state from remote durable storage',
     },
-    recipe: {
+    preset: {
       type: 'string',
-      description: 'Recipe to use when reconstructing agent roles from a remote host',
+      description: 'Preset to use when reconstructing agent roles from a remote host',
     },
   },
   run: runRestoreCommand,
@@ -44,7 +44,7 @@ export default defineCommand({
 export async function runRestoreCommand({
   args,
 }: {
-  args: { id?: string; host?: string; recipe?: string }
+  args: { id?: string; host?: string; preset?: string }
 }): Promise<void> {
   const repoRoot = await git.findRoot(process.cwd())
   if (!repoRoot) throw new QuimbyError('Not inside a git repository.')
@@ -65,7 +65,7 @@ export async function runRestoreCommand({
   const state = await restoreFromRemote(repoRoot, {
     projectId: args.id,
     hostAlias: args.host,
-    recipeName: args.recipe ?? args.host,
+    presetName: args.preset ?? args.host,
     sourceRepo,
   })
   logger.success(`Restored quimby workspace "${state.id}" from host alias "${args.host}"`)
@@ -73,7 +73,7 @@ export async function runRestoreCommand({
 
 async function restoreFromRemote(
   repoRoot: string,
-  opts: Readonly<{ projectId?: string; hostAlias: string; recipeName: string; sourceRepo: string }>,
+  opts: Readonly<{ projectId?: string; hostAlias: string; presetName: string; sourceRepo: string }>,
 ): Promise<QuimbyState> {
   const config = await loadQuimbyConfig(repoRoot)
   // Resolve (and, if needed, prompt for + persist) the alias's address before we scan —
@@ -106,13 +106,13 @@ async function restoreFromRemote(
     throw new QuimbyError(`Remote workspace "${project.id}" has no recoverable agents.`)
   }
 
-  const recipe = config.recipes?.[opts.recipeName] ? resolveRecipe(config, opts.recipeName) : {}
+  const preset = config.presets?.[opts.presetName] ? resolvePreset(config, opts.presetName) : {}
   const sourceRef = await getCurrentBranch(repoRoot)
   const snapshot = await git.getCurrentRef(repoRoot)
   const now = new Date().toISOString()
   const agents: Record<string, AgentState> = {}
   for (const remoteAgent of remoteAgents) {
-    const raw = recipe.agents?.[remoteAgent.name]
+    const raw = preset.agents?.[remoteAgent.name]
     const configured = resolveConfiguredAgent(config, raw)
     const role = resolveAgentRoleConfig(config, configured)
     const check = normalizeCheck(role.check)
@@ -149,7 +149,7 @@ async function restoreFromRemote(
     snapshot,
     createdAt: now,
     agents,
-    ...(recipe.subscriptions ? { subscriptions: recipe.subscriptions } : {}),
+    ...(preset.subscriptions ? { subscriptions: preset.subscriptions } : {}),
   }
 
   await ensureDurableWorkspace(repoRoot, state)

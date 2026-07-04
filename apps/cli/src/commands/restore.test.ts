@@ -33,7 +33,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
       review: { runtimeProfile: 'remote-claude', tmux: true },
       builder: { runtimeProfile: 'remote-codex', tmux: true },
     },
-    recipes: {
+    presets: {
       remote: {
         agents: {
           review: { role: 'review', hostAlias: 'remote' },

@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   sessions: new Set<string>(),
   dead: false,
 }))
+const saveDefaultPreset = vi.hoisted(() => vi.fn(async () => '/fake/root/.quimby/local.yaml'))
 
 vi.mock('execa', () => ({
   execa: vi.fn(async (_cmd: string, args: string[] = []) => {
@@ -51,9 +52,12 @@ vi.mock('@quimbyhq/utils', async (importOriginal) => ({
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   saveState: vi.fn(async () => {}),
+  saveDefaultPreset,
   loadQuimbyConfig: vi.fn(async () => ({
+    default: 'loop',
     layouts: { review: 'a | b' },
-    recipes: { loop: { layout: 'review' } },
+    presets: { loop: { layout: 'review' } },
+    services: { server: 'quimby serve' },
   })),
   resolveWorkspace: vi.fn(async () => ({
     state: {
@@ -171,10 +175,36 @@ describe('run', () => {
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
   })
 
-  it('runs a recipe layout from config', async () => {
+  it('runs a preset layout from config', async () => {
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { layout: 'loop' } } as never)
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('opens the configured default preset when run with no target', async () => {
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: {} } as never)
+    expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('runs a `$service` layout token as its configured host command', async () => {
+    const { default: cmd } = await import('./run')
+    await cmd.run!({ args: { agent: 'a / $server' } } as never)
+    expect(h.calls.some((c) => c.includes('quimby serve'))).toBe(true)
+  })
+
+  it('errors clearly for a layout `$service` not defined under services', async () => {
+    const { default: cmd } = await import('./run')
+    await expect(cmd.run!({ args: { agent: 'a / $nope' } } as never)).rejects.toThrow(
+      /service "nope".*not defined/,
+    )
+  })
+
+  it('saves the opened layout as the default with --default', async () => {
+    const { default: cmd } = await import('./run')
+    saveDefaultPreset.mockClear()
+    await cmd.run!({ args: { layout: 'loop', default: true } } as never)
+    expect(saveDefaultPreset).toHaveBeenCalledWith('/fake/root', 'loop', { global: undefined })
   })
 
   it('reuses a running per-agent session instead of restarting it', async () => {

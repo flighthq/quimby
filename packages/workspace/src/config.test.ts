@@ -16,10 +16,11 @@ import {
   resolveConfiguredAgent,
   resolveHostAlias,
   resolveLayoutExpr,
-  resolveRecipe,
-  resolveRecipeLayout,
+  resolvePreset,
+  resolvePresetLayout,
   resolveRole,
   resolveSSHConnection,
+  saveDefaultPreset,
   saveHostAliasBinding,
 } from './config'
 
@@ -53,7 +54,7 @@ const config = {
   layouts: {
     review: 'reviewer | (builder integration) / ($ $):30',
   },
-  recipes: {
+  presets: {
     loop: {
       agents: {
         builder: { role: 'builder', hostAlias: 'gpu' },
@@ -160,6 +161,28 @@ describe('mergeConfigs', () => {
       permissions: undefined,
     })
   })
+
+  it('does not fabricate an empty ollama for a non-ollama profile', () => {
+    const profile = mergeConfigs({
+      runtimeProfiles: { sbx: { runtime: 'sbx', entrypoint: 'codex', requiredTools: ['codex'] } },
+    }).runtimeProfiles?.sbx
+    expect(profile).toEqual({ runtime: 'sbx', entrypoint: 'codex', requiredTools: ['codex'] })
+    expect('ollama' in (profile ?? {})).toBe(false)
+  })
+
+  it('folds a legacy `recipes` map into `presets` (presets wins on a clash)', () => {
+    const merged = mergeConfigs(
+      { recipes: { a: { layout: 'x' }, b: { layout: 'legacy' } } },
+      { presets: { b: { layout: 'new' } } },
+    )
+    expect(merged.presets?.a).toEqual({ layout: 'x' })
+    expect(merged.presets?.b).toEqual({ layout: 'new' })
+  })
+
+  it('carries the default preset name through the merge, last layer winning', () => {
+    expect(mergeConfigs({ default: 'a' }, { default: 'b' }).default).toBe('b')
+    expect(mergeConfigs({ default: 'a' }, {}).default).toBe('a')
+  })
 })
 
 describe('quimby config helpers', () => {
@@ -198,23 +221,35 @@ describe('quimby config helpers', () => {
     })
   })
 
-  it('resolves layouts directly and through a recipe', () => {
+  it('resolves layouts directly and through a preset', () => {
     expect(resolveLayoutExpr(config, 'review')).toBe('reviewer | (builder integration) / ($ $):30')
-    expect(resolveRecipeLayout(config, 'loop')).toBe('reviewer | (builder integration) / ($ $):30')
+    expect(resolvePresetLayout(config, 'loop')).toBe('reviewer | (builder integration) / ($ $):30')
+  })
+
+  it('throws a clear error when a preset references an undefined layout', () => {
+    const cfg = { layouts: { real: 'a | b' }, presets: { p: { layout: 'typo' } } }
+    expect(() => resolvePresetLayout(cfg, 'p')).toThrow(
+      /references layout "typo", which is not defined.*defined: real/,
+    )
+  })
+
+  it('allows a preset to inline an expression via the object form', () => {
+    const cfg = { presets: { p: { layout: { expr: 'a | b' } } } }
+    expect(resolvePresetLayout(cfg, 'p')).toBe('a | b')
   })
 
   it('returns raw expressions when no saved layout exists', () => {
     expect(resolveLayoutExpr(config, 'a | b')).toBe('a | b')
   })
 
-  it('resolves recipes and host aliases', () => {
-    expect(resolveRecipe(config, 'loop').subscriptions?.reviewer).toEqual(['builder'])
+  it('resolves presets and host aliases', () => {
+    expect(resolvePreset(config, 'loop').subscriptions?.reviewer).toEqual(['builder'])
     expect(resolveHostAlias(config, 'gpu')).toMatchObject({ host: 'me@gpu', port: 2222 })
   })
 
-  it('throws for missing roles, recipes, and host aliases', () => {
+  it('throws for missing roles, presets, and host aliases', () => {
     expect(() => resolveRole(config, 'missing')).toThrow('Role "missing" not found')
-    expect(() => resolveRecipe(config, 'missing')).toThrow('Recipe "missing" not found')
+    expect(() => resolvePreset(config, 'missing')).toThrow('Preset "missing" not found')
     expect(() => resolveHostAlias(config, 'missing')).toThrow('Host alias "missing" not found')
   })
 })
@@ -265,6 +300,23 @@ describe('resolveSSHConnection', () => {
     expect(resolveSSHConnection(cfg, { type: 'ssh', alias: 'remote', port: 2222 })).toEqual({
       location: { type: 'ssh', host: 'me@box', alias: 'remote', port: 2222, base: '/default' },
     })
+  })
+})
+
+describe('saveDefaultPreset', () => {
+  it('writes the default preset name to local project config, preserving other content', async () => {
+    const dir = join(tmpdir(), `quimby-default-${crypto.randomUUID()}`)
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeYaml(getLocalConfigPath(dir), { roles: { builder: { runtime: 'sbx' } } })
+    try {
+      const path = await saveDefaultPreset(dir, 'remote')
+      expect(path).toBe(getLocalConfigPath(dir))
+      const written = await loadQuimbyConfig(dir)
+      expect(written.default).toBe('remote')
+      expect(written.roles?.builder).toEqual({ runtime: 'sbx' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -32,7 +32,7 @@ export interface LayoutConfig {
   expr: string
 }
 
-export interface RecipeConfig {
+export interface PresetConfig {
   agents?: Record<string, ConfiguredAgent | string>
   subscriptions?: Record<string, string[]>
   layout?: string | LayoutConfig
@@ -80,6 +80,16 @@ export interface QuimbyConfig {
   roles?: Record<string, AgentRoleConfig>
   runtimeProfiles?: Record<string, RuntimeProfileConfig>
   layouts?: Record<string, string | LayoutConfig>
-  recipes?: Record<string, RecipeConfig>
+  presets?: Record<string, PresetConfig>
+  /** @deprecated Renamed to `presets`; still read (and folded into `presets`) for back-compat. */
+  recipes?: Record<string, PresetConfig>
   hosts?: Record<string, HostAliasConfig>
+  /**
+   * Named host-side commands a layout can place with a `$name` token (e.g.
+   * `server: quimby serve`). The command runs in a dashboard-local pane, so it is
+   * torn down when the dashboard exits.
+   */
+  services?: Record<string, string>
+  /** Name of the preset `quimby run` opens when given no agent/layout. */
+  default?: string
 }

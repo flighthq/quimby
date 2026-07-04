@@ -13,8 +13,8 @@ export type {
   HostAliasConfig,
   LayoutConfig,
   OllamaRuntimeConfig,
+  PresetConfig,
   QuimbyConfig,
-  RecipeConfig,
   RuntimeProfileConfig,
 } from './QuimbyConfig'
 export type { QuimbyState } from './QuimbyState'

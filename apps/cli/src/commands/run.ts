@@ -31,8 +31,9 @@ import { logger, writeText } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
   resolveLayoutExpr,
-  resolveRecipeLayout,
+  resolvePresetLayout,
   resolveWorkspace,
+  saveDefaultPreset,
   saveState,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -41,7 +42,14 @@ import { join } from 'pathe'
 
 import { ensureAgentConnections } from '../hostAlias'
 import type { LayoutNode } from '../layout'
-import { collectLayoutAgents, isLayoutExpr, layoutWeights, parseLayout } from '../layout'
+import {
+  collectLayoutAgents,
+  isLayoutExpr,
+  isServiceToken,
+  layoutWeights,
+  parseLayout,
+  serviceNameOf,
+} from '../layout'
 
 export default defineCommand({
   meta: {
@@ -76,7 +84,17 @@ export default defineCommand({
     },
     layout: {
       type: 'string',
-      description: 'Saved layout or recipe name from quimby.yaml',
+      description: 'Saved layout or preset name from quimby.yaml',
+    },
+    default: {
+      type: 'boolean',
+      default: false,
+      description: 'Save the opened --layout as the default `quimby run` opens with no args',
+    },
+    global: {
+      type: 'boolean',
+      default: false,
+      description: 'With --default, save to user config (~/.config/quimby) instead of this project',
     },
   },
   run: runRunCommand,
@@ -93,6 +111,8 @@ export async function runRunCommand({
     runtimeProfile?: string
     host?: boolean
     layout?: string
+    default?: boolean
+    global?: boolean
   }
 }) {
   if (args.layout) {
@@ -101,12 +121,27 @@ export async function runRunCommand({
         '--cmd/--runtime/--runtime-profile apply to a single agent; omit them for a layout',
       )
     }
-    await runSavedLayout(args.layout, args.host !== false)
+    if (args.default) {
+      const { repoRoot } = await resolveWorkspace()
+      const path = await saveDefaultPreset(repoRoot, args.layout, { global: args.global })
+      logger.info(`Default set to "${args.layout}" (${path})`)
+    }
+    await runNamedLayout(args.layout, args.host !== false)
     return
   }
 
+  // Bare `quimby run` (no agent, no expression) opens the configured default preset's layout.
   if (!args.agent) {
-    throw new QuimbyError('Provide an agent name, layout expression, or --layout <name>.')
+    const { repoRoot } = await resolveWorkspace()
+    const config = await loadQuimbyConfig(repoRoot)
+    if (config.default) {
+      await runNamedLayout(config.default, args.host !== false)
+      return
+    }
+    throw new QuimbyError(
+      'Provide an agent name, layout expression, or --layout <name>. ' +
+        'Set a default with `quimby run --layout <name> --default`.',
+    )
   }
 
   // A layout expression (uses `|` `/` `(` `)`) opens a multi-panel dashboard — split panes,
@@ -297,16 +332,16 @@ export async function runRunCommand({
   }
 }
 
-async function runSavedLayout(name: string, includeHost: boolean): Promise<void> {
+async function runNamedLayout(name: string, includeHost: boolean): Promise<void> {
   const { repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
-  const expr = config.recipes?.[name]?.layout
-    ? resolveRecipeLayout(config, name)
+  const expr = config.presets?.[name]?.layout
+    ? resolvePresetLayout(config, name)
     : config.layouts?.[name]
       ? resolveLayoutExpr(config, name)
       : undefined
   if (!expr) {
-    throw new QuimbyError(`Layout or recipe "${name}" not found in quimby config`)
+    throw new QuimbyError(`Layout or preset "${name}" not found in quimby config`)
   }
   if (isLayoutExpr(expr)) {
     if (insideQuimbyTmux()) {
@@ -934,8 +969,20 @@ async function runPanelDashboard(expr: string): Promise<void> {
   const layout = parseLayout(expr) // throws QuimbyError on malformed input
   const { state, repoRoot } = await resolveWorkspace()
 
+  const config = await loadQuimbyConfig(repoRoot)
+  const services = config.services ?? {}
   const layoutAgents = collectLayoutAgents(layout)
   for (const name of layoutAgents) {
+    if (isServiceToken(name)) {
+      if (!services[serviceNameOf(name)]) {
+        const known = Object.keys(services)
+        throw new QuimbyError(
+          `Layout references service "${serviceNameOf(name)}" (\`${name}\`), which is not defined under \`services:\`` +
+            `${known.length ? ` (defined: ${known.join(', ')})` : ' (none are defined)'}.`,
+        )
+      }
+      continue
+    }
     if (!isHostToken(name) && !state.agents[name]) {
       throw new QuimbyError(`Agent "${name}" not found`)
     }
@@ -944,7 +991,7 @@ async function runPanelDashboard(expr: string): Promise<void> {
   await ensureAgentConnections(
     repoRoot,
     state,
-    layoutAgents.filter((n) => !isHostToken(n)),
+    layoutAgents.filter((n) => !isHostToken(n) && !isServiceToken(n)),
   )
 
   const TMUX = ['-L', quimbyTmuxSocket]
@@ -958,7 +1005,7 @@ async function runPanelDashboard(expr: string): Promise<void> {
   for (let i = 0; i < leaves.length; i++) {
     const view = dashboardViewSessionName(state.id, i)
     viewOf.set(leaves[i], view)
-    if (await buildViewSession(TMUX, tmuxConf, view, leaves[i].names, state, repoRoot)) {
+    if (await buildViewSession(TMUX, tmuxConf, view, leaves[i].names, state, repoRoot, services)) {
       enrolled = true
     }
   }
@@ -1060,6 +1107,7 @@ async function buildViewSession(
   names: readonly string[],
   state: QuimbyState,
   repoRoot: string,
+  services: Readonly<Record<string, string>> = {},
 ): Promise<boolean> {
   await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', session, '-n', DASH_PLACEHOLDER, '-c', repoRoot]) // prettier-ignore
@@ -1067,7 +1115,13 @@ async function buildViewSession(
 
   let enrolled = false
   for (const name of names) {
-    if (isHostToken(name)) {
+    if (isServiceToken(name)) {
+      // A service is a dashboard-local pane running its host command via a login shell (so
+      // PATH has quimby et al.); it lives in this ephemeral view session, so it is torn down
+      // when the dashboard exits — no retained session, nothing to leak.
+      const cmd = services[serviceNameOf(name)]
+      await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, 'bash', '-l', '-c', cmd]) // prettier-ignore
+    } else if (isHostToken(name)) {
       await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', HOST_TAB_NAME, '-c', repoRoot, 'bash', '-l']) // prettier-ignore
     } else {
       const agent = state.agents[name]

@@ -39,7 +39,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
     hosts: {
       gpu: { host: 'me@gpu' },
     },
-    recipes: {
+    presets: {
       loop: {
         agents: {
           builder: { role: 'builder', hostAlias: 'gpu' },
@@ -60,13 +60,13 @@ describe('up', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
-  it('creates missing agents from recipe roles and subscriptions', async () => {
+  it('creates missing agents from preset roles and subscriptions', async () => {
     state.value.agents = {}
     state.value.subscriptions = {}
     addAgent.mockClear()
     saveState.mockClear()
 
-    await cmd.run!({ args: { recipe: 'loop' } } as never)
+    await cmd.run!({ args: { preset: 'loop' } } as never)
 
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
       defaults: { runtimeProfile: 'sbxClaude', runtime: 'sbx', entrypoint: 'claude' },
@@ -86,7 +86,7 @@ describe('up', () => {
     state.value.subscriptions = {}
     addAgent.mockClear()
 
-    await cmd.run!({ args: { recipe: 'loop' } } as never)
+    await cmd.run!({ args: { preset: 'loop' } } as never)
 
     expect(addAgent).not.toHaveBeenCalledWith('/repo', 'builder', expect.anything())
     expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', expect.anything())

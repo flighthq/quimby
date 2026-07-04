@@ -37,6 +37,16 @@ export function collectLayoutAgents(node: Readonly<LayoutNode>): string[] {
   return out
 }
 
+// A `$name` layout token names a service (a host command from `services:`); bare `$`/`host`
+// is a plain shell, so it is not a service. `serviceNameOf` strips the leading `$`.
+export function isServiceToken(name: string): boolean {
+  return name.length > 1 && name.startsWith('$')
+}
+
+export function serviceNameOf(name: string): string {
+  return name.slice(1)
+}
+
 // True when a string uses layout operators (`|` `/` `(` `)`) or a `:N` size weight. A bare
 // name or a space-separated list without operators is not a layout expression — the caller
 // treats those as a single agent / the flat tabbed dashboard, so the panel path is purely
@@ -99,12 +109,15 @@ function tokenize(expr: string): Token[] {
       i = j
       continue
     }
-    // `$` is a standalone name meaning "a host shell slot" — repeatable, so `$ | $` is two
-    // host panes and `a $` is agent a beside a host tab. Single-char so it never merges with
-    // an adjacent name (the caller maps it, and `host`, to a shell).
+    // `$` is a host slot: bare `$` is a plain shell (repeatable, so `$ | $` is two host panes),
+    // and `$name` is a named service — a host command defined under `services:` (e.g. `$server`
+    // runs `services.server`). The trailing name chars fold into the one `$…` token so it never
+    // splits into `$` + `name`; the caller maps `$`/`host` to a shell and `$name` to its command.
     if (c === '$') {
-      tokens.push({ kind: 'name', value: '$' })
-      i++
+      let j = i + 1
+      while (j < expr.length && NAME_CHAR.test(expr[j])) j++
+      tokens.push({ kind: 'name', value: expr.slice(i, j) })
+      i = j
       continue
     }
     if (NAME_CHAR.test(c)) {

@@ -196,7 +196,7 @@ quimby remove researcher --force
 
 ### Host aliases (declared shared, bound private)
 
-An SSH agent's connection target is reached through a **host alias** so the address stays out of the tracked repo. A shared `quimby.yaml` _declares_ an alias — either with no `host`, or with the self-referential placeholder `hosts: { remote: { host: remote } }` — which marks it **unbound**. The concrete `user@host` is **bound per machine** into ignored config: `.quimby/local.yaml` (this project, default) or user config (`--global`), so a recipe can say `hostAlias: remote` while the worker's real address never enters git.
+An SSH agent's connection target is reached through a **host alias** so the address stays out of the tracked repo. A shared `quimby.yaml` _declares_ an alias — either with no `host`, or with the self-referential placeholder `hosts: { remote: { host: remote } }` — which marks it **unbound**. The concrete `user@host` is **bound per machine** into ignored config: `.quimby/local.yaml` (this project, default) or user config (`--global`), so a preset can say `hostAlias: remote` while the worker's real address never enters git.
 
 The agent stores the alias _reference_, not a flattened address (`location: { type: ssh, alias: remote }`), and the address is resolved from layered config **at launch** — so binding it once, or rebinding it later, propagates to every agent on that alias, and `restore` on a fresh machine reconnects by re-resolving rather than carrying a stale IP. When a launch (or `restore`'s own scan) needs an unbound alias, quimby **prompts once** and persists the answer — interactive only; a non-interactive run instead errors with the exact `quimby host <alias> --set …` command rather than a raw DNS failure.
 
@@ -213,22 +213,24 @@ The complete command reference, planned commands, advisory checks, and flag conv
 
 ## Configuration
 
-Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. Ignored project-local `.quimby/local.yaml` is the primary saved-config path for a checkout: it can remember roles, recipes, runtime profiles, dashboard layouts, and host bindings without leaking private machine details.
+Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. Ignored project-local `.quimby/local.yaml` is the primary saved-config path for a checkout: it can remember roles, presets, runtime profiles, dashboard layouts, and host bindings without leaking private machine details.
 
 Configuration is split by boundary:
 
-- **Ignored project-local `.quimby/local.yaml`** — per-checkout roles, recipes, dashboard layouts, runtime profiles, private host aliases, and provider settings.
+- **Ignored project-local `.quimby/local.yaml`** — per-checkout roles, presets, dashboard layouts, runtime profiles, private host aliases, and provider settings.
 - **User config `~/.config/quimby/config.yaml`** — personal defaults and reusable private aliases across projects.
 - **Tracked `quimby.yaml`** — optional team-safe shared intent only, when a repository deliberately wants to share role/profile names or layouts.
 - **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, subscriptions, and created agents.
 
 Resolution order is concrete to general: CLI flags, existing agent state, project-local config, user config, tracked project config, then built-ins.
 
-### Roles, Recipes, And Layouts
+### Roles, Presets, And Layouts
 
-Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Recipes create a named workspace shape from roles and subscriptions. Layouts name dashboard expressions, including panel dashboards.
+Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Presets create a named workspace shape from roles and subscriptions (formerly "recipes" — a legacy `recipes:` key still loads, folded into `presets`). Layouts name dashboard expressions, including panel dashboards. An optional top-level `default:` names the preset a bare `quimby run` opens. **Services** are named host-side commands a layout can place with a `$name` token: `services: { server: "quimby serve" }` plus `… / (host $server):30` runs `quimby serve` in a dashboard pane beside a plain host shell. A service pane is dashboard-local (it is not a retained agent session), so it is torn down when the dashboard exits — start-with-the-dashboard, stop-on-exit. Bare `$`/`host` stay plain shells; `$name` is the service form.
 
 ```yaml
+default: review-loop
+
 roles:
   builder:
     runtime: sbx
@@ -245,7 +247,7 @@ layouts:
   review:
     expr: 'reviewer | (builder integration) / ($ $):30'
 
-recipes:
+presets:
   review-loop:
     agents:
       builder:
@@ -261,9 +263,9 @@ recipes:
     layout: review
 ```
 
-`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents and subscriptions from the recipe. `quimby run --layout review` opens the saved dashboard layout.
+`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents and subscriptions from the preset. `quimby run --layout review` opens the saved dashboard layout; `quimby run --layout review --default` also records it as the default, and a bare `quimby run` then opens it. The `default:` key (like host bindings) is auto-saved to ignored `.quimby/local.yaml` by default, or user config with `--global`; a tracked `quimby.yaml` may set it by hand for a team-shared default, but the tools never auto-write there.
 
-Host aliases should resolve from private local/user config, so even when a shared recipe says `hostAlias: gpu`, the worker name or IP address stays out of git.
+Host aliases should resolve from private local/user config, so even when a shared preset says `hostAlias: gpu`, the worker name or IP address stays out of git.
 
 ## No Init Command
 

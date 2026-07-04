@@ -7,8 +7,8 @@ import type {
   CheckConfig,
   ConfiguredAgent,
   HostAliasConfig,
+  PresetConfig,
   QuimbyConfig,
-  RecipeConfig,
   RuntimeProfileConfig,
   SSHLocation,
 } from '@quimbyhq/types'
@@ -82,18 +82,29 @@ export function resolveLayoutExpr(config: Readonly<QuimbyConfig>, nameOrExpr: st
   return typeof layout === 'string' ? layout : layout.expr
 }
 
-export function resolveRecipe(config: Readonly<QuimbyConfig>, name: string): RecipeConfig {
-  const recipe = config.recipes?.[name]
-  if (!recipe) throw new QuimbyError(`Recipe "${name}" not found in quimby config`)
-  return recipe
+export function resolvePreset(config: Readonly<QuimbyConfig>, name: string): PresetConfig {
+  const preset = config.presets?.[name]
+  if (!preset) throw new QuimbyError(`Preset "${name}" not found in quimby config`)
+  return preset
 }
 
-export function resolveRecipeLayout(config: Readonly<QuimbyConfig>, name: string): string {
-  const recipe = resolveRecipe(config, name)
-  if (!recipe.layout) throw new QuimbyError(`Recipe "${name}" has no layout`)
-  return typeof recipe.layout === 'string'
-    ? resolveLayoutExpr(config, recipe.layout)
-    : recipe.layout.expr
+export function resolvePresetLayout(config: Readonly<QuimbyConfig>, name: string): string {
+  const preset = resolvePreset(config, name)
+  if (!preset.layout) throw new QuimbyError(`Preset "${name}" has no layout`)
+  // An object `layout: { expr: … }` is an inline expression; a *string* is a reference to a
+  // layout defined under `layouts:`. A bare string that names no defined layout is a config
+  // typo — fail loudly here rather than let `resolveLayoutExpr` pass it through as a literal
+  // expression, which downstream reads as an (unknown) agent name ("agent <x> not found").
+  if (typeof preset.layout !== 'string') return preset.layout.expr
+  if (!config.layouts?.[preset.layout]) {
+    const known = Object.keys(config.layouts ?? {})
+    throw new QuimbyError(
+      `Preset "${name}" references layout "${preset.layout}", which is not defined under \`layouts:\`` +
+        `${known.length ? ` (defined: ${known.join(', ')})` : ' (no layouts are defined)'}. ` +
+        'Define it under `layouts:`, or inline an expression with `layout: { expr: "…" }`.',
+    )
+  }
+  return resolveLayoutExpr(config, preset.layout)
 }
 
 export function resolveHostAlias(
@@ -201,6 +212,24 @@ export async function saveHostAliasBinding(
   return path
 }
 
+/**
+ * Persist the default preset (the one bare `quimby run` opens) to ignored config:
+ * `.quimby/local.yaml` for this project (default) or user config (`global`).
+ * Existing config content is preserved. Returns the file written.
+ */
+export async function saveDefaultPreset(
+  repoRoot: string,
+  name: string,
+  opts: Readonly<{ global?: boolean }> = {},
+): Promise<string> {
+  const path = opts.global ? getUserConfigPath() : getLocalConfigPath(repoRoot)
+  const existing: QuimbyConfig = (await exists(path)) ? await readYaml<QuimbyConfig>(path) : {}
+  existing.default = name
+  await ensureDir(dirname(path))
+  await writeYaml(path, existing)
+  return path
+}
+
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {
   if (check === undefined) return undefined
   return typeof check === 'string' ? { command: check } : check
@@ -214,8 +243,15 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     out.roles = { ...(out.roles ?? {}), ...(config.roles ?? {}) }
     out.runtimeProfiles = mergeRuntimeProfileMap(out.runtimeProfiles, config.runtimeProfiles)
     out.layouts = { ...(out.layouts ?? {}), ...(config.layouts ?? {}) }
-    out.recipes = { ...(out.recipes ?? {}), ...(config.recipes ?? {}) }
+    // Legacy `recipes` folds into `presets` (presets wins on a name clash) so old configs keep working.
+    out.presets = {
+      ...(out.presets ?? {}),
+      ...(config.recipes ?? {}),
+      ...(config.presets ?? {}),
+    }
     out.hosts = { ...(out.hosts ?? {}), ...(config.hosts ?? {}) }
+    out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
+    if (config.default !== undefined) out.default = config.default
   }
   return out
 }
@@ -236,13 +272,25 @@ function mergeRuntimeProfile(
   base: RuntimeProfileConfig | undefined,
   override: RuntimeProfileConfig | undefined,
 ): RuntimeProfileConfig {
-  return {
-    ...(base ?? {}),
-    ...defined(override),
-    env: { ...(base?.env ?? {}), ...(override?.env ?? {}) },
-    ollama: { ...(base?.ollama ?? {}), ...(override?.ollama ?? {}) },
-    permissions: mergePermissions(base?.permissions, override?.permissions),
-  }
+  const merged: RuntimeProfileConfig = { ...(base ?? {}), ...defined(override) }
+  // Only attach the deep-merged sub-objects when they carry something. An empty
+  // `ollama: {}` in particular is not inert: `isOllamaProfile` treats a *defined*
+  // `ollama` as "this is an Ollama profile", which would spuriously add `ollama` to
+  // every profile's required tools. Same reasoning keeps an empty `env`/`permissions`
+  // off the result rather than fabricating keys the source configs never set.
+  const env = { ...(base?.env ?? {}), ...(override?.env ?? {}) }
+  if (Object.keys(env).length > 0) merged.env = env
+  else delete merged.env
+
+  const ollama = { ...(base?.ollama ?? {}), ...(override?.ollama ?? {}) }
+  if (Object.keys(ollama).length > 0) merged.ollama = ollama
+  else delete merged.ollama
+
+  const permissions = mergePermissions(base?.permissions, override?.permissions)
+  if (permissions !== undefined) merged.permissions = permissions
+  else delete merged.permissions
+
+  return merged
 }
 
 function mergePermissions(

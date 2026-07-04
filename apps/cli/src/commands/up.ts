@@ -11,7 +11,7 @@ import {
   resolveAgentRoleConfig,
   resolveConfiguredAgent,
   resolveHostAlias,
-  resolveRecipe,
+  resolvePreset,
   saveState,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -19,27 +19,27 @@ import { defineCommand } from 'citty'
 export default defineCommand({
   meta: {
     name: 'up',
-    description: 'Create missing agents and subscriptions from a configured recipe',
+    description: 'Create missing agents and subscriptions from a configured preset',
   },
   args: {
-    recipe: {
+    preset: {
       type: 'positional',
-      description: 'Recipe name from quimby.yaml',
+      description: 'Preset name from quimby.yaml',
       required: true,
     },
   },
   run: runUpCommand,
 })
 
-export async function runUpCommand({ args }: { args: { recipe: string } }) {
+export async function runUpCommand({ args }: { args: { preset: string } }) {
   const repoRoot = await git.findRoot(process.cwd())
   if (!repoRoot) throw new QuimbyError('Not inside a git repository.')
 
   await ensureWorkspace(repoRoot)
   const config = await loadQuimbyConfig(repoRoot)
-  const recipe = resolveRecipe(config, args.recipe)
+  const preset = resolvePreset(config, args.preset)
 
-  for (const [name, rawAgent] of Object.entries(recipe.agents ?? {})) {
+  for (const [name, rawAgent] of Object.entries(preset.agents ?? {})) {
     const state = await loadState(repoRoot)
     if (state.agents[name]) {
       logger.info(`Agent "${name}" already exists`)
@@ -74,7 +74,7 @@ export async function runUpCommand({ args }: { args: { recipe: string } }) {
 
   const state = await loadState(repoRoot)
   let changed = false
-  for (const [subscriber, targets] of Object.entries(recipe.subscriptions ?? {})) {
+  for (const [subscriber, targets] of Object.entries(preset.subscriptions ?? {})) {
     if (!state.agents[subscriber]) throw new QuimbyError(`Agent "${subscriber}" not found`)
     for (const target of targets) {
       if (!state.agents[target]) throw new QuimbyError(`Agent "${target}" not found`)
@@ -84,6 +84,6 @@ export async function runUpCommand({ args }: { args: { recipe: string } }) {
   }
   if (changed) {
     await saveState(repoRoot, state)
-    logger.success(`Subscriptions updated for recipe "${args.recipe}"`)
+    logger.success(`Subscriptions updated for preset "${args.preset}"`)
   }
 }

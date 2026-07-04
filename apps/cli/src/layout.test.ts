@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LayoutNode } from './layout'
-import { collectLayoutAgents, isLayoutExpr, layoutWeights, parseLayout } from './layout'
+import {
+  collectLayoutAgents,
+  isLayoutExpr,
+  isServiceToken,
+  layoutWeights,
+  parseLayout,
+  serviceNameOf,
+} from './layout'
 
 const tabs = (name: string, weight?: number): LayoutNode =>
   weight === undefined ? { type: 'tabs', names: [name] } : { type: 'tabs', names: [name], weight }
@@ -31,6 +38,26 @@ describe('isLayoutExpr', () => {
   it('is false for a bare name or a space-separated list', () => {
     expect(isLayoutExpr('alice')).toBe(false)
     expect(isLayoutExpr('alice bob')).toBe(false)
+  })
+})
+
+describe('isServiceToken', () => {
+  it('is true for `$name` and false for a bare host `$` or an agent name', () => {
+    expect(isServiceToken('$server')).toBe(true)
+    expect(isServiceToken('$')).toBe(false)
+    expect(isServiceToken('server')).toBe(false)
+    expect(isServiceToken('host')).toBe(false)
+  })
+
+  it('tokenizes `$name` as one tab member, distinct from a plain `$` host', () => {
+    expect(collectLayoutAgents(parseLayout('host $server'))).toEqual(['host', '$server'])
+    expect(collectLayoutAgents(parseLayout('$ | $server'))).toEqual(['$', '$server'])
+  })
+})
+
+describe('serviceNameOf', () => {
+  it('strips the leading `$`', () => {
+    expect(serviceNameOf('$server')).toBe('server')
   })
 })
 
