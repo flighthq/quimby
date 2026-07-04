@@ -59,6 +59,7 @@ describe('run', () => {
     findRoot.mockResolvedValueOnce('/repo')
     await cmd.run!({ args: { agent: 'builder', role: 'builder', hostAlias: 'gpu' } } as never)
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
+      role: 'builder',
       defaults: {
         runtimeProfile: 'sbxClaude',
         runtime: 'sbx',

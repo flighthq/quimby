@@ -18,7 +18,8 @@ quimby config <agent>                                Interactively (re)configure
 quimby run <agent> [--cmd <cmd>] [-r <runtime>] | --layout <name> [--default [--global]]   Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session); --layout opens a saved layout or preset layout; --default saves that layout as the one a bare `quimby run` opens; a bare `quimby run` (no target) opens the configured default preset
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop); a fresh start with a non-empty status.md nudges the agent to resume from it
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
-quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's advisory self-check command)
+quimby restart <agent...> | --all                    Recreate the agent's tmux session with its current launch config (role-resolved), keeping its work/mailbox; --all restarts every running agent
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [--role <role>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's advisory self-check command; --role attaches the config role the agent resolves its launch config through, "" to clear)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SSH host aliases (no arg lists all with bound/unbound status; --set binds to ignored local config, --global to user config; a bare `host <alias>` prints it or prompts to bind when unbound)
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
@@ -67,7 +68,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-m` / `--message` (assign, handoff)
 - `-m` / `--message` (merge — the commit message for the landed work; with no `-m`, squashed opens git's editor, or degrades to `--patch` when there's no TTY)
 - `-m` / `--message` (nudge — the text to type; defaults to `"continue"`)
-- `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session)
+- `--all` (sync — every agent; dispatch — every outbox; nudge — every live tmux session; restart — every currently-running agent)
 - `--sync` / `--no-sync` (assign — sync the agent to its base before assigning, on by default; `--sync <ref>` retargets the agent's sync ref to `<ref>` and syncs onto it first, `--no-sync` skips)
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
@@ -85,6 +86,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-H` / `--host` (add, set)
 - `--local` (set — convert an SSH agent back to local, dropping its remote location; errors if already local)
 - `--check` (set — the agent's self-verification command, e.g. `"npm run ci"`; `""` clears it. Quimby never runs it — the agent does, and attests the result)
+- `--role` (set — the config role an agent resolves its launch config through, so a preset/profile edit propagates on the next run; `""` clears it)
 - `-b` / `--branch` (merge)
 - `-t` / `--target` (merge)
 - `-s` / `--sync` (add, set)

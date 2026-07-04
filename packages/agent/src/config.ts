@@ -70,6 +70,21 @@ export async function setAgentLocation(
   await saveState(repoRoot, state)
 }
 
+/** Attach (or, with `""`, detach) the config role an agent resolves its launch config through. */
+export async function setAgentRole(
+  repoRoot: string,
+  name: string,
+  role: string | undefined,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!Object.hasOwn(state.agents, name)) {
+    throw new QuimbyError(`Agent "${name}" not found`)
+  }
+  if (role) state.agents[name].role = role
+  else delete state.agents[name].role
+  await saveState(repoRoot, state)
+}
+
 export async function setAgentSyncRef(
   repoRoot: string,
   name: string,

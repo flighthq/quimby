@@ -1,15 +1,46 @@
 import type { AgentState } from '@quimbyhq/types'
 import { describe, expect, it } from 'vitest'
 
-import { resolveRuntimeSelection } from './runtime'
+import { launchFingerprint, resolveAgentLaunchDefaults, resolveRuntimeSelection } from './runtime'
 
-function agent(defaults?: {
-  runtimeProfile?: string
-  runtime?: string
-  entrypoint?: string
-}): AgentState {
-  return { id: 'a1', name: 'builder', location: { type: 'local' }, defaults } as AgentState
+function agent(
+  defaults?: {
+    runtimeProfile?: string
+    runtime?: string
+    entrypoint?: string
+  },
+  role?: string,
+): AgentState {
+  return { id: 'a1', name: 'builder', location: { type: 'local' }, defaults, role } as AgentState
 }
+
+const roleConfig = {
+  roles: { builder: { runtimeProfile: 'sbx-codex' } },
+  runtimeProfiles: { 'sbx-codex': { runtime: 'sbx', entrypoint: 'codex' } },
+}
+
+describe('launchFingerprint', () => {
+  it('is stable for the same resolved command and differs when it changes', () => {
+    expect(launchFingerprint({ runtime: 'sbx', entrypoint: 'codex' })).toBe('sbx codex')
+    expect(launchFingerprint({ runtime: 'sbx', entrypoint: 'codex' })).toBe(
+      launchFingerprint({ runtime: 'sbx', entrypoint: 'codex' }),
+    )
+    expect(launchFingerprint({ runtime: 'sbx', entrypoint: 'codex' })).not.toBe(
+      launchFingerprint({ runtime: 'local', entrypoint: 'claude' }),
+    )
+  })
+})
+
+describe('resolveAgentLaunchDefaults', () => {
+  it('prefers role-resolved defaults, falling back to stored defaults without a role', () => {
+    expect(resolveAgentLaunchDefaults(agent({ runtime: 'sbx' }, 'builder'), roleConfig)).toEqual({
+      runtimeProfile: 'sbx-codex',
+    })
+    expect(resolveAgentLaunchDefaults(agent({ runtime: 'sbx' }), roleConfig)).toEqual({
+      runtime: 'sbx',
+    })
+  })
+})
 
 describe('resolveRuntimeSelection', () => {
   it('defaults to the local runtime and claude entrypoint with no overrides or saved defaults', () => {
@@ -63,5 +94,23 @@ describe('resolveRuntimeSelection', () => {
       env: { OLLAMA_HOST: 'http://gpu:11434' },
       requiredTools: ['openshell', 'ollama'],
     })
+  })
+
+  it('resolves role-fresh from config, ignoring a stale flattened profile name', () => {
+    // The agent stores a now-renamed profile in `defaults`, but its `role` resolves to the
+    // current profile — so the launch tracks config, not the frozen name.
+    const sel = resolveRuntimeSelection({
+      agent: agent({ runtimeProfile: 'sbx-codex-OLD' }, 'builder'),
+      config: roleConfig,
+    })
+    expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'codex' })
+  })
+
+  it('falls back to stored defaults when the role no longer resolves', () => {
+    const sel = resolveRuntimeSelection({
+      agent: agent({ runtime: 'sbx', entrypoint: 'saved' }, 'deleted-role'),
+      config: roleConfig,
+    })
+    expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'saved' })
   })
 })

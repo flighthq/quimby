@@ -29,6 +29,7 @@ export async function addAgent(
   repoRoot: string,
   name: string,
   opts?: {
+    role?: string
     defaults?: AgentDefaults
     location?: AgentLocation
     syncRef?: string
@@ -56,6 +57,7 @@ export async function addAgent(
     seedCommit: '',
     syncRef,
     createdAt: new Date().toISOString(),
+    ...(opts?.role ? { role: opts.role } : {}),
     ...(opts?.defaults ? { defaults: opts.defaults } : {}),
     ...(opts?.location ? { location: opts.location } : {}),
     ...(opts?.tmux ? { tmux: true } : {}),

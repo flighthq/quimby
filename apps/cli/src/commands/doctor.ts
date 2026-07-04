@@ -1,4 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import { resolveAgentLaunchDefaults } from '@quimbyhq/launch'
 import { resolveRuntimeSelection } from '@quimbyhq/runtime-profile'
 import { parseCommand, runtimeTypes } from '@quimbyhq/runtimes'
 import { getSSHTransport } from '@quimbyhq/transport'
@@ -66,7 +67,7 @@ export async function runDoctorCommand({
   }
   const selection = resolveRuntimeSelection({
     config,
-    saved: agent?.defaults ?? config.defaults,
+    saved: agent ? resolveAgentLaunchDefaults(agent, config) : config.defaults,
     runtimeProfile: args.runtimeProfile,
     runtime: args.runtime,
   })

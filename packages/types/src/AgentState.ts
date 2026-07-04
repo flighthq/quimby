@@ -21,7 +21,22 @@ export interface AgentState {
   syncRef?: string
   createdAt: string
   location?: AgentLocation
+  /**
+   * The config role the agent was created from, if any. Stored as a *reference*: the runtime
+   * profile / entrypoint are resolved from current config through this role at launch, so a
+   * profile or role edit (including a rename) propagates to the agent without re-creating it.
+   * `defaults` is the fallback when no role is recorded (e.g. created from explicit flags).
+   */
+  role?: string
   defaults?: AgentDefaults
+  /**
+   * Fingerprint of the resolved launch command (runtime + entrypoint) the agent's live tmux
+   * session was last (re)created with. Compared against the freshly-resolved command on `run`/
+   * `start` to warn when a running session has drifted from current config; refreshed by
+   * `restart`. It tracks the *resolved command*, not the role/profile name, so a rename that
+   * resolves to the same command is not flagged as drift.
+   */
+  launchedWith?: string
   /**
    * Run the agent inside a named tmux session. SSH agents always use tmux for
    * persistence; this opts a local agent into the same behavior.

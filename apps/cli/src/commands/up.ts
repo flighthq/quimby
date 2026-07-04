@@ -55,6 +55,7 @@ export async function runUpCommand({ args }: { args: { preset: string } }) {
       configured.location ??
       (configured.hostAlias ? { type: 'ssh' as const, alias: configured.hostAlias } : undefined)
     await addAgent(repoRoot, name, {
+      ...(configured.role ? { role: configured.role } : {}),
       defaults:
         role.runtimeProfile || role.runtime || role.entrypoint
           ? {

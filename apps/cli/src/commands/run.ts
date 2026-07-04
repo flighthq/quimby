@@ -6,6 +6,7 @@ import {
   QUIMBY_ROOT_TMUX_FORMAT,
   QUIMBY_ROOT_TMUX_OPTION,
   quimbyRootNewWindowBindingArgs,
+  resolveRuntimeSelection,
   tmuxSetQuimbyRootShell,
 } from '@quimbyhq/launch'
 import {
@@ -21,8 +22,8 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from '@quimbyhq/paths'
-import { resolveRuntimeSelection } from '@quimbyhq/runtime-profile'
 import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
+import { getAgentSessionState } from '@quimbyhq/session'
 import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
@@ -41,6 +42,7 @@ import { execa } from 'execa'
 import { join } from 'pathe'
 
 import { ensureAgentConnections } from '../hostAlias'
+import { recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
 import type { LayoutNode } from '../layout'
 import {
   collectLayoutAgents,
@@ -204,6 +206,15 @@ export async function runRunCommand({
 
   // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
   await ensureAgentConnections(repoRoot, state, [args.agent])
+
+  // `run` attaches-or-creates: record the launch command when it will create a fresh session,
+  // or warn if reattaching to a session whose config has since drifted.
+  const runConfig = await loadQuimbyConfig(repoRoot)
+  if ((await getAgentSessionState(agent)) === 'stopped') {
+    await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig)
+  } else {
+    warnIfLaunchDrifted(agent, runConfig)
+  }
 
   // ── SSH agent ──────────────────────────────────────────────────────────────
   if (isSSH(agent.location)) {
@@ -739,10 +750,7 @@ async function buildSSHWindow(
   }
 
   const config = await loadQuimbyConfig(repoRoot)
-  const { runtime, entrypoint, env, requiredTools } = resolveRuntimeSelection({
-    config,
-    saved: agent.defaults,
-  })
+  const { runtime, entrypoint, env, requiredTools } = resolveRuntimeSelection({ agent, config })
 
   if (requiredTools.length > 0) await transport.checkCapabilities(requiredTools)
 

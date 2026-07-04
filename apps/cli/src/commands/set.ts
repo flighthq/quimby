@@ -2,6 +2,7 @@ import {
   setAgentCheckCommand,
   setAgentDefaults,
   setAgentLocation,
+  setAgentRole,
   setAgentSyncRef,
   setAgentVerifyByDefault,
 } from '@quimbyhq/agent'
@@ -11,7 +12,7 @@ import { mergeSSHLocation } from '@quimbyhq/transport'
 import type { RuntimeType } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveRole, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -33,6 +34,11 @@ export default defineCommand({
     runtimeProfile: {
       type: 'string',
       description: 'Runtime profile from quimby config; pass "" to clear',
+    },
+    role: {
+      type: 'string',
+      description:
+        'Config role the agent resolves its launch config through (edits propagate on next run); pass "" to clear',
     },
     cmd: {
       type: 'string',
@@ -77,6 +83,7 @@ export async function runSetCommand({
     agent: string
     runtime?: string
     runtimeProfile?: string
+    role?: string
     cmd?: string
     host?: string
     port?: string
@@ -96,6 +103,7 @@ export async function runSetCommand({
   if (
     !args.runtime &&
     args.runtimeProfile === undefined &&
+    args.role === undefined &&
     !args.cmd &&
     !args.host &&
     !args.port &&
@@ -105,7 +113,7 @@ export async function runSetCommand({
     args.verifyByDefault === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --runtime-profile, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
+      'Specify at least one of --runtime, --runtime-profile, --role, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
     )
   }
 
@@ -126,6 +134,12 @@ export async function runSetCommand({
     if (args.runtime) updates.runtime = args.runtime
     if (args.cmd) updates.entrypoint = args.cmd
     await setAgentDefaults(repoRoot, args.agent, updates)
+  }
+
+  if (args.role !== undefined) {
+    // Validate a non-empty role exists so a typo fails now, not at launch; "" detaches.
+    if (args.role) resolveRole(await loadQuimbyConfig(repoRoot), args.role)
+    await setAgentRole(repoRoot, args.agent, args.role || undefined)
   }
 
   if (args.sync !== undefined) {

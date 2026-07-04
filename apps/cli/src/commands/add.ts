@@ -147,6 +147,7 @@ export async function runAddCommand({
   }
 
   const agentState = await addAgent(repoRoot, args.agent, {
+    ...(args.role ? { role: args.role } : {}),
     defaults,
     location,
     ...(syncRef ? { syncRef } : {}),

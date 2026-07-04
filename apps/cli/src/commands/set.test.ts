@@ -6,6 +6,7 @@ const setAgentDefaults = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentSyncRef = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentCheckCommand = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentVerifyByDefault = vi.hoisted(() => vi.fn(async () => {}))
+const setAgentRole = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('@quimbyhq/agent', () => ({
   setAgentLocation,
@@ -13,6 +14,7 @@ vi.mock('@quimbyhq/agent', () => ({
   setAgentSyncRef,
   setAgentCheckCommand,
   setAgentVerifyByDefault,
+  setAgentRole,
 }))
 
 let resolved: {
@@ -23,6 +25,7 @@ let resolved: {
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => resolved),
+  loadQuimbyConfig: vi.fn(async () => ({ roles: { builder: {} } })),
 }))
 
 function workspace(agents: Record<string, { location: AgentLocation }>) {
@@ -63,6 +66,17 @@ describe('run', () => {
     const { default: cmd } = await import('./set')
     await cmd.run!({ args: { agent: 'builder', check: 'npm run ci' } } as never)
     expect(setAgentCheckCommand).toHaveBeenCalledWith('/fake/root', 'builder', 'npm run ci')
+  })
+
+  it('--role attaches a declared role, and rejects an undefined one', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentRole.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', role: 'builder' } } as never)
+    expect(setAgentRole).toHaveBeenCalledWith('/fake/root', 'builder', 'builder')
+    await expect(cmd.run!({ args: { agent: 'builder', role: 'ghost' } } as never)).rejects.toThrow(
+      /Role "ghost" not found/,
+    )
   })
 
   it('--verify-by-default updates the advisory check default', async () => {

@@ -34,6 +34,9 @@ vi.mock('@quimbyhq/launch', () => ({
     '-s',
     launch.sessionName,
   ],
+  resolveRuntimeSelection: () => ({ runtime: 'local', entrypoint: 'claude' }),
+  launchFingerprint: (sel: { runtime: string; entrypoint: string }) =>
+    `${sel.runtime} ${sel.entrypoint}`,
 }))
 
 function workspace(agents: Record<string, unknown>) {

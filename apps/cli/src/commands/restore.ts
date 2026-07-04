@@ -127,6 +127,7 @@ async function restoreFromRemote(
       syncRef: sourceRef,
       createdAt: now,
       location: configured.location ?? { type: 'ssh', alias: agentAliasName },
+      ...(configured.role ? { role: configured.role } : {}),
       ...(role.runtimeProfile || role.runtime || role.entrypoint
         ? {
             defaults: {

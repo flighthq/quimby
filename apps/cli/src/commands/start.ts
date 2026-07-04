@@ -19,11 +19,12 @@ import { sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
 import { ensureAgentConnections } from '../hostAlias'
+import { recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
 import { consolaReporter } from '../reporter'
 
 // A freshly-launched agent needs a beat to bring up its prompt before the resume nudge is typed,
@@ -101,6 +102,8 @@ export async function runStartCommand({
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
 
+  const config = await loadQuimbyConfig(repoRoot)
+
   // Headless launch means "already up" is a no-op, not a second session — a detached
   // start and a live `run` share the same UUID-keyed session.
   const existing = await getAgentSessionState(agent)
@@ -109,6 +112,7 @@ export async function runStartCommand({
       `"${args.agent}" is already ${existing} (tmux session "${tmuxSessionName(agent.id)}") — ` +
         `nudge or assign it, or \`quimby run ${args.agent}\` to attach.`,
     )
+    warnIfLaunchDrifted(agent, config)
     return
   }
 
@@ -157,6 +161,7 @@ export async function runStartCommand({
       .exec(`${remoteRootBehaviorShell(launch.sessionName, launch.rootCwd)}true`)
       .catch(() => {})
 
+    await recordLaunchFingerprint(repoRoot, state, args.agent, config)
     await resumeFromPredecessor(state, repoRoot, agent, args.agent)
     reportStarted(args.agent, launch.sessionName, launch.host, launch.runtimeLabel)
     return
@@ -183,6 +188,7 @@ export async function runStartCommand({
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))
   await applyLocalRootBehavior(launch.sessionName, launch.rootCwd)
 
+  await recordLaunchFingerprint(repoRoot, state, args.agent, config)
   await resumeFromPredecessor(state, repoRoot, state.agents[args.agent], args.agent)
   reportStarted(args.agent, launch.sessionName, undefined, launch.runtimeLabel)
 }

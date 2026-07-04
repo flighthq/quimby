@@ -69,12 +69,14 @@ describe('up', () => {
     await cmd.run!({ args: { preset: 'loop' } } as never)
 
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
+      role: 'builder',
       defaults: { runtimeProfile: 'sbxClaude', runtime: 'sbx', entrypoint: 'claude' },
       location: { type: 'ssh', alias: 'gpu' },
       tmux: true,
       check: 'npm run ci',
     })
     expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', {
+      role: 'reviewer',
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(state.value.subscriptions).toEqual({ reviewer: ['builder'] })
