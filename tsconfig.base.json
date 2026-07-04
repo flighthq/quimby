@@ -35,6 +35,8 @@
       "@quimbyhq/transport/*": ["./packages/transport/src/*"],
       "@quimbyhq/runtimes": ["./packages/runtimes/src/index.ts"],
       "@quimbyhq/runtimes/*": ["./packages/runtimes/src/*"],
+      "@quimbyhq/runtime-profile": ["./packages/runtime-profile/src/index.ts"],
+      "@quimbyhq/runtime-profile/*": ["./packages/runtime-profile/src/*"],
       "@quimbyhq/session": ["./packages/session/src/index.ts"],
       "@quimbyhq/session/*": ["./packages/session/src/*"],
       "@quimbyhq/workspace": ["./packages/workspace/src/index.ts"],

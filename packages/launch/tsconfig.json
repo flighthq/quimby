@@ -9,6 +9,7 @@
     { "path": "../errors" },
     { "path": "../paths" },
     { "path": "../reporter" },
+    { "path": "../runtime-profile" },
     { "path": "../runtimes" },
     { "path": "../template" },
     { "path": "../transport" },

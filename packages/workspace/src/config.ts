@@ -9,6 +9,7 @@ import type {
   HostAliasConfig,
   QuimbyConfig,
   RecipeConfig,
+  RuntimeProfileConfig,
 } from '@quimbyhq/types'
 import { exists, readYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
@@ -48,6 +49,7 @@ export function resolveAgentRoleConfig(
   const resolved = resolveConfiguredAgent(config, agent)
   const role = resolved.role ? resolveRole(config, resolved.role) : (config.defaults ?? {})
   return mergeRole(role, {
+    runtimeProfile: resolved.runtimeProfile,
     runtime: resolved.runtime,
     entrypoint: resolved.entrypoint,
     check: resolved.check,
@@ -92,17 +94,56 @@ export function normalizeCheck(check: string | CheckConfig | undefined): CheckCo
   return typeof check === 'string' ? { command: check } : check
 }
 
-function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]): QuimbyConfig {
+export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]): QuimbyConfig {
   const out: QuimbyConfig = {}
   for (const config of configs) {
     if (!config) continue
     out.defaults = mergeRole(out.defaults, config.defaults)
     out.roles = { ...(out.roles ?? {}), ...(config.roles ?? {}) }
+    out.runtimeProfiles = mergeRuntimeProfileMap(out.runtimeProfiles, config.runtimeProfiles)
     out.layouts = { ...(out.layouts ?? {}), ...(config.layouts ?? {}) }
     out.recipes = { ...(out.recipes ?? {}), ...(config.recipes ?? {}) }
     out.hosts = { ...(out.hosts ?? {}), ...(config.hosts ?? {}) }
   }
   return out
+}
+
+function mergeRuntimeProfileMap(
+  base: Record<string, RuntimeProfileConfig> | undefined,
+  override: Record<string, RuntimeProfileConfig> | undefined,
+): Record<string, RuntimeProfileConfig> | undefined {
+  if (!base && !override) return undefined
+  const out = { ...(base ?? {}) }
+  for (const [name, profile] of Object.entries(override ?? {})) {
+    out[name] = mergeRuntimeProfile(out[name], profile)
+  }
+  return out
+}
+
+function mergeRuntimeProfile(
+  base: RuntimeProfileConfig | undefined,
+  override: RuntimeProfileConfig | undefined,
+): RuntimeProfileConfig {
+  return {
+    ...(base ?? {}),
+    ...defined(override),
+    env: { ...(base?.env ?? {}), ...(override?.env ?? {}) },
+    ollama: { ...(base?.ollama ?? {}), ...(override?.ollama ?? {}) },
+    permissions: mergePermissions(base?.permissions, override?.permissions),
+  }
+}
+
+function mergePermissions(
+  base: RuntimeProfileConfig['permissions'],
+  override: RuntimeProfileConfig['permissions'],
+): RuntimeProfileConfig['permissions'] {
+  if (override === undefined) return base
+  if (typeof override === 'string' || typeof base === 'string') return override
+  return {
+    ...(base ?? {}),
+    ...override,
+    allow: override.allow ?? base?.allow,
+  }
 }
 
 function mergeRole(

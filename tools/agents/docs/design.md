@@ -200,13 +200,13 @@ The complete command reference, planned commands, advisory checks, and flag conv
 
 ## Configuration
 
-Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. A tracked `quimby.yaml` is optional and exists to make useful project intent reusable without leaking private machine bindings.
+Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. Ignored project-local `.quimby/local.yaml` is the primary saved-config path for a checkout: it can remember roles, recipes, runtime profiles, dashboard layouts, and host bindings without leaking private machine details.
 
 Configuration is split by boundary:
 
-- **Tracked `quimby.yaml`** — roles, recipes, dashboard layouts, advisory checks, and other team-safe defaults.
-- **User config `~/.config/quimby/config.yaml`** — private host aliases and personal defaults.
-- **Ignored project-local `.quimby/local.yaml`** — per-checkout overrides such as binding a project role to a local machine.
+- **Ignored project-local `.quimby/local.yaml`** — per-checkout roles, recipes, dashboard layouts, runtime profiles, private host aliases, and provider settings.
+- **User config `~/.config/quimby/config.yaml`** — personal defaults and reusable private aliases across projects.
+- **Tracked `quimby.yaml`** — optional team-safe shared intent only, when a repository deliberately wants to share role/profile names or layouts.
 - **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, subscriptions, and created agents.
 
 Resolution order is concrete to general: CLI flags, existing agent state, project-local config, user config, tracked project config, then built-ins.
@@ -250,7 +250,7 @@ recipes:
 
 `quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents and subscriptions from the recipe. `quimby run --layout review` opens the saved dashboard layout.
 
-Host aliases resolve from private config, not the tracked file, so a repository can say `hostAlias: gpu` without committing a worker name or IP address.
+Host aliases should resolve from private local/user config, so even when a shared recipe says `hostAlias: gpu`, the worker name or IP address stays out of git.
 
 ## No Init Command
 

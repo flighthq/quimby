@@ -73,6 +73,26 @@ describe('run', () => {
     expect(setAgentVerifyByDefault).toHaveBeenCalledWith('/fake/root', 'builder', true)
   })
 
+  it('--runtime-profile updates the saved runtime profile reference', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentDefaults.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', runtimeProfile: 'openshellOllama' } } as never)
+    expect(setAgentDefaults).toHaveBeenCalledWith('/fake/root', 'builder', {
+      runtimeProfile: 'openshellOllama',
+    })
+  })
+
+  it('--runtime-profile "" clears the saved runtime profile reference', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentDefaults.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', runtimeProfile: '' } } as never)
+    expect(setAgentDefaults).toHaveBeenCalledWith('/fake/root', 'builder', {
+      runtimeProfile: undefined,
+    })
+  })
+
   it('--local errors clearly when the agent is already local', async () => {
     resolved = workspace({ builder: { location: { type: 'local' } } })
     const { default: cmd } = await import('./set')

@@ -80,6 +80,10 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime override (${runtimeTypes.join(', ')})`,
     },
+    runtimeProfile: {
+      type: 'string',
+      description: 'Runtime profile override for this run',
+    },
   },
   run: runStartCommand,
 })
@@ -87,7 +91,7 @@ export default defineCommand({
 export async function runStartCommand({
   args,
 }: {
-  args: { agent: string; cmd?: string; runtime?: string }
+  args: { agent: string; cmd?: string; runtime?: string; runtimeProfile?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
@@ -109,7 +113,15 @@ export async function runStartCommand({
 
   if (isSSH(agent.location)) {
     const launch = await prepareSshLaunch(
-      { state, repoRoot, agent, location: agent.location, cmd: args.cmd, runtime: args.runtime },
+      {
+        state,
+        repoRoot,
+        agent,
+        location: agent.location,
+        cmd: args.cmd,
+        runtime: args.runtime,
+        runtimeProfile: args.runtimeProfile,
+      },
       consolaReporter,
     )
 
@@ -161,6 +173,7 @@ export async function runStartCommand({
     agent: state.agents[args.agent],
     cmd: args.cmd,
     runtime: args.runtime,
+    runtimeProfile: args.runtimeProfile,
   })
 
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))

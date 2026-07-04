@@ -1,7 +1,8 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { parseCommand, runtimeCli, runtimeTypes } from '@quimbyhq/runtimes'
+import { resolveRuntimeSelection } from '@quimbyhq/runtime-profile'
+import { parseCommand, runtimeTypes } from '@quimbyhq/runtimes'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
+import type { SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { loadQuimbyConfig, resolveHostAlias, resolveWorkspace } from '@quimbyhq/workspace'
@@ -24,6 +25,10 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime to check (${runtimeTypes.join(', ')})`,
     },
+    runtimeProfile: {
+      type: 'string',
+      description: 'Runtime profile to check',
+    },
     hostAlias: {
       type: 'string',
       description: 'Private host alias to check',
@@ -35,28 +40,28 @@ export default defineCommand({
 export async function runDoctorCommand({
   args,
 }: {
-  args: { agent?: string; runtime?: string; hostAlias?: string }
+  args: { agent?: string; runtime?: string; runtimeProfile?: string; hostAlias?: string }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
   const agent = args.agent ? state.agents[args.agent] : undefined
   if (args.agent && !agent) throw new QuimbyError(`Agent "${args.agent}" not found`)
-  if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
-    throw new QuimbyError(
-      `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
-    )
-  }
 
   const alias = resolveHostAlias(config, args.hostAlias)
   const location = isSSH(agent?.location) ? agent.location : aliasToLocation(alias)
-  const runtime = (args.runtime ?? agent?.defaults?.runtime ?? 'local') as RuntimeType
-  const entrypoint = agent?.defaults?.entrypoint ?? config.defaults?.entrypoint ?? 'claude'
+  const selection = resolveRuntimeSelection({
+    config,
+    saved: agent?.defaults ?? config.defaults,
+    runtimeProfile: args.runtimeProfile,
+    runtime: args.runtime,
+  })
+  const { runtime, entrypoint, requiredTools } = selection
   const entrypointCommand = parseCommand(entrypoint).command
 
   const required = [
     'git',
     ...(location ? ['rsync', 'tmux'] : []),
-    ...(runtimeCli(runtime) ? [runtimeCli(runtime) as string] : []),
+    ...requiredTools,
     entrypointCommand,
   ]
 

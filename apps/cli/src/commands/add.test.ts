@@ -23,6 +23,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
     defaults: { runtime: 'local', entrypoint: 'claude' },
     roles: {
       builder: {
+        runtimeProfile: 'sbxClaude',
         runtime: 'sbx',
         entrypoint: 'codex --model "gpt 5"',
         check: { command: 'npm run ci', verifyByDefault: true },
@@ -58,7 +59,11 @@ describe('run', () => {
     findRoot.mockResolvedValueOnce('/repo')
     await cmd.run!({ args: { agent: 'builder', role: 'builder', hostAlias: 'gpu' } } as never)
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
-      defaults: { runtime: 'sbx', entrypoint: 'codex --model "gpt 5"' },
+      defaults: {
+        runtimeProfile: 'sbxClaude',
+        runtime: 'sbx',
+        entrypoint: 'codex --model "gpt 5"',
+      },
       location: { type: 'ssh', host: 'me@gpu', port: 2222, base: '/srv/quimby' },
       syncRef: 'main',
       tmux: true,
@@ -77,6 +82,20 @@ describe('run', () => {
       'builder',
       expect.objectContaining({
         defaults: { runtime: 'local', entrypoint: 'claude' },
+      }),
+    )
+  })
+
+  it('lets --runtime-profile override role defaults', async () => {
+    findRoot.mockResolvedValueOnce('/repo')
+    await cmd.run!({
+      args: { agent: 'builder', role: 'builder', runtimeProfile: 'openshellOllama' },
+    } as never)
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      'builder',
+      expect.objectContaining({
+        defaults: expect.objectContaining({ runtimeProfile: 'openshellOllama' }),
       }),
     )
   })

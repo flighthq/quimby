@@ -1,8 +1,10 @@
-import { QuimbyError } from '@quimbyhq/errors'
-import { runtimeTypes } from '@quimbyhq/runtimes'
-import type { AgentState, RuntimeType } from '@quimbyhq/types'
+import {
+  resolveRuntimeSelection as resolveProfileRuntimeSelection,
+  type RuntimeSelection as ProfileRuntimeSelection,
+} from '@quimbyhq/runtime-profile'
+import type { AgentState, QuimbyConfig, RuntimeType } from '@quimbyhq/types'
 
-export interface RuntimeSelection {
+export interface RuntimeSelection extends ProfileRuntimeSelection {
   runtime: RuntimeType
   entrypoint: string
   /** A ` [runtime]` suffix for logs when the runtime is non-default, else empty. */
@@ -16,17 +18,16 @@ export interface RuntimeSelection {
  */
 export function resolveRuntimeSelection(opts: {
   agent: Readonly<AgentState>
+  config?: Readonly<QuimbyConfig>
   cmd?: string
   runtime?: string
+  runtimeProfile?: string
 }): RuntimeSelection {
-  const saved = opts.agent.defaults
-  const runtime =
-    (opts.runtime as RuntimeType | undefined) ?? (saved?.runtime as RuntimeType) ?? 'local'
-  const entrypoint = opts.cmd ?? saved?.entrypoint ?? 'claude'
-
-  if (!runtimeTypes.includes(runtime)) {
-    throw new QuimbyError(`Unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`)
-  }
-
-  return { runtime, entrypoint, runtimeLabel: runtime !== 'local' ? ` [${runtime}]` : '' }
+  return resolveProfileRuntimeSelection({
+    config: opts.config,
+    saved: opts.agent.defaults,
+    runtimeProfile: opts.runtimeProfile,
+    runtime: opts.runtime,
+    cmd: opts.cmd,
+  })
 }

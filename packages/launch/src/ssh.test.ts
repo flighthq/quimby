@@ -31,6 +31,16 @@ vi.mock('@quimbyhq/template', () => ({
 }))
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
+  loadQuimbyConfig: vi.fn(async () => ({
+    runtimeProfiles: {
+      ollama: {
+        runtime: 'sbx',
+        entrypoint: 'codex',
+        provider: 'ollama',
+        ollama: { host: 'http://gpu:11434' },
+      },
+    },
+  })),
   saveState: vi.fn(async () => {}),
 }))
 
@@ -169,5 +179,17 @@ describe('prepareSshLaunch', () => {
     await prepareSshLaunch(optsFrom(state))
 
     expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx'])
+  })
+
+  it('checks profile runtime/provider tools and exports profile env in the shell command', async () => {
+    const transport = fakeSSHTransport(true)
+    mockedGetSSH.mockReturnValue(transport)
+    const state = makeState()
+    state.agents.researcher.defaults = { runtimeProfile: 'ollama' }
+
+    const launch = await prepareSshLaunch(optsFrom(state))
+
+    expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx', 'ollama'])
+    expect(launch.shellCmd).toContain("OLLAMA_HOST='http://gpu:11434'")
   })
 })

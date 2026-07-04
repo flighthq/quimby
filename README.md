@@ -134,20 +134,30 @@ Use `-b` to land on a named branch. On conflict the staged parcel is kept and it
 
 ## Configuration
 
-Quimby works without a config file, but a tracked `quimby.yaml` can define reusable roles, recipes, and dashboard layouts. Private machine bindings belong in `~/.config/quimby/config.yaml` or ignored `.quimby/local.yaml`, so hostnames and IP addresses do not have to enter git.
+Quimby works without a config file. For saved project workflow, the reliable default is ignored per-checkout config in `.quimby/local.yaml`: roles, recipes, dashboard layouts, runtime profiles, and host bindings can live there without committing worker names, IP addresses, or machine-specific runtime settings. A tracked `quimby.yaml` is optional and should contain only team-safe intent you explicitly want to share.
 
 ```yaml
-roles:
-  builder:
+runtimeProfiles:
+  sbx-claude:
     runtime: sbx
     entrypoint: claude
+    args: [--dangerously-skip-permissions]
+
+  openshell-ollama:
+    runtime: openshell
+    entrypoint: codex
+    provider: ollama
+    requiredTools: [codex]
+
+roles:
+  builder:
+    runtimeProfile: sbx-claude
     check:
       command: npm run ci
       verifyByDefault: false
 
   reviewer:
-    runtime: local
-    entrypoint: claude
+    runtimeProfile: openshell-ollama
 
 layouts:
   review:
@@ -169,10 +179,24 @@ recipes:
     layout: review
 ```
 
+If you do choose to track a shared profile, machine-specific details can layer onto the same profile name from ignored `.quimby/local.yaml` or user config:
+
+```yaml
+runtimeProfiles:
+  openshell-ollama:
+    ollama:
+      host: http://gpu:11434
+
+hosts:
+  gpu:
+    host: me@gpu
+```
+
 ```bash
 quimby add builder --role builder
 quimby up review-loop
 quimby run --layout review
+quimby doctor --host-alias gpu --runtime-profile openshell-ollama
 ```
 
 Checks are advisory. `--verify` asks the agent to run its configured `check` in its own runtime and record an attestation; `merge` displays that signal but never blocks on it.

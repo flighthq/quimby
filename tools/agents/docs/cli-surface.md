@@ -72,7 +72,8 @@ All flags support `-x` short and `--xxx` long forms:
 - `-c` / `--clear` (assign, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
 - `--verify` (nudge — type a canned self-verification request naming the agent's `check`; assign — append the same to the assignment, so the agent attests after finishing)
 - `--verify-by-default` / `--no-verify-by-default` (set — whether `assign` should append the advisory check request when neither `--verify` nor `--no-verify` is passed)
-- `--role` (add — creation defaults from `quimby.yaml`)
+- `--role` (add — creation defaults from layered config, commonly ignored `.quimby/local.yaml`)
+- `--runtime-profile` (add, run, start, set, doctor — named runtime/profile settings from layered config, commonly ignored `.quimby/local.yaml`; `set --runtime-profile ""` clears the saved reference)
 - `--host-alias` (add, doctor — private host binding from user/local config)
 - `--layout` (run — saved dashboard layout or recipe layout)
 - `--attach` (handoff — carry a different agent's diff than the source)

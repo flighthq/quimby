@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
+  runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
   getRuntime: () => ({
     runSpec: () => ({ command: 'claude', args: ['claude'], cwd: '/agent/dir', env: {} }),
   }),

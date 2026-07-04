@@ -6,6 +6,7 @@ export interface CheckConfig {
 }
 
 export interface AgentRoleConfig {
+  runtimeProfile?: string
   runtime?: string
   entrypoint?: string
   check?: string | CheckConfig
@@ -16,6 +17,7 @@ export interface AgentRoleConfig {
 
 export interface ConfiguredAgent {
   role?: string
+  runtimeProfile?: string
   runtime?: string
   entrypoint?: string
   check?: string | CheckConfig
@@ -43,9 +45,33 @@ export interface HostAliasConfig {
   base?: string
 }
 
+export interface OllamaRuntimeConfig {
+  host?: string
+  model?: string
+}
+
+export interface RuntimeProfileConfig {
+  runtime?: string
+  entrypoint?: string
+  /** Extra argv appended to the entrypoint when no per-run --cmd override is used. */
+  args?: string[]
+  env?: Record<string, string>
+  requiredTools?: string[]
+  provider?: string
+  model?: string
+  ollama?: OllamaRuntimeConfig
+  permissions?:
+    | string
+    | {
+        mode?: string
+        allow?: string[]
+      }
+}
+
 export interface QuimbyConfig {
   defaults?: AgentRoleConfig
   roles?: Record<string, AgentRoleConfig>
+  runtimeProfiles?: Record<string, RuntimeProfileConfig>
   layouts?: Record<string, string | LayoutConfig>
   recipes?: Record<string, RecipeConfig>
   hosts?: Record<string, HostAliasConfig>

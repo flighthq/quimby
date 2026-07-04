@@ -10,6 +10,7 @@ const setup = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
+  runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
   getRuntime: () => ({ runSpec, setup }),
   buildContext: (repoRoot: string) => ({ repoRoot }),
 }))
@@ -20,6 +21,18 @@ vi.mock('@quimbyhq/template', () => ({
 vi.mock('@quimbyhq/utils', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   writeText,
+}))
+vi.mock('@quimbyhq/workspace', () => ({
+  loadQuimbyConfig: vi.fn(async () => ({
+    runtimeProfiles: {
+      ollama: {
+        runtime: 'sbx',
+        entrypoint: 'codex',
+        provider: 'ollama',
+        ollama: { host: 'http://gpu:11434' },
+      },
+    },
+  })),
 }))
 
 import { localNewSessionArgs, prepareLocalTmuxLaunch } from './local'
@@ -97,5 +110,20 @@ describe('prepareLocalTmuxLaunch', () => {
         runtime: 'bogus',
       }),
     ).rejects.toThrow('Unknown runtime')
+  })
+
+  it('applies runtime profile env to the tmux launch', async () => {
+    const launch = await prepareLocalTmuxLaunch({
+      state: state(),
+      repoRoot: '/repo',
+      agent: {
+        id: 'a1',
+        name: 'builder',
+        location: { type: 'local' },
+        defaults: { runtimeProfile: 'ollama' },
+      } as never,
+    })
+    expect(launch.runtimeLabel).toBe(' [sbx]')
+    expect(launch.envArgs).toEqual(expect.arrayContaining(['-e', 'OLLAMA_HOST=http://gpu:11434']))
   })
 })

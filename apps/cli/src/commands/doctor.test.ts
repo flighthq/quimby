@@ -34,6 +34,14 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   })),
   loadQuimbyConfig: vi.fn(async () => ({
     defaults: { entrypoint: 'claude' },
+    runtimeProfiles: {
+      ollama: {
+        runtime: 'openshell',
+        entrypoint: 'codex',
+        provider: 'ollama',
+        ollama: { host: 'http://gpu:11434' },
+      },
+    },
     hosts: { gpu: { host: 'me@gpu' } },
   })),
 }))
@@ -73,6 +81,14 @@ describe('doctor', () => {
     await cmd.run!({ args: { hostAlias: 'gpu', runtime: 'sbx' } } as never)
     expect(transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])).toContain(
       'command -v sbx',
+    )
+  })
+
+  it('checks runtime profile provider dependencies', async () => {
+    transport.exec.mockClear()
+    await cmd.run!({ args: { hostAlias: 'gpu', runtimeProfile: 'ollama' } } as never)
+    expect(transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual(
+      expect.arrayContaining(['command -v openshell', 'command -v ollama', 'command -v codex']),
     )
   })
 

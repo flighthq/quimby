@@ -21,10 +21,11 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from '@quimbyhq/paths'
-import { getRuntime, runtimeCli, runtimeTypes } from '@quimbyhq/runtimes'
+import { resolveRuntimeSelection } from '@quimbyhq/runtime-profile'
+import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
 import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
-import type { AgentState, QuimbyState, RuntimeType, SSHLocation } from '@quimbyhq/types'
+import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger, writeText } from '@quimbyhq/utils'
 import {
@@ -63,6 +64,10 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime override for this run (${runtimeTypes.join(', ')})`,
     },
+    runtimeProfile: {
+      type: 'string',
+      description: 'Runtime profile override for this run',
+    },
     host: {
       type: 'boolean',
       default: true,
@@ -84,13 +89,16 @@ export async function runRunCommand({
     _?: string[]
     cmd?: string
     runtime?: string
+    runtimeProfile?: string
     host?: boolean
     layout?: string
   }
 }) {
   if (args.layout) {
-    if (args.cmd || args.runtime) {
-      throw new QuimbyError('--cmd/--runtime apply to a single agent; omit them for a layout')
+    if (args.cmd || args.runtime || args.runtimeProfile) {
+      throw new QuimbyError(
+        '--cmd/--runtime/--runtime-profile apply to a single agent; omit them for a layout',
+      )
     }
     await runSavedLayout(args.layout, args.host !== false)
     return
@@ -109,8 +117,10 @@ export async function runRunCommand({
         'Run a panel layout from outside a quimby session — it builds its own dashboard.',
       )
     }
-    if (args.cmd || args.runtime) {
-      throw new QuimbyError('--cmd/--runtime apply to a single agent; omit them for a panel layout')
+    if (args.cmd || args.runtime || args.runtimeProfile) {
+      throw new QuimbyError(
+        '--cmd/--runtime/--runtime-profile apply to a single agent; omit them for a panel layout',
+      )
     }
     await runPanelDashboard(args.agent)
     return
@@ -140,6 +150,11 @@ export async function runRunCommand({
         '--runtime applies to a single agent; omit it when running multiple agents',
       )
     }
+    if (args.runtimeProfile) {
+      throw new QuimbyError(
+        '--runtime-profile applies to a single agent; omit it when running multiple agents',
+      )
+    }
     await runDashboard(names, args.host !== false)
     return
   }
@@ -160,6 +175,7 @@ export async function runRunCommand({
       location: agent.location,
       cmd: args.cmd,
       runtime: args.runtime,
+      runtimeProfile: args.runtimeProfile,
     })
 
     await launch.transport
@@ -218,6 +234,7 @@ export async function runRunCommand({
     agent,
     cmd: args.cmd,
     runtime: args.runtime,
+    runtimeProfile: args.runtimeProfile,
   })
 
   // Enroll into tmux so `nudge`/`list` recognize the now-persistent session on later calls.
@@ -673,20 +690,16 @@ async function buildSSHWindow(
     logger.success(`Remote agent "${name}" initialized`)
   }
 
-  const runtime = (agent.defaults?.runtime as RuntimeType | undefined) ?? 'local'
-  const entrypoint = agent.defaults?.entrypoint ?? 'claude'
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, env, requiredTools } = resolveRuntimeSelection({
+    config,
+    saved: agent.defaults,
+  })
 
-  if (!runtimeTypes.includes(runtime)) {
-    throw new QuimbyError(
-      `Agent "${name}": unknown runtime "${runtime}". Available: ${runtimeTypes.join(', ')}`,
-    )
-  }
-
-  const required = runtimeCli(runtime)
-  if (required) await transport.checkCapabilities([required])
+  if (requiredTools.length > 0) await transport.checkCapabilities(requiredTools)
 
   const adapter = getRuntime(runtime)
-  const spec = await adapter.runSpec(
+  const rawSpec = await adapter.runSpec(
     {
       projectId: state.id,
       agentId: agent.id,
@@ -697,8 +710,14 @@ async function buildSSHWindow(
     },
     entrypoint,
   )
+  const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
 
-  const launchCmd = [spec.command, ...spec.args].map(sq).join(' ')
+  const envPrefix = Object.entries(spec.env ?? {})
+    .map(([key, value]) => `${key}=${sq(value)}`)
+    .join(' ')
+  const launchCmd = [envPrefix, [spec.command, ...spec.args].map(sq).join(' ')]
+    .filter(Boolean)
+    .join(' ')
   const remoteShellCmd = `${tmuxSetQuimbyRootShell(rRoot)}${launchCmd}`
 
   // Write the remote tmux config (for the nested remote session).

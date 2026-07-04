@@ -28,6 +28,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   loadQuimbyConfig: vi.fn(async () => ({
     roles: {
       builder: {
+        runtimeProfile: 'sbxClaude',
         runtime: 'sbx',
         entrypoint: 'claude',
         check: { command: 'npm run ci' },
@@ -68,7 +69,7 @@ describe('up', () => {
     await cmd.run!({ args: { recipe: 'loop' } } as never)
 
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
-      defaults: { runtime: 'sbx', entrypoint: 'claude' },
+      defaults: { runtimeProfile: 'sbxClaude', runtime: 'sbx', entrypoint: 'claude' },
       location: { type: 'ssh', host: 'me@gpu' },
       tmux: true,
       check: 'npm run ci',

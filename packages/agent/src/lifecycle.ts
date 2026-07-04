@@ -12,7 +12,7 @@ import {
 import { renderAgentAgentsMd, renderAgentClaudeMd } from '@quimbyhq/template'
 import type { SSHTransport, Transport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
-import type { AgentLocation, AgentState } from '@quimbyhq/types'
+import type { AgentDefaults, AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
 import {
@@ -29,7 +29,7 @@ export async function addAgent(
   repoRoot: string,
   name: string,
   opts?: {
-    defaults?: { runtime?: string; entrypoint?: string }
+    defaults?: AgentDefaults
     location?: AgentLocation
     syncRef?: string
     tmux?: boolean

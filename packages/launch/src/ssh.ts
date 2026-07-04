@@ -12,12 +12,12 @@ import {
 } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import { getRuntime, runtimeCli } from '@quimbyhq/runtimes'
+import { getRuntime } from '@quimbyhq/runtimes'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
-import { saveState } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, saveState } from '@quimbyhq/workspace'
 
 import type { LaunchOptions } from './local'
 import { resolveRuntimeSelection } from './runtime'
@@ -96,14 +96,17 @@ export async function prepareSshLaunch(
     reporter.success('Remote agent initialized')
   }
 
-  const { runtime, entrypoint, runtimeLabel } = resolveRuntimeSelection(opts)
-  const runtimeRequired = runtimeCli(runtime)
-  if (runtimeRequired) await transport.checkCapabilities([runtimeRequired])
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, runtimeLabel, env, requiredTools } = resolveRuntimeSelection({
+    ...opts,
+    config,
+  })
+  if (requiredTools.length > 0) await transport.checkCapabilities(requiredTools)
 
   // Build the shell command for the remote machine using the runtime adapter; cwd is
   // handled by tmux -c, so we pass remote paths but don't use spec.cwd.
   const adapter = getRuntime(runtime)
-  const spec = await adapter.runSpec(
+  const rawSpec = await adapter.runSpec(
     {
       projectId: state.id,
       agentId: agent.id,
@@ -114,9 +117,15 @@ export async function prepareSshLaunch(
     },
     entrypoint,
   )
+  const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
   // Quote the user-supplied entrypoint wherever it appears; leave the runtime's own
   // static tokens (e.g. 'run', 'sandbox') unquoted.
-  const launchCmd = [spec.command, ...spec.args].map(sq).join(' ')
+  const envPrefix = Object.entries(spec.env ?? {})
+    .map(([key, value]) => `${key}=${sq(value)}`)
+    .join(' ')
+  const launchCmd = [envPrefix, [spec.command, ...spec.args].map(sq).join(' ')]
+    .filter(Boolean)
+    .join(' ')
   // Refresh the window label on every (re)attach so it tracks renames.
   const rootCmd = tmuxSetQuimbyRootShell(rRoot)
   const shellCmd = `${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}`

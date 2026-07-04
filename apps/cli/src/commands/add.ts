@@ -53,6 +53,10 @@ export default defineCommand({
       type: 'string',
       description: 'Role from quimby.yaml to use as creation defaults',
     },
+    runtimeProfile: {
+      type: 'string',
+      description: 'Runtime profile from quimby config',
+    },
     hostAlias: {
       type: 'string',
       description: 'Private host alias from user/local config',
@@ -72,6 +76,7 @@ export async function runAddCommand({
     port?: string
     sync?: string
     role?: string
+    runtimeProfile?: string
     hostAlias?: string
   }
 }) {
@@ -83,10 +88,17 @@ export async function runAddCommand({
   // With no config flags, walk the user through the agent's setup; with flags,
   // honor them verbatim so `add` stays scriptable for unattended use.
   const hasFlags = Boolean(
-    args.runtime || args.cmd || args.host || args.port || args.sync || args.role || args.hostAlias,
+    args.runtime ||
+    args.cmd ||
+    args.host ||
+    args.port ||
+    args.sync ||
+    args.role ||
+    args.runtimeProfile ||
+    args.hostAlias,
   )
 
-  let defaults: { runtime?: string; entrypoint?: string } | undefined
+  let defaults: { runtimeProfile?: string; runtime?: string; entrypoint?: string } | undefined
   let location: SSHLocation | undefined
   let syncRef: string | undefined
   let tmux: boolean | undefined
@@ -96,14 +108,17 @@ export async function runAddCommand({
   if (hasFlags) {
     const config = await loadQuimbyConfig(repoRoot)
     const role = args.role ? resolveRole(config, args.role) : config.defaults
+    const runtimeProfile =
+      args.runtimeProfile ?? (args.runtime || args.cmd ? undefined : role?.runtimeProfile)
     if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
       throw new QuimbyError(
         `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
       )
     }
     defaults =
-      role?.runtime || role?.entrypoint || args.runtime || args.cmd
+      runtimeProfile || role?.runtime || role?.entrypoint || args.runtime || args.cmd
         ? {
+            ...(runtimeProfile ? { runtimeProfile } : {}),
             runtime: args.runtime ?? role?.runtime,
             entrypoint: args.cmd ?? role?.entrypoint,
           }

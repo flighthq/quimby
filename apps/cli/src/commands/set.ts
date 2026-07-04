@@ -30,6 +30,10 @@ export default defineCommand({
       alias: 'r',
       description: `Runtime environment (${runtimeTypes.join(', ')})`,
     },
+    runtimeProfile: {
+      type: 'string',
+      description: 'Runtime profile from quimby config; pass "" to clear',
+    },
     cmd: {
       type: 'string',
       description: 'Entrypoint command to launch (e.g. claude, codex)',
@@ -72,6 +76,7 @@ export async function runSetCommand({
   args: {
     agent: string
     runtime?: string
+    runtimeProfile?: string
     cmd?: string
     host?: string
     port?: string
@@ -90,6 +95,7 @@ export async function runSetCommand({
 
   if (
     !args.runtime &&
+    args.runtimeProfile === undefined &&
     !args.cmd &&
     !args.host &&
     !args.port &&
@@ -99,7 +105,7 @@ export async function runSetCommand({
     args.verifyByDefault === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
+      'Specify at least one of --runtime, --runtime-profile, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
     )
   }
 
@@ -114,8 +120,9 @@ export async function runSetCommand({
     )
   }
 
-  if (args.runtime || args.cmd) {
-    const updates: { runtime?: string; entrypoint?: string } = {}
+  if (args.runtime || args.runtimeProfile !== undefined || args.cmd) {
+    const updates: { runtimeProfile?: string; runtime?: string; entrypoint?: string } = {}
+    if (args.runtimeProfile !== undefined) updates.runtimeProfile = args.runtimeProfile || undefined
     if (args.runtime) updates.runtime = args.runtime
     if (args.cmd) updates.entrypoint = args.cmd
     await setAgentDefaults(repoRoot, args.agent, updates)

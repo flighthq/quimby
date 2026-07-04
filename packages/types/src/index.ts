@@ -1,6 +1,7 @@
 export type { AgentAttestation } from './AgentAttestation'
 export { type AgentLocation, isSSH } from './AgentLocation'
 export type { AgentSessionState } from './AgentSessionState'
+export type { AgentDefaults } from './AgentState'
 export type { AgentState } from './AgentState'
 export type { CommitMeta } from './CommitMeta'
 export type { HandoffMeta } from './HandoffMeta'
@@ -11,8 +12,10 @@ export type {
   ConfiguredAgent,
   HostAliasConfig,
   LayoutConfig,
+  OllamaRuntimeConfig,
   QuimbyConfig,
   RecipeConfig,
+  RuntimeProfileConfig,
 } from './QuimbyConfig'
 export type { QuimbyState } from './QuimbyState'
 export type { RunSpec } from './RunSpec'

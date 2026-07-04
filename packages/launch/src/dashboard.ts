@@ -6,6 +6,7 @@ import { buildContext, getRuntime } from '@quimbyhq/runtimes'
 import { sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
+import { loadQuimbyConfig } from '@quimbyhq/workspace'
 
 import { resolveRuntimeSelection } from './runtime'
 import { prepareSshLaunch } from './ssh'
@@ -61,7 +62,7 @@ export async function buildDashboardWindows(
     windows.push(
       isSSH(agent.location)
         ? await buildSshWindow(name, agent, agent.location, state, repoRoot, reporter)
-        : buildLocalWindow(name, agent, state, repoRoot),
+        : await buildLocalWindow(name, agent, state, repoRoot),
     )
   }
   return windows
@@ -148,18 +149,20 @@ export function buildDashboardPlan(
   return { commands, attach: [...tmux, 'attach', '-t', session] }
 }
 
-function buildLocalWindow(
+async function buildLocalWindow(
   name: string,
   agent: Readonly<AgentState>,
   state: Readonly<QuimbyState>,
   repoRoot: string,
-): WindowSpec {
-  const { runtime, entrypoint } = resolveRuntimeSelection({ agent })
+): Promise<WindowSpec> {
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, env: profileEnv } = resolveRuntimeSelection({ agent, config })
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, name, state.id, agent.id)
-  const spec = adapter.runSpec(ctx, entrypoint)
+  const rawSpec = adapter.runSpec(ctx, entrypoint)
+  const spec = { ...rawSpec, env: { ...profileEnv, ...(rawSpec.env ?? {}) } }
 
-  const baseCmd = [spec.command, ...spec.args.map((a) => (a === entrypoint ? sq(a) : a))].join(' ')
+  const baseCmd = [spec.command, ...spec.args].map(sq).join(' ')
   const windowCmd = `${baseCmd}; __code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
 
   const env = Object.entries(spec.env ?? {}).map(([k, v]) => [k, v] as [string, string])

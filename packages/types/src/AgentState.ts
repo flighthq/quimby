@@ -1,5 +1,13 @@
 import type { AgentLocation } from './AgentLocation'
 
+export interface AgentDefaults {
+  /** Named runtime profile from quimby config. The profile is resolved at launch time. */
+  runtimeProfile?: string
+  runtime?: string
+  /** The command launched in the agent (overloaded to include args); a runtime adapter wraps it. */
+  entrypoint?: string
+}
+
 export interface AgentState {
   id: string
   name: string
@@ -13,11 +21,7 @@ export interface AgentState {
   syncRef?: string
   createdAt: string
   location?: AgentLocation
-  defaults?: {
-    runtime?: string
-    /** The command launched in the agent (overloaded to include args); a runtime adapter wraps it. */
-    entrypoint?: string
-  }
+  defaults?: AgentDefaults
   /**
    * Run the agent inside a named tmux session. SSH agents always use tmux for
    * persistence; this opts a local agent into the same behavior.

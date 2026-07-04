@@ -9,6 +9,7 @@ import { renderTmuxConfig } from '@quimbyhq/template'
 import { sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RunSpec } from '@quimbyhq/types'
 import { writeText } from '@quimbyhq/utils'
+import { loadQuimbyConfig } from '@quimbyhq/workspace'
 
 import { resolveRuntimeSelection } from './runtime'
 import { tmuxSetQuimbyRootShell } from './tmux'
@@ -19,6 +20,7 @@ export interface LaunchOptions {
   agent: Readonly<AgentState>
   cmd?: string
   runtime?: string
+  runtimeProfile?: string
 }
 
 /**
@@ -48,12 +50,16 @@ export interface ForegroundLaunch {
  * Resolve the runtime spawn spec for a foreground local agent (no tmux). The CLI spawns
  * `spec.command` itself; this only decides what to run and where.
  */
-export function buildForegroundLaunch(opts: Readonly<LaunchOptions>): ForegroundLaunch {
+export async function buildForegroundLaunch(
+  opts: Readonly<LaunchOptions>,
+): Promise<ForegroundLaunch> {
   const { state, repoRoot, agent } = opts
-  const { runtime, entrypoint, runtimeLabel } = resolveRuntimeSelection(opts)
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, runtimeLabel, env } = resolveRuntimeSelection({ ...opts, config })
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, agent.name, state.id, agent.id)
-  return { spec: adapter.runSpec(ctx, entrypoint), entrypoint, runtimeLabel }
+  const spec = adapter.runSpec(ctx, entrypoint)
+  return { spec: { ...spec, env: { ...env, ...(spec.env ?? {}) } }, entrypoint, runtimeLabel }
 }
 
 /**
@@ -97,14 +103,16 @@ export async function prepareLocalTmuxLaunch(
   opts: Readonly<LaunchOptions>,
 ): Promise<LocalTmuxLaunch> {
   const { state, repoRoot, agent } = opts
-  const { runtime, entrypoint, runtimeLabel } = resolveRuntimeSelection(opts)
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, runtimeLabel, env } = resolveRuntimeSelection({ ...opts, config })
 
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, agent.name, state.id, agent.id)
   // Validate the runtime (e.g. the sbx/openshell CLI is installed) before any tmux work, so a
   // missing runtime fails with a clear error instead of a pane that dies the instant it launches.
   await adapter.setup(ctx)
-  const spec = await adapter.runSpec(ctx, entrypoint)
+  const rawSpec = await adapter.runSpec(ctx, entrypoint)
+  const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
 
   const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [
     '-e',

@@ -53,8 +53,12 @@ export async function runUpCommand({ args }: { args: { recipe: string } }) {
     const location = configured.location ?? aliasToLocation(alias)
     await addAgent(repoRoot, name, {
       defaults:
-        role.runtime || role.entrypoint
-          ? { runtime: role.runtime, entrypoint: role.entrypoint }
+        role.runtimeProfile || role.runtime || role.entrypoint
+          ? {
+              ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
+              runtime: role.runtime,
+              entrypoint: role.entrypoint,
+            }
           : undefined,
       ...(location ? { location } : {}),
       ...(role.syncRef ? { syncRef: role.syncRef } : {}),
