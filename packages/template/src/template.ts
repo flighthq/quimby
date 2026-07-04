@@ -108,10 +108,9 @@ export function renderResumeRequest(): string {
  * tier the tools discover natively under `repo/`.
  */
 export function renderQuimbyContext(opts: { agentName: string; agentId: string }): string {
-  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName).replaceAll(
-    '{{agentId}}',
-    opts.agentId,
-  )
+  // agentId is still accepted (callers pass it) but no longer surfaced to the agent — its UUID is
+  // plumbing it never uses, and leading with it read as framework-forward "you are a managed agent".
+  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName)
 }
 
 /**

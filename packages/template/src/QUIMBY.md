@@ -1,6 +1,4 @@
-# Quimby Agent
-
-You are the **{{agentName}}** agent (stable id `{{agentId}}`, unchanged by rename).
+You are **{{agentName}}**, one of several agents working on this project in isolation. Your task is in `assignment.md`; the rest of this file is your workspace and how you coordinate with the others.
 
 ## Layout (relative to your agent root)
 

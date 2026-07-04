@@ -13,7 +13,7 @@ describe('renderAgentAgentsMd', () => {
   it('inlines the Quimby context (no @-import) and points at the repo tier in prose', () => {
     const out = renderAgentAgentsMd({ agentName: 'alice', agentId: 'id' })
     // AGENTS.md carries the context inline — Codex reads it as literal text.
-    expect(out).toContain('# Quimby Agent')
+    expect(out).toContain('one of several agents')
     expect(out).toContain('**alice**')
     // The repo tier is named, not @-imported (imports are inert in AGENTS.md).
     expect(out).toContain('repo/AGENTS.md')
@@ -27,9 +27,8 @@ describe('renderAgentAgentsMd', () => {
 describe('renderAgentClaudeMd', () => {
   it('carries the Quimby context and @-imports the repo CLAUDE.md tier', () => {
     const out = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(out).toContain('# Quimby Agent')
+    expect(out).toContain('one of several agents')
     expect(out).toContain('**alice**')
-    expect(out).toContain('agent-id-123')
     // Claude Code resolves @-imports, so the repo's own instructions load directly.
     expect(out).toContain('@repo/CLAUDE.md')
     expect(out.endsWith('\n')).toBe(true)
@@ -37,11 +36,13 @@ describe('renderAgentClaudeMd', () => {
 })
 
 describe('renderQuimbyContext', () => {
-  it('substitutes the agent name and id, leaking no template tokens', () => {
+  it('substitutes the agent name work-first, leaks no tokens, and omits framework identity', () => {
     const out = renderQuimbyContext({ agentName: 'my-agent', agentId: 'agent-id-123' })
     expect(out).toContain('**my-agent**')
-    expect(out).toContain('agent-id-123')
     expect(out).not.toContain('{{')
+    // The agent no longer wears a framework meta-identity or its plumbing UUID.
+    expect(out).not.toContain('# Quimby Agent')
+    expect(out).not.toContain('agent-id-123')
   })
 
   it('teaches the handoff mailbox tree and the atomic author-then-publish move', () => {
