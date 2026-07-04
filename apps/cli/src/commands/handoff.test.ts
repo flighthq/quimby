@@ -31,7 +31,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('run', () => {
+describe('runHandoffCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./handoff')
     expect(typeof cmd.run).toBe('function')

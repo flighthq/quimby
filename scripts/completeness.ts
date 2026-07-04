@@ -17,6 +17,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const packagesDir = join(root, 'packages')
 const verbose = process.argv.includes('--verbose')
 const jsonMode = process.argv.includes('--json')
+// `--require-files` gates on the firm invariant only: every logic-bearing source file
+// must have a colocated test file. Uncovered exports (the softer describe-per-function
+// rule) stay informational even in this mode. `check` runs it; `exports:check` doesn't.
+const requireFiles = process.argv.includes('--require-files')
 
 const results: FileCoverage[] = []
 
@@ -44,6 +48,19 @@ for (const sourcePath of findSourceFiles(sourceRoots())) {
 }
 
 report(results)
+
+if (requireFiles && !jsonMode) {
+  const missing = results.filter((r) => r.missingTestFile)
+  if (missing.length > 0) {
+    console.error(
+      pc.red(
+        `\n✗ ${missing.length} source file(s) missing a colocated test file — ` +
+          `add one per the one-test-file-per-source convention.`,
+      ),
+    )
+    process.exit(1)
+  }
+}
 
 // The src/ roots that carry logic worth covering: every package plus the CLI app.
 // apps/cli/src is included so the command layer isn't a governance blind spot.

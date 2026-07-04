@@ -32,7 +32,7 @@ function workspace(agents: Record<string, { location: AgentLocation }>) {
   return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
-describe('run', () => {
+describe('runSetCommand', () => {
   it('is a function', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./set')

@@ -52,9 +52,12 @@ Adapted from the sibling `flight` repo. They make written conventions executable
 | --- | --- | --- | --- |
 | `packages.ts` | `npm run packages:check` | per-package invariants: `src/index.ts` + `tsconfig.json` + `vitest.config.ts` exist; `private: true`; `type: module`; `build`/`typecheck`/`clean` scripts are the `tsc -b` forms; registered in `tsconfig.base.json` paths **and** `tsconfig.build.json` references; internal deps pin `"*"`; export targets resolve to real source | **Yes — gates** |
 | `order.ts` | `npm run order:check` / `order:fix` | top-level `describe` blocks in test files are alphabetized | **Yes — gates**; `--fix` reorders |
-| `completeness.ts` | `npm run exports:check` | every exported function has a colocated `describe(fnName)` block | **No — informational** |
+| `completeness.ts` | `npm run test-files:check` | every logic-bearing source file has a colocated `*.test.ts` (the firm invariant) | **Yes — gates** (`--require-files`) |
+| `completeness.ts` | `npm run exports:check` | additionally, every exported function has a colocated `describe(fnName)` block | **No — informational** |
 
-`order` deliberately covers only `describe` blocks, **not** source-export order: the source-ordering convention is soft ("unless local readability strongly requires"), so it is not hard-gated. `exports:check` is informational because closing every pre-existing coverage gap is out of scope; `--json` mode exits non-zero for opt-in CI enforcement.
+`order` deliberately covers only `describe` blocks, **not** source-export order: the source-ordering convention is soft ("unless local readability strongly requires"), so it is not hard-gated.
+
+`completeness.ts` scans every package `src/` **and** `apps/cli/src` (so the command layer is not a blind spot; `index.ts`/`internal.ts`/`cli.ts` are exempt as barrels/entrypoint). It splits into two tiers deliberately: the **missing-test-file** half is a firm invariant, so `test-files:check` (`--require-files`) gates `check` — a new source file with no test at all fails the build. The softer **describe-per-exported-function** half stays informational via `exports:check`, because closing every pre-existing describe gap is out of scope; `--json` mode exits non-zero for opt-in CI enforcement of the stricter rule.
 
 Adding a package? `packages:check` will tell you exactly what is missing (`tsconfig.build.json` reference, base-paths entry, scripts, etc.).
 

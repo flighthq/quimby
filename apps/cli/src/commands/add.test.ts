@@ -44,7 +44,7 @@ afterEach(() => {
   addAgent.mockClear()
 })
 
-describe('run', () => {
+describe('runAddCommand', () => {
   it('is a function', () => {
     expect(typeof cmd.run).toBe('function')
   })

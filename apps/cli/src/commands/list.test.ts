@@ -7,7 +7,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   }),
 }))
 
-describe('run', () => {
+describe('runListCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./list')
     expect(typeof cmd.run).toBe('function')

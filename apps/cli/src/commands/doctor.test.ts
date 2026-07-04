@@ -48,7 +48,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 
 import cmd from './doctor'
 
-describe('doctor', () => {
+describe('runDoctorCommand', () => {
   it('is a function', () => {
     expect(typeof cmd.run).toBe('function')
   })

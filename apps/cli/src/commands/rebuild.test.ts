@@ -20,7 +20,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   })),
 }))
 
-describe('run', () => {
+describe('runRebuildCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./rebuild')
     expect(typeof cmd.run).toBe('function')

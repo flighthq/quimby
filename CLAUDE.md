@@ -67,9 +67,10 @@ npm run ci            # build + check + test (full gate)
 Governance scripts (see build-and-tooling.md for what each enforces):
 
 ```bash
-npm run packages:check  # per-package structure/registration invariants (gates check)
-npm run order:check     # describe blocks alphabetized (gates check); order:fix to repair
-npm run exports:check   # describe-per-exported-function coverage (informational)
+npm run packages:check   # per-package structure/registration invariants (gates check)
+npm run order:check      # describe blocks alphabetized (gates check); order:fix to repair
+npm run test-files:check # every source file has a colocated *.test.ts (gates check)
+npm run exports:check    # additionally, describe-per-exported-function coverage (informational)
 ```
 
 ## Conventions

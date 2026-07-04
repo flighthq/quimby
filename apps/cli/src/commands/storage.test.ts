@@ -20,21 +20,7 @@ import cmd, {
   runStorageRemoveCommand,
 } from './storage'
 
-describe('storage', () => {
-  it('is a command', () => {
-    expect((cmd.meta as { name?: string })?.name).toBe('storage')
-  })
-
-  it('prints the durable path for the current workspace', async () => {
-    resolveWorkspace.mockResolvedValueOnce({ state: { id: 'proj-id' }, repoRoot: '/repo' })
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    await runStoragePathCommand()
-
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('proj-id'))
-    log.mockRestore()
-  })
-
+describe('runStorageListCommand', () => {
   it('lists durable workspaces', async () => {
     listStorageWorkspaces.mockResolvedValueOnce([
       {
@@ -54,7 +40,25 @@ describe('storage', () => {
     expect(log).toHaveBeenCalledWith('  repo: /repo')
     log.mockRestore()
   })
+})
 
+describe('runStoragePathCommand', () => {
+  it('is wired as the storage command', () => {
+    expect((cmd.meta as { name?: string })?.name).toBe('storage')
+  })
+
+  it('prints the durable path for the current workspace', async () => {
+    resolveWorkspace.mockResolvedValueOnce({ state: { id: 'proj-id' }, repoRoot: '/repo' })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await runStoragePathCommand()
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('proj-id'))
+    log.mockRestore()
+  })
+})
+
+describe('runStoragePruneCommand', () => {
   it('previews prune unless forced', async () => {
     pruneStorageWorkspaces.mockResolvedValueOnce([{ id: 'old', path: '/data/old' }])
 
@@ -62,7 +66,9 @@ describe('storage', () => {
 
     expect(pruneStorageWorkspaces).toHaveBeenCalledWith({ force: false })
   })
+})
 
+describe('runStorageRemoveCommand', () => {
   it('requires force for explicit removal', async () => {
     await expect(
       runStorageRemoveCommand({ args: { id: 'proj-id', force: false } }),

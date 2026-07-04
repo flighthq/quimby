@@ -27,7 +27,7 @@ afterEach(() => {
   resolved = workspace({})
 })
 
-describe('run', () => {
+describe('runAssignCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./assign')
     expect(typeof cmd.run).toBe('function')

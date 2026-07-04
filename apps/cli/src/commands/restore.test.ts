@@ -48,7 +48,7 @@ vi.mock('execa', () => ({ execa: vi.fn(async () => ({ stdout: 'main' })) }))
 
 import cmd, { runRestoreCommand } from './restore'
 
-describe('restore', () => {
+describe('runRestoreCommand', () => {
   it('is a command', () => {
     expect((cmd.meta as { name?: string })?.name).toBe('restore')
   })

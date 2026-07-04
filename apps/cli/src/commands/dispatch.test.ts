@@ -29,7 +29,7 @@ afterEach(() => {
   resolved = workspace({})
 })
 
-describe('run', () => {
+describe('runDispatchCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./dispatch')
     expect(typeof cmd.run).toBe('function')

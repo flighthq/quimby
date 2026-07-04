@@ -51,7 +51,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 
 import cmd from './up'
 
-describe('up', () => {
+describe('runUpCommand', () => {
   it('is a function', () => {
     expect(typeof cmd.run).toBe('function')
   })

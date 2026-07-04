@@ -22,7 +22,7 @@ function workspace(agents: Record<string, unknown>) {
   return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
-describe('run', () => {
+describe('runRenameCommand', () => {
   it('is a function', async () => {
     resolved = workspace({})
     const { default: cmd } = await import('./rename')

@@ -87,7 +87,7 @@ afterEach(() => {
   else process.env.TMUX = savedTmux
 })
 
-describe('run', () => {
+describe('runRunCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./run')
     expect(typeof cmd.run).toBe('function')

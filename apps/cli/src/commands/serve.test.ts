@@ -21,7 +21,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   resolveWorkspace: vi.fn(() => resolveWorkspaceImpl()),
 }))
 
-describe('run', () => {
+describe('runServeCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./serve')
     expect(typeof cmd.run).toBe('function')

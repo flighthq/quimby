@@ -22,7 +22,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('run', () => {
+describe('runSyncCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./sync')
     expect(typeof cmd.run).toBe('function')

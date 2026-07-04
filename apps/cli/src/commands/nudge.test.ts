@@ -12,7 +12,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   resolveWorkspace: vi.fn(async () => resolved),
 }))
 
-describe('run', () => {
+describe('runNudgeCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./nudge')
     expect(typeof cmd.run).toBe('function')

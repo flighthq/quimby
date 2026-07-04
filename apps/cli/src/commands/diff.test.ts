@@ -11,7 +11,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   }),
 }))
 
-describe('run', () => {
+describe('runDiffCommand', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./diff')
     expect(typeof cmd.run).toBe('function')
