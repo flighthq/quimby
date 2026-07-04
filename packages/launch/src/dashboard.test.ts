@@ -70,14 +70,18 @@ describe('buildDashboardPlan', () => {
     expect(flat).toContain('set-option -t dash @quimby-root /repo')
   })
 
-  it('sets activity/silence monitoring and the tab-status formats', () => {
+  it('sets quiet activity/silence monitoring and icon tab-status formats', () => {
     const flat = buildDashboardPlan('dash', '/c', windows)
       .commands.map((c) => c.join(' '))
       .join('\n')
     expect(flat).toContain('set-option -t dash monitor-activity on')
     expect(flat).toContain('set-option -t dash monitor-silence 30')
-    expect(flat).toContain('window-status-format')
-    expect(flat).toContain('window-status-current-format')
+    expect(flat).toContain('set-option -t dash activity-action none')
+    expect(flat).toContain('set-option -t dash silence-action none')
+    expect(flat).toContain('○')
+    expect(flat).toContain('◐')
+    expect(flat).toContain('●')
+    expect(flat).toContain('bg=colour24')
   })
 
   it('ends with a select-window and returns the attach invocation', () => {

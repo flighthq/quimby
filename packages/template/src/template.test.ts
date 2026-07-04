@@ -146,6 +146,19 @@ describe('renderTmuxConfig', () => {
       conf.indexOf('bind c new-window'),
     )
   })
+
+  it('suppresses tmux alert sounds and visual popups after the user config is sourced', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('bell-action none')
+    expect(conf).toContain('activity-action none')
+    expect(conf).toContain('silence-action none')
+    expect(conf).toContain('visual-bell off')
+    expect(conf).toContain('visual-activity off')
+    expect(conf).toContain('visual-silence off')
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.indexOf('bell-action none'),
+    )
+  })
 })
 
 describe('renderVerifyRequest', () => {

@@ -426,17 +426,15 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
   )
 }
 
-// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Color
-// tracks *attention*, not just state: an agent going quiet (silence → settled, likely waiting
-// on you) is the notable event, so it gets green-bold; ongoing work stays neutral grey so
-// non-selected active tabs do not visually outrank the selected tab; idle is darker grey; a
-// dead agent (process exited, pane held by remain-on-exit) is red so it reads as "stopped",
-// not a glitch.
+// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Icons
+// carry state so colour can stay gentle: open circle = idle, half circle = recently active,
+// filled circle = quiet after activity, × = exited. The selected tab is the only filled tab.
 const AGENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour244] #W }}}'
+  '#{?pane_dead,#[fg=colour131]× #[fg=colour244]#W ,#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}}'
 const HOST_WINDOW_FMT =
-  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour248] #W }}'
-const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
+  '#{?window_silence_flag,#[fg=colour108]● #[fg=colour248]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour248]#W ,#[fg=colour240]○ #[fg=colour248]#W }}'
+const CURRENT_WINDOW_FMT =
+  '#{?pane_dead,#[fg=colour231,bg=colour24,bold]× #W ,#{?window_silence_flag,#[fg=colour231,bg=colour24,bold]● #W ,#{?window_activity_flag,#[fg=colour231,bg=colour24,bold]◐ #W ,#[fg=colour231,bg=colour24,bold]○ #W }}}'
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
 const PANEL_STATUS_RIGHT =
@@ -906,6 +904,12 @@ async function styleDashboard(
   // fires once — one green flash per activity burst, no re-triggering on idle windows.
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'bell-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'activity-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'silence-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
   await execa('tmux', [
@@ -1236,6 +1240,12 @@ async function stylePanelDashboard(
   // dashboard). The strips live on the inner view sessions; these hooks drive them.
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
   await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'bell-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'activity-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'silence-action', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
   await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-activity', 'set-window-option monitor-silence 30']) // prettier-ignore
   await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-silence', 'set-window-option monitor-silence 0']) // prettier-ignore
 

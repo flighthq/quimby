@@ -230,11 +230,16 @@ function envArgs(window: Readonly<WindowSpec>): string[] {
 const MONITOR_OPTS: [string, string][] = [
   ['monitor-activity', 'on'],
   ['monitor-silence', '30'],
+  ['bell-action', 'none'],
+  ['activity-action', 'none'],
+  ['silence-action', 'none'],
+  ['visual-bell', 'off'],
   ['visual-activity', 'off'],
   ['visual-silence', 'off'],
 ]
 
-// Tmux conditional format: silence → green, activity → neutral grey, default → grey.
+// Tmux conditional format: ● quiet, ◐ active, ○ idle.
 const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour244] #W }}'
-const WINDOW_STATUS_CURRENT_FORMAT = '#[fg=colour231,bg=colour238,bold] #W '
+  '#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}'
+const WINDOW_STATUS_CURRENT_FORMAT =
+  '#{?window_silence_flag,#[fg=colour231,bg=colour24,bold]● #W ,#{?window_activity_flag,#[fg=colour231,bg=colour24,bold]◐ #W ,#[fg=colour231,bg=colour24,bold]○ #W }}'
