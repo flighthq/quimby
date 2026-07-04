@@ -41,9 +41,7 @@ quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start 
 
 ## Planned (not yet implemented)
 
-```
-quimby assign <agent> --status <agent>    Embed another agent's status in assignment
-```
+Nothing is currently pending here — every command in the reference above is implemented. (An earlier `quimby assign <agent> --status <agent>` idea, embedding a peer's status into an assignment, was dropped: pushing one agent's status to another is served by `quimby status <from> --to <agent>`, and an assignment is the user's authoritative task, not a place to inline a peer's transient status.)
 
 ### Advisory checks: cooperative self-attestation
 

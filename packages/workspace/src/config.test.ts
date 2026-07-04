@@ -1,12 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { getLocalConfigPath, getProjectConfigPath } from '@quimbyhq/paths'
+import { getLocalConfigPath, getProjectConfigPath, getUserConfigDir } from '@quimbyhq/paths'
 import { writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
 import { describe, expect, it } from 'vitest'
 
 import {
+  getUserConfigPath,
   isHostAliasBound,
   loadQuimbyConfig,
   mergeConfigs,
@@ -67,6 +68,14 @@ const config = {
     gpu: { type: 'ssh' as const, host: 'me@gpu', port: 2222, base: '/srv/quimby' },
   },
 }
+
+describe('getUserConfigPath', () => {
+  it('names config.yaml under the user config dir', () => {
+    const path = getUserConfigPath()
+    expect(path).toBe(join(getUserConfigDir(), 'config.yaml'))
+    expect(path.endsWith('config.yaml')).toBe(true)
+  })
+})
 
 describe('isHostAliasBound', () => {
   it('treats a real address as bound', () => {
@@ -182,27 +191,28 @@ describe('mergeConfigs', () => {
   })
 })
 
-describe('quimby config helpers', () => {
-  it('merges defaults into a role and lets the role override fields', () => {
-    expect(resolveRole(config, 'builder')).toMatchObject({
-      runtime: 'sbx',
-      runtimeProfile: 'sbxClaude',
-      entrypoint: 'claude',
-      check: { command: 'npm run ci', verifyByDefault: false },
-      tmux: true,
-    })
-  })
-
-  it('normalizes a string check into a check object', () => {
+describe('normalizeCheck', () => {
+  it('wraps a string check into a command object', () => {
+    expect(normalizeCheck('npm run lint')).toEqual({ command: 'npm run lint' })
     expect(normalizeCheck(resolveRole(config, 'reviewer').check)).toEqual({
       command: 'npm run lint',
     })
   })
 
-  it('resolves configured-agent shorthand to a role reference', () => {
-    expect(resolveConfiguredAgent(config, 'builder')).toEqual({ role: 'builder' })
+  it('passes a check object through unchanged', () => {
+    expect(normalizeCheck({ command: 'npm test', verifyByDefault: true })).toEqual({
+      command: 'npm test',
+      verifyByDefault: true,
+    })
   })
 
+  it('returns undefined for an unset check but wraps an empty-string command', () => {
+    expect(normalizeCheck(undefined)).toBeUndefined()
+    expect(normalizeCheck('')).toEqual({ command: '' })
+  })
+})
+
+describe('resolveAgentRoleConfig', () => {
   it('resolves agent config as defaults + role + per-agent overrides', () => {
     expect(
       resolveAgentRoleConfig(config, {
@@ -218,36 +228,12 @@ describe('quimby config helpers', () => {
     })
   })
 
-  it('resolves layouts directly and through a preset', () => {
-    expect(resolveLayoutExpr(config, 'review')).toBe('reviewer | (builder integration) / ($ $):30')
-    expect(resolvePresetLayout(config, 'loop')).toBe('reviewer | (builder integration) / ($ $):30')
-  })
-
-  it('throws a clear error when a preset references an undefined layout', () => {
-    const cfg = { layouts: { real: 'a | b' }, presets: { p: { layout: 'typo' } } }
-    expect(() => resolvePresetLayout(cfg, 'p')).toThrow(
-      /references layout "typo", which is not defined.*defined: real/,
-    )
-  })
-
-  it('allows a preset to inline an expression via the object form', () => {
-    const cfg = { presets: { p: { layout: { expr: 'a | b' } } } }
-    expect(resolvePresetLayout(cfg, 'p')).toBe('a | b')
-  })
-
-  it('returns raw expressions when no saved layout exists', () => {
-    expect(resolveLayoutExpr(config, 'a | b')).toBe('a | b')
-  })
-
-  it('resolves presets and host aliases', () => {
-    expect(Object.keys(resolvePreset(config, 'loop').agents ?? {})).toEqual(['builder', 'reviewer'])
-    expect(resolveHostAlias(config, 'gpu')).toMatchObject({ host: 'me@gpu', port: 2222 })
-  })
-
-  it('throws for missing roles, presets, and host aliases', () => {
-    expect(() => resolveRole(config, 'missing')).toThrow('Role "missing" not found')
-    expect(() => resolvePreset(config, 'missing')).toThrow('Preset "missing" not found')
-    expect(() => resolveHostAlias(config, 'missing')).toThrow('Host alias "missing" not found')
+  it('falls back to bare defaults when the agent names no role', () => {
+    expect(resolveAgentRoleConfig(config, undefined)).toMatchObject({
+      runtime: 'local',
+      entrypoint: 'claude',
+      check: { command: 'npm test', verifyByDefault: false },
+    })
   })
 })
 
@@ -260,6 +246,99 @@ describe('resolveBoundHostAlias', () => {
   it('returns null for an unbound or undeclared alias', () => {
     expect(resolveBoundHostAlias({ hosts: { remote: { host: 'remote' } } }, 'remote')).toBeNull()
     expect(resolveBoundHostAlias({}, 'remote')).toBeNull()
+  })
+})
+
+describe('resolveConfiguredAgent', () => {
+  it('wraps a string shorthand as a role reference', () => {
+    expect(resolveConfiguredAgent(config, 'builder')).toEqual({ role: 'builder' })
+  })
+
+  it('returns an empty object for an undefined agent', () => {
+    expect(resolveConfiguredAgent(config, undefined)).toEqual({})
+  })
+
+  it('passes an object agent through unchanged', () => {
+    const agent = { role: 'builder', runtime: 'local' }
+    expect(resolveConfiguredAgent(config, agent)).toBe(agent)
+  })
+})
+
+describe('resolveHostAlias', () => {
+  it('returns the declared alias config', () => {
+    expect(resolveHostAlias(config, 'gpu')).toMatchObject({ host: 'me@gpu', port: 2222 })
+  })
+
+  it('returns undefined when no alias is requested', () => {
+    expect(resolveHostAlias(config, undefined)).toBeUndefined()
+  })
+
+  it('throws for an unknown alias', () => {
+    expect(() => resolveHostAlias(config, 'missing')).toThrow('Host alias "missing" not found')
+  })
+})
+
+describe('resolveLayoutExpr', () => {
+  it('resolves a named layout to its expression', () => {
+    expect(resolveLayoutExpr(config, 'review')).toBe('reviewer | (builder integration) / ($ $):30')
+  })
+
+  it('resolves the object layout form to its expr', () => {
+    expect(resolveLayoutExpr({ layouts: { r: { expr: 'a | b' } } }, 'r')).toBe('a | b')
+  })
+
+  it('passes an unknown name through as a raw expression', () => {
+    expect(resolveLayoutExpr(config, 'a | b')).toBe('a | b')
+  })
+})
+
+describe('resolvePreset', () => {
+  it('returns the named preset', () => {
+    expect(Object.keys(resolvePreset(config, 'loop').agents ?? {})).toEqual(['builder', 'reviewer'])
+  })
+
+  it('throws for an unknown preset', () => {
+    expect(() => resolvePreset(config, 'missing')).toThrow('Preset "missing" not found')
+  })
+})
+
+describe('resolvePresetLayout', () => {
+  it('resolves a preset to its referenced layout expression', () => {
+    expect(resolvePresetLayout(config, 'loop')).toBe('reviewer | (builder integration) / ($ $):30')
+  })
+
+  it('inlines an expression given via the object form', () => {
+    const cfg = { presets: { p: { layout: { expr: 'a | b' } } } }
+    expect(resolvePresetLayout(cfg, 'p')).toBe('a | b')
+  })
+
+  it('throws when a preset references an undefined layout', () => {
+    const cfg = { layouts: { real: 'a | b' }, presets: { p: { layout: 'typo' } } }
+    expect(() => resolvePresetLayout(cfg, 'p')).toThrow(
+      /references layout "typo", which is not defined.*defined: real/,
+    )
+  })
+
+  it('throws when a preset carries no layout', () => {
+    expect(() => resolvePresetLayout({ presets: { p: {} } }, 'p')).toThrow(
+      'Preset "p" has no layout',
+    )
+  })
+})
+
+describe('resolveRole', () => {
+  it('merges defaults into a role and lets the role override fields', () => {
+    expect(resolveRole(config, 'builder')).toMatchObject({
+      runtime: 'sbx',
+      runtimeProfile: 'sbxClaude',
+      entrypoint: 'claude',
+      check: { command: 'npm run ci', verifyByDefault: false },
+      tmux: true,
+    })
+  })
+
+  it('throws for an unknown role', () => {
+    expect(() => resolveRole(config, 'missing')).toThrow('Role "missing" not found')
   })
 })
 

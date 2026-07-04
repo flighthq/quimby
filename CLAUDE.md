@@ -56,8 +56,8 @@ npm install
 npm run build         # tsc -b project references (libs) + tsup (CLI binary)
 npm run build:libs    # tsc -b tsconfig.build.json (libraries only)
 npm run typecheck     # tsc -b --noEmit
-npm test              # vitest (watch)
-npm run test:run      # vitest run (no watch)
+npm test              # vitest run (no watch)
+npm run test:watch    # vitest (watch mode)
 npm run test:coverage # vitest run with coverage
 npm run fix           # order:fix + lint:fix + format (auto-fix all)
 npm run check         # packages:check + typecheck + lint + format check + order:check
@@ -136,4 +136,4 @@ See design.md for the full CLI surface, handoff lifecycle, apply/sync/rebuild se
 
 - One test file per source file, colocated in `src/`, named `*.test.ts`
 - `describe` blocks alphabetized, mirroring exported function or object names
-- Use `npm run test:run` for a single non-watch pass; `npm run test:coverage` to check coverage
+- Use `npm test` for a single non-watch pass (`npm run test:watch` to watch); `npm run test:coverage` to check coverage

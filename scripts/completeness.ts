@@ -20,7 +20,7 @@ const jsonMode = process.argv.includes('--json')
 
 const results: FileCoverage[] = []
 
-for (const sourcePath of findSourceFiles(packagesDir)) {
+for (const sourcePath of findSourceFiles(sourceRoots())) {
   const exports = getFunctionExports(sourcePath)
   if (exports.length === 0) continue
 
@@ -45,14 +45,21 @@ for (const sourcePath of findSourceFiles(packagesDir)) {
 
 report(results)
 
-// Every non-test, non-barrel source file under a package's src/ is a candidate;
-// index.ts and internal.ts are barrels/private and exempt.
-function findSourceFiles(dir: string): string[] {
+// The src/ roots that carry logic worth covering: every package plus the CLI app.
+// apps/cli/src is included so the command layer isn't a governance blind spot.
+function sourceRoots(): string[] {
+  const roots = readdirSync(packagesDir, { withFileTypes: true })
+    .filter((pkg) => pkg.isDirectory())
+    .map((pkg) => join(packagesDir, pkg.name, 'src'))
+  roots.push(join(root, 'apps', 'cli', 'src'))
+  return roots
+}
+
+// Every non-test, non-barrel source file under a scanned src/ is a candidate;
+// index.ts, internal.ts, and cli.ts (barrels/entrypoint) are exempt.
+function findSourceFiles(roots: string[]): string[] {
   const files: string[] = []
-  for (const pkg of readdirSync(dir, { withFileTypes: true })) {
-    if (!pkg.isDirectory()) continue
-    walk(join(dir, pkg.name, 'src'), files)
-  }
+  for (const src of roots) walk(src, files)
   return files.sort()
 }
 
@@ -66,7 +73,8 @@ function walk(dir: string, out: string[]): void {
       entry.name.endsWith('.ts') &&
       !entry.name.endsWith('.test.ts') &&
       entry.name !== 'index.ts' &&
-      entry.name !== 'internal.ts'
+      entry.name !== 'internal.ts' &&
+      entry.name !== 'cli.ts'
     ) {
       out.push(path)
     }
