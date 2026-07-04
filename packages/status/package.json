@@ -1,5 +1,5 @@
 {
-  "name": "@quimbyhq/launch",
+  "name": "@quimbyhq/status",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,18 +19,11 @@
     "clean": "tsc -b --clean"
   },
   "dependencies": {
-    "@quimbyhq/agent": "*",
-    "@quimbyhq/errors": "*",
     "@quimbyhq/paths": "*",
-    "@quimbyhq/reporter": "*",
-    "@quimbyhq/runtime-profile": "*",
-    "@quimbyhq/runtimes": "*",
-    "@quimbyhq/status": "*",
-    "@quimbyhq/template": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",
-    "@quimbyhq/workspace": "*"
+    "pathe": "^2.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

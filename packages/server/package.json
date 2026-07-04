@@ -24,6 +24,7 @@
     "@quimbyhq/paths": "*",
     "@quimbyhq/reporter": "*",
     "@quimbyhq/session": "*",
+    "@quimbyhq/status": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",

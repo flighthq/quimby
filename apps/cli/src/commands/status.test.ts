@@ -5,7 +5,7 @@ vi.mock('@quimbyhq/session', () => ({
 }))
 
 const deliverStatusSnapshot = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('@quimbyhq/server', async (importOriginal) => ({
+vi.mock('@quimbyhq/status', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   deliverStatusSnapshot,
 }))

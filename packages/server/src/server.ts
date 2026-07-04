@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { getQuimbyDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
+import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { writeText } from '@quimbyhq/utils'
 import { loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
@@ -79,6 +80,16 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
 
       for (const name of Object.keys(state.agents)) {
         await pollAgentStatus(repoRoot, state, name, statusCache, reporter)
+      }
+      // Reconcile every agent's peer roster each cycle: guarantees a file per current peer
+      // (placeholder until the poller delivers real content) and sweeps rename/remove orphans.
+      // Per-agent guard so one unreachable SSH owner never aborts the whole cycle.
+      for (const name of Object.keys(state.agents)) {
+        try {
+          await reconcileAgentStatusMirror(repoRoot, state, name)
+        } catch (err) {
+          reporter.warn(`[${name}] roster reconcile failed: ${err}`)
+        }
       }
       if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter)
     } catch (err) {

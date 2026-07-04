@@ -66,7 +66,9 @@ describe('getFileMtime', () => {
 })
 
 describe('pollAgentStatus', () => {
-  it('seeds the cache on first sighting without mirroring (no spam on server start)', async () => {
+  it('seeds the cache and mirrors on first sighting, so a newly-seen agent is not swallowed', async () => {
+    // A brand-new agent (or one that wrote a substantive status before the server started) is
+    // seen exactly once as "new"; that first sighting must flow to peers, not be swallowed.
     await writeStatus('b1', 'working')
     await mkdir(getAgentStatusMirrorDir(dir, 'r1'), { recursive: true })
     const cache = new Map<string, StatusSnapshot>()
@@ -79,7 +81,9 @@ describe('pollAgentStatus', () => {
     )
 
     expect(cache.get('backend')?.content).toBe('working')
-    expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(false)
+    const mirrored = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
+    expect(mirrored).toContain('working')
+    expect(mirrored).toContain('# Status: backend')
   })
 
   it('mirrors a changed status into every other agent, no subscription needed', async () => {

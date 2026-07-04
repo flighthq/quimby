@@ -16,6 +16,7 @@ import {
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getRuntime } from '@quimbyhq/runtimes'
+import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
@@ -114,6 +115,9 @@ export async function prepareSshLaunch(
   try {
     await configureRemoteAgentIdentity(transport, rRepoDir, agent.name, repoRoot)
     await writeRemoteAgentInstructions(transport, rAgentDir, instructionOpts)
+    // Seed this remote agent's peer roster so `ls status/` is correct even with no server —
+    // a placeholder per current peer, orphans swept. Idempotent; the poller refreshes content.
+    await reconcileAgentStatusMirror(repoRoot, state, agent.name)
   } catch {
     // Advisory; leave whatever the remote clone already has.
   }

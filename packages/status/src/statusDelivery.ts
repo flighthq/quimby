@@ -5,11 +5,6 @@ import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
-/** The status-snapshot payload written to a recipient's `status/<from>.md` mirror. */
-export function formatStatusSnapshot(fromName: string, content: string, at: string): string {
-  return `# Status: ${fromName}\n\nUpdated: ${at}\n\n${content}\n`
-}
-
 /**
  * Deliver a status snapshot from `fromName` into `toAgent`'s `status/<fromName>.md` mirror — the
  * same slot the poller writes when it mirrors status to every agent. Shared by the server's

@@ -3,14 +3,13 @@ import { stat } from 'node:fs/promises'
 import { getAgentDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
+import { deliverStatusSnapshot, formatStatusSnapshot } from '@quimbyhq/status'
 import { getTransport } from '@quimbyhq/transport'
 import type { QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { exists, readText } from '@quimbyhq/utils'
 import { loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
-
-import { deliverStatusSnapshot, formatStatusSnapshot } from './statusDelivery'
 
 export interface StatusSnapshot {
   content: string
@@ -52,10 +51,12 @@ export async function pollAgentStatus(
     cache.set(name, { content, mtime })
   }
 
-  // First time we've seen this agent's status — seed the cache without routing.
-  if (!previous) return
-
-  reporter.info(`[${name}] Status changed`)
+  // Mirror on first sighting too, not just on change: an agent that wrote a substantive
+  // status.md before the server started (or the scaffold's initial `idle`) is seen exactly
+  // once as "new", and swallowing that first sighting left peers with no status for it until
+  // it happened to change again. The write is an idempotent overwrite, so re-mirroring the
+  // whole roster once on server (re)start is harmless.
+  reporter.info(`[${name}] Status ${previous ? 'changed' : 'seen'}`)
 
   const statusPayload = formatStatusSnapshot(name, content, new Date().toISOString())
 

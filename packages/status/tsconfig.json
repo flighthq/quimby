@@ -6,22 +6,7 @@
   },
   "references": [
     {
-      "path": "../agent"
-    },
-    {
-      "path": "../handoff"
-    },
-    {
       "path": "../paths"
-    },
-    {
-      "path": "../reporter"
-    },
-    {
-      "path": "../session"
-    },
-    {
-      "path": "../status"
     },
     {
       "path": "../transport"
@@ -31,9 +16,6 @@
     },
     {
       "path": "../utils"
-    },
-    {
-      "path": "../workspace"
     }
   ],
   "include": ["src"],

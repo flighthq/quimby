@@ -9,7 +9,7 @@ You are **{{agentName}}**, one of several agents working on this project in isol
   - `in/received/<sender>-<hash>/` — a delivered parcel (`meta.yaml`, optional `README.md` note, optional `squashed.diff`). Read its `README.md`, then move it to `in/processed/` when done.
   - `out/draft/<recipient>/` — author outgoing parcels here (not picked up).
   - `out/queued/<recipient>/` — publish a draft by moving it here (one atomic `mv`).
-- `status/<peer>.md` — other agents' latest status, mirrored for you. Run `ls status/` to see who's around; read one when you need a peer's state.
+- `status/<peer>.md` — other agents' latest status, mirrored for you. Run `ls status/` to see who's around; read one when you need a peer's state. Every current agent has a file here (a placeholder until it reports), so this is the full roster of who you can address — whether or not that peer is running right now.
 
 ## Working
 
@@ -28,6 +28,8 @@ Use the handoff and status lanes on your own initiative — ask, answer, share s
 ## Sending work
 
 Author under `out/draft/<recipient>/` (a `README.md` note + any files), then publish with one atomic move into `out/queued/`: `mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>`. Your committed work attaches automatically; to attach another agent's diff, add frontmatter to the note (`---` / `attach: builder` / `---`). The user runs `quimby dispatch {{agentName}}` (and the server auto-dispatches) to deliver queued parcels.
+
+You can address **any** agent in `status/` — the recipient does **not** need to be running. Delivery lands in its inbox and it's picked up whenever it next runs; a stopped recipient just isn't woken immediately. So never decline to send because a peer "isn't running" — queue it anyway.
 
 ## Verify
 

@@ -8,6 +8,7 @@ import {
   tmuxSessionName,
 } from '@quimbyhq/paths'
 import { buildContext, getRuntime } from '@quimbyhq/runtimes'
+import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import { sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RunSpec } from '@quimbyhq/types'
@@ -118,6 +119,9 @@ export async function prepareLocalTmuxLaunch(
       agentName: agent.name,
       agentId: agent.id,
     })
+    // Seed this agent's peer roster so `ls status/` is correct even with no server running —
+    // a placeholder per current peer, orphans swept. Idempotent; the poller refreshes content.
+    await reconcileAgentStatusMirror(repoRoot, state, agent.name)
   } catch {
     // Advisory; leave whatever the clone already has.
   }

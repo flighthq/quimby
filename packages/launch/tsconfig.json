@@ -11,6 +11,7 @@
     { "path": "../reporter" },
     { "path": "../runtime-profile" },
     { "path": "../runtimes" },
+    { "path": "../status" },
     { "path": "../template" },
     { "path": "../transport" },
     { "path": "../types" },

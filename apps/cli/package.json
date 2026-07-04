@@ -39,6 +39,7 @@
     "@quimbyhq/runtimes": "*",
     "@quimbyhq/server": "*",
     "@quimbyhq/session": "*",
+    "@quimbyhq/status": "*",
     "@quimbyhq/template": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",

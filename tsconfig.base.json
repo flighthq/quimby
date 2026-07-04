@@ -39,6 +39,8 @@
       "@quimbyhq/runtime-profile/*": ["./packages/runtime-profile/src/*"],
       "@quimbyhq/session": ["./packages/session/src/index.ts"],
       "@quimbyhq/session/*": ["./packages/session/src/*"],
+      "@quimbyhq/status": ["./packages/status/src/index.ts"],
+      "@quimbyhq/status/*": ["./packages/status/src/*"],
       "@quimbyhq/workspace": ["./packages/workspace/src/index.ts"],
       "@quimbyhq/workspace/*": ["./packages/workspace/src/*"],
       "@quimbyhq/agent": ["./packages/agent/src/index.ts"],

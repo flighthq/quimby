@@ -12,6 +12,7 @@
     { "path": "./packages/runtimes" },
     { "path": "./packages/runtime-profile" },
     { "path": "./packages/session" },
+    { "path": "./packages/status" },
     { "path": "./packages/workspace" },
     { "path": "./packages/agent" },
     { "path": "./packages/handoff" },

@@ -6,7 +6,8 @@ import { getAgentStatusMirrorDir } from '@quimbyhq/paths'
 import type { AgentState } from '@quimbyhq/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { deliverStatusSnapshot, formatStatusSnapshot } from './statusDelivery'
+import { deliverStatusSnapshot } from './statusDelivery'
+import { formatStatusSnapshot } from './statusSnapshot'
 
 let dir: string
 
@@ -37,13 +38,5 @@ describe('deliverStatusSnapshot', () => {
     )
     expect(written).toBe(payload)
     expect(written).toContain('halfway done')
-  })
-})
-
-describe('formatStatusSnapshot', () => {
-  it('renders the status routing payload with the source name and timestamp', () => {
-    expect(formatStatusSnapshot('builder', 'body', '2026-07-02T00:00:00.000Z')).toBe(
-      '# Status: builder\n\nUpdated: 2026-07-02T00:00:00.000Z\n\nbody\n',
-    )
   })
 })
