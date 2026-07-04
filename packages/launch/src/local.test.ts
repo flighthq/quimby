@@ -7,7 +7,10 @@ const runSpec = vi.hoisted(() =>
 const writeText = vi.hoisted(() => vi.fn(async () => {}))
 
 const setup = vi.hoisted(() => vi.fn(async () => {}))
+const configureLocalAgentIdentity = vi.hoisted(() => vi.fn(async () => {}))
+const writeAgentInstructions = vi.hoisted(() => vi.fn(async () => {}))
 
+vi.mock('@quimbyhq/agent', () => ({ configureLocalAgentIdentity, writeAgentInstructions }))
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
   runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
@@ -38,7 +41,7 @@ vi.mock('@quimbyhq/workspace', () => ({
 import { localNewSessionArgs, prepareLocalTmuxLaunch } from './local'
 
 function state(): QuimbyState {
-  return { id: 'proj', sourceRef: 'main', agents: {}, subscriptions: {} } as QuimbyState
+  return { id: 'proj', sourceRef: 'main', agents: {} } as QuimbyState
 }
 
 const sampleAgent = { id: 'a1', name: 'builder', location: { type: 'local' } } as never
@@ -99,6 +102,17 @@ describe('prepareLocalTmuxLaunch', () => {
     expect(launch.shellCmd).toContain('pipe-pane')
     expect(launch.shellCmd).toContain('session.log')
     expect(writeText).toHaveBeenCalledOnce()
+    // Identity is re-applied from the host every launch, targeting the agent's own repo clone.
+    expect(configureLocalAgentIdentity).toHaveBeenCalledWith(
+      '/repo',
+      expect.stringContaining('agents/a1/repo'),
+      'builder',
+    )
+    // The Quimby-tier instruction files are refreshed every launch too.
+    expect(writeAgentInstructions).toHaveBeenCalledWith(expect.stringContaining('agents/a1'), {
+      agentName: 'builder',
+      agentId: 'a1',
+    })
   })
 
   it('rejects an unknown runtime', async () => {

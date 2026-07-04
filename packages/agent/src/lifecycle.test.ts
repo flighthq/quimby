@@ -276,19 +276,6 @@ describe('removeAgent', () => {
     await expect(removeAgent(dir, 'nonexistent')).rejects.toThrow('not found')
   })
 
-  it('scrubs the removed agent from subscriptions (key and target refs)', async () => {
-    await addAgent(dir, 'alice')
-    await addAgent(dir, 'bob')
-    const seeded = await loadState(dir)
-    seeded.subscriptions = { alice: ['bob'], bob: ['alice'] }
-    await saveState(dir, seeded)
-
-    await removeAgent(dir, 'alice')
-
-    // alice is gone as a subscriber key and as bob's target; bob's now-empty list is pruned.
-    expect((await loadState(dir)).subscriptions).toEqual({})
-  })
-
   it('removes the remote agent dir and deletes the state entry for an SSH agent', async () => {
     const { transport, calls } = fakeSSHTransport()
     mockedGetSSH.mockReturnValue(transport)
@@ -335,17 +322,5 @@ describe('renameAgent', () => {
     const state = await loadState(dir)
     expect(state.agents.bob).toBeDefined()
     expect(state.agents.alice).toBeUndefined()
-  })
-
-  it('follows the rename through subscription keys and target refs', async () => {
-    await addAgent(dir, 'alice')
-    await addAgent(dir, 'carol')
-    const seeded = await loadState(dir)
-    seeded.subscriptions = { alice: ['carol'], carol: ['alice'] }
-    await saveState(dir, seeded)
-
-    await renameAgent(dir, 'alice', 'bob')
-
-    expect((await loadState(dir)).subscriptions).toEqual({ bob: ['carol'], carol: ['bob'] })
   })
 })

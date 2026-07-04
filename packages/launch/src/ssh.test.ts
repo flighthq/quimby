@@ -1,4 +1,9 @@
-import { cloneAndSeedRemoteAgentRepo, writeRemoteAgentScaffold } from '@quimbyhq/agent'
+import {
+  cloneAndSeedRemoteAgentRepo,
+  configureRemoteAgentIdentity,
+  writeRemoteAgentInstructions,
+  writeRemoteAgentScaffold,
+} from '@quimbyhq/agent'
 import { collectingReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
@@ -15,6 +20,8 @@ vi.mock('@quimbyhq/transport', async (importOriginal) => ({
 // them correctly rather than re-checking their command strings.
 vi.mock('@quimbyhq/agent', () => ({
   cloneAndSeedRemoteAgentRepo: vi.fn(async () => 'seedsha123'),
+  configureRemoteAgentIdentity: vi.fn(async () => {}),
+  writeRemoteAgentInstructions: vi.fn(async () => {}),
   writeRemoteAgentScaffold: vi.fn(async () => {}),
   renderRemoteMailboxMigration: vi.fn((rAgentDir: string) => `migrate ${rAgentDir}`),
 }))
@@ -49,6 +56,8 @@ import { prepareSshLaunch } from './ssh'
 const mockedGetSSH = vi.mocked(getSSHTransport)
 const mockedClone = vi.mocked(cloneAndSeedRemoteAgentRepo)
 const mockedScaffold = vi.mocked(writeRemoteAgentScaffold)
+const mockedConfigureIdentity = vi.mocked(configureRemoteAgentIdentity)
+const mockedWriteInstructions = vi.mocked(writeRemoteAgentInstructions)
 const mockedSaveState = vi.mocked(saveState)
 
 function fakeSSHTransport(repoReady = false): SSHTransport {
@@ -74,7 +83,6 @@ function makeState(): QuimbyState {
         location: { type: 'ssh', host: 'user@box', base: '~' },
       },
     },
-    subscriptions: {},
   } as unknown as QuimbyState
 }
 
@@ -107,11 +115,10 @@ describe('prepareSshLaunch', () => {
       agentName: 'researcher',
       hostRepoRoot: '/repo',
     })
-    // Scaffolds with CLAUDE.md (a first-run agent needs its instructions).
+    // Scaffolds the remote agent dir (mailbox + baseline files + instruction files).
     expect(mockedScaffold).toHaveBeenCalledWith(transport, '~/.quimby/agents/r-id', {
       agentName: 'researcher',
       agentId: 'r-id',
-      withClaudeMd: true,
     })
 
     // The captured seed is persisted through saveState.
@@ -142,6 +149,19 @@ describe('prepareSshLaunch', () => {
     expect(mockedClone).not.toHaveBeenCalled()
     expect(mockedScaffold).not.toHaveBeenCalled()
     expect(mockedSaveState).not.toHaveBeenCalled()
+
+    // But the git identity and the Quimby-tier instructions are still re-applied every launch, so
+    // a host identity fix or newer instructions reach an already-provisioned agent without a rebuild.
+    expect(mockedConfigureIdentity).toHaveBeenCalledWith(
+      transport,
+      '~/.quimby/agents/r-id/repo',
+      expect.any(String),
+      expect.any(String),
+    )
+    expect(mockedWriteInstructions).toHaveBeenCalledWith(transport, '~/.quimby/agents/r-id', {
+      agentName: 'researcher',
+      agentId: 'r-id',
+    })
 
     // Still returns a valid launch spec.
     expect(launch.sessionName).toBe('qb-r-id')

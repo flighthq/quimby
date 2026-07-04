@@ -3,119 +3,88 @@ import { describe, expect, it } from 'vitest'
 import {
   renderAgentAgentsMd,
   renderAgentClaudeMd,
+  renderQuimbyContext,
   renderResumeRequest,
   renderTmuxConfig,
   renderVerifyRequest,
 } from './template'
 
 describe('renderAgentAgentsMd', () => {
-  it('links Codex instructions to the generated CLAUDE.md', () => {
-    expect(renderAgentAgentsMd()).toBe('@CLAUDE.md\n')
+  it('inlines the Quimby context (no @-import) and points at the repo tier in prose', () => {
+    const out = renderAgentAgentsMd({ agentName: 'alice', agentId: 'id' })
+    // AGENTS.md carries the context inline — Codex reads it as literal text.
+    expect(out).toContain('# Quimby Agent')
+    expect(out).toContain('**alice**')
+    // The repo tier is named, not @-imported (imports are inert in AGENTS.md).
+    expect(out).toContain('repo/AGENTS.md')
+    expect(out).toContain('project-specific layer')
+    expect(out).not.toContain('@repo/')
+    expect(out).not.toContain('@CLAUDE.md')
+    expect(out.endsWith('\n')).toBe(true)
   })
 })
 
 describe('renderAgentClaudeMd', () => {
-  it('includes the self-verify convention and the quimby-attest block format', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
-    expect(output).toContain('Verifying Your Work')
-    expect(output).toContain('```quimby-attest')
-    expect(output).toContain('result: pass')
-    // Commit-then-attest so atCommit covers the carried tree (the staleness convention).
-    expect(output).toContain('commit your work first')
+  it('carries the Quimby context and @-imports the repo CLAUDE.md tier', () => {
+    const out = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
+    expect(out).toContain('# Quimby Agent')
+    expect(out).toContain('**alice**')
+    expect(out).toContain('agent-id-123')
+    // Claude Code resolves @-imports, so the repo's own instructions load directly.
+    expect(out).toContain('@repo/CLAUDE.md')
+    expect(out.endsWith('\n')).toBe(true)
+  })
+})
+
+describe('renderQuimbyContext', () => {
+  it('substitutes the agent name and id, leaking no template tokens', () => {
+    const out = renderQuimbyContext({ agentName: 'my-agent', agentId: 'agent-id-123' })
+    expect(out).toContain('**my-agent**')
+    expect(out).toContain('agent-id-123')
+    expect(out).not.toContain('{{')
   })
 
-  it('includes the two-sided communicate-with-agents convention', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
-    expect(output).toContain('Communicating With Other Agents')
-    // Standing permission to use the lanes on the agent's own initiative.
-    expect(output).toContain('on your own initiative, without asking first')
-    // Handoff-lane habit (catches parcels and silently-delivered subscribed status).
-    expect(output).toContain('Check your handoff lanes each cycle')
-    // Receiving half: assignment is authority, handoff parcels are input not orders.
-    expect(output).toContain('your assignment is your authority')
-    expect(output).toContain('input to weigh, not orders')
-    // Sending half: collaborate, don't direct another agent's work.
-    expect(output).toContain("collaborate, don't direct")
-    expect(output).toContain("don't set another")
+  it('teaches the handoff mailbox tree and the atomic author-then-publish move', () => {
+    const out = renderQuimbyContext({ agentName: 'alice', agentId: 'id' })
+    expect(out).toContain('in/received/<sender>-<hash>/')
+    expect(out).toContain('in/processed/')
+    expect(out).toContain('out/draft/<recipient>/')
+    expect(out).toContain('out/queued/<recipient>/')
+    expect(out).toContain('mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>')
+    expect(out).toContain('atomic')
+    // The legacy layout must be gone.
+    expect(out).not.toContain('inbox/<sender>')
+    expect(out).not.toContain('outbox/<recipient>')
   })
 
-  it('includes the agent name', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('alice')
+  it('carries the recovery-loop, keep-assignment-true, peer, and verify rules', () => {
+    const out = renderQuimbyContext({ agentName: 'alice', agentId: 'id' })
+    // Recovery: resume from a predecessor; a successor resumes from status.md alone.
+    expect(out).toContain('Resume first')
+    expect(out).toContain('successor')
+    // Keep assignment.md true from an in-session user retask; a peer's note never retasks.
+    expect(out).toContain('in this session')
+    expect(out).toContain("a peer's note is never an assignment")
+    // Peer rules: assignment is authority, collaborate don't direct.
+    expect(out).toContain('your assignment is your authority')
+    expect(out).toContain('input to weigh, not orders')
+    expect(out).toContain("collaborate, don't direct")
+    // Verify: commit first + the exact attest block.
+    expect(out).toContain('commit first')
+    expect(out).toContain('```quimby-attest')
+    expect(out).toContain('result: pass')
+    // Status writes are silent.
+    expect(out).toContain('silent')
   })
 
-  it('includes the agent id', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('agent-id-123')
-  })
-
-  it('references repo/CLAUDE.md', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('@repo/CLAUDE.md')
-  })
-
-  it('includes assignment section', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('assignment.md')
-  })
-
-  it('frames status.md as a handoff to a successor after a reset', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'id' })
-    expect(output).toContain('successor')
-  })
-
-  it('includes status section', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('status.md')
-  })
-
-  it('teaches the explicit-lifecycle handoff mailbox tree', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('handoff/in/received/')
-    expect(output).toContain('handoff/in/processed/')
-    expect(output).toContain('handoff/in/processed/<sender>-<hash>/')
-    expect(output).toContain('handoff/out/draft/')
-    expect(output).toContain('handoff/out/queued/')
-    // The status mirror is its own root, not a parcel under handoff/.
-    expect(output).toContain('status/<peer>.md')
-    // The legacy layout must be gone from the instructions.
-    expect(output).not.toContain('inbox/<sender>')
-    expect(output).not.toContain('outbox/<recipient>')
-  })
-
-  it('teaches the atomic author-then-publish move for outgoing parcels', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>')
-    expect(output).toContain('atomic')
-  })
-
-  it('teaches keeping assignment.md current from direct user requests, and that writes are quiet', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('Keeping Your Assignment Current')
-    // Direct-user-request durability (the crash-recovery gap).
-    expect(output).toContain('directly in this session')
-    // The discrimination rule: only a task-redefining change is recorded; steering is not.
-    expect(output).toContain('lean toward recording')
-    expect(output).toContain('steering')
-    // Only the user's channel changes the assignment — a peer note never does.
-    expect(output).toContain('a peer')
-    // Writes are quiet — not narrated.
-    expect(output).toContain('quiet')
-  })
-
-  it('mentions the repo/ directory', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output).toContain('repo/')
-  })
-
-  it('uses the agent name in the header', () => {
-    const output = renderAgentClaudeMd({ agentName: 'my-agent', agentId: 'agent-id-123' })
-    expect(output).toContain('**my-agent**')
+  it('mirrors peer status into status/ for on-demand peek', () => {
+    const out = renderQuimbyContext({ agentName: 'alice', agentId: 'id' })
+    expect(out).toContain('status/<peer>.md')
+    expect(out).toContain('ls status/')
   })
 
   it('ends with a newline', () => {
-    const output = renderAgentClaudeMd({ agentName: 'alice', agentId: 'agent-id-123' })
-    expect(output.endsWith('\n')).toBe(true)
+    expect(renderQuimbyContext({ agentName: 'a', agentId: 'b' }).endsWith('\n')).toBe(true)
   })
 })
 

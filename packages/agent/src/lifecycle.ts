@@ -15,13 +15,7 @@ import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentDefaults, AgentLocation, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
-import {
-  ensureWorkspace,
-  loadState,
-  removeAgentFromSubscriptions,
-  renameAgentInSubscriptions,
-  saveState,
-} from '@quimbyhq/workspace'
+import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
@@ -80,11 +74,7 @@ export async function addAgent(
   const repoDir = getAgentRepoDir(repoRoot, agentState.id)
 
   agentState.seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, state.sourceRef)
-  await writeAgentScaffold(agentDir, {
-    agentName: name,
-    agentId: agentState.id,
-    withClaudeMd: true,
-  })
+  await writeAgentScaffold(agentDir, { agentName: name, agentId: agentState.id })
 
   state.agents[name] = agentState
   await saveState(repoRoot, state)
@@ -117,11 +107,7 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
       agentName: name,
       hostRepoRoot: repoRoot,
     })
-    await writeRemoteAgentScaffold(transport, rAgentDir, {
-      agentName: name,
-      agentId: agent.id,
-      withClaudeMd: false,
-    })
+    await writeRemoteAgentScaffold(transport, rAgentDir, { agentName: name, agentId: agent.id })
     await saveState(repoRoot, state)
     return
   }
@@ -134,11 +120,12 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   state.agents[name].seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, currentRef)
   await saveState(repoRoot, state)
 
-  // A rebuilt agent is a fresh start — clear the mailbox so stale parcels and a prior
-  // task don't carry over, then re-scaffold. CLAUDE.md is left in place.
+  // A rebuilt agent is a fresh start — clear the mailbox so stale parcels and a prior task don't
+  // carry over, then re-scaffold. The instruction files are quimby-generated, so re-scaffolding
+  // refreshes them to the current template (they're overwritten on every launch anyway).
   await rm(join(agentDir, 'handoff'), { recursive: true, force: true })
   await rm(join(agentDir, 'status'), { recursive: true, force: true })
-  await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id, withClaudeMd: false })
+  await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id })
 }
 
 export async function removeAgent(repoRoot: string, name: string): Promise<void> {
@@ -160,9 +147,6 @@ export async function removeAgent(repoRoot: string, name: string): Promise<void>
   }
 
   delete state.agents[name]
-  // Scrub the removed name from the subscription map so the server never routes to a ghost
-  // and `list` never prints a dead name.
-  removeAgentFromSubscriptions(state, name)
   await saveState(repoRoot, state)
 }
 
@@ -191,10 +175,6 @@ export async function renameAgent(
   agent.name = newName
   delete state.agents[oldName]
   state.agents[newName] = agent
-
-  // Subscriptions are keyed by display name, so the relabel has to follow the name through
-  // both the subscriber keys and every target list.
-  renameAgentInSubscriptions(state, oldName, newName)
 
   await saveState(repoRoot, state)
 }
@@ -227,6 +207,11 @@ export async function cloneAndSeedRemoteAgentRepo(
   transport: SSHTransport,
   opts: { rRoot: string; rRepoDir: string; agentName: string; hostRepoRoot: string },
 ): Promise<string> {
+  // Clone from the rsynced local tree (`rRoot`), never from the project's real `origin`. The
+  // source bytes reach the remote over the SSH wire via rsync (`syncProjectTo`), so the remote
+  // never fetches from GitHub and needs no credentials for a private repo. `git clone <path>`
+  // sets the agent repo's `origin` to `rRoot` (a local path on the remote), not the GitHub URL,
+  // so later `fetch`/`pull` inside the agent also stay local and credential-free.
   await transport.exec(`git clone ${sp(opts.rRoot)} ${sp(opts.rRepoDir)}`)
   await transport.exec(`git tag quimby/seed`, { cwd: opts.rRepoDir })
   await configureRemoteAgentIdentity(transport, opts.rRepoDir, opts.agentName, opts.hostRepoRoot)
@@ -241,7 +226,7 @@ export async function cloneAndSeedRemoteAgentRepo(
 export async function writeRemoteAgentScaffold(
   transport: SSHTransport,
   rAgentDir: string,
-  opts: { agentName: string; agentId: string; withClaudeMd: boolean },
+  opts: { agentName: string; agentId: string },
 ): Promise<void> {
   await transport.ensureDir(`${rAgentDir}/handoff/out/draft`)
   await transport.ensureDir(`${rAgentDir}/handoff/out/queued`)
@@ -249,11 +234,22 @@ export async function writeRemoteAgentScaffold(
   await transport.ensureDir(`${rAgentDir}/status`)
   await transport.writeFile(`${rAgentDir}/assignment.md`, '')
   await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
-  if (opts.withClaudeMd) {
-    const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
-    await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd())
-    await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
-  }
+  await writeRemoteAgentInstructions(transport, rAgentDir, opts)
+}
+
+/**
+ * Write a remote agent's Quimby-tier instruction files — `CLAUDE.md` (Claude Code) and `AGENTS.md`
+ * (Codex et al.), both carrying the shared context. Quimby-owned and regenerated, so it is called
+ * both at scaffold time and on every launch (the remote twin of {@link writeAgentInstructions}) so
+ * newer instructions reach an existing remote agent without a rebuild.
+ */
+export async function writeRemoteAgentInstructions(
+  transport: SSHTransport,
+  rAgentDir: string,
+  opts: { agentName: string; agentId: string },
+): Promise<void> {
+  await transport.writeFile(`${rAgentDir}/CLAUDE.md`, renderAgentClaudeMd(opts))
+  await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd(opts))
 }
 
 /**
@@ -285,9 +281,12 @@ export function renderRemoteMailboxMigration(rAgentDir: string): string {
 /**
  * Configure git identity in a local agent clone so the agent never has to set
  * git globals before its first commit. Inherits the host repo's identity when
- * present, else falls back to a quimby-scoped identity.
+ * present, else falls back to a quimby-scoped identity. Re-applied on every launch
+ * (the local twin of {@link configureRemoteAgentIdentity}), so fixing the host's
+ * identity propagates to existing agents without a rebuild. Idempotent — a plain
+ * `git config` overwrite.
  */
-async function configureAgentIdentity(
+export async function configureLocalAgentIdentity(
   repoRoot: string,
   repoDir: string,
   agentName: string,
@@ -321,14 +320,14 @@ async function cloneAndSeedAgentRepo(
 ): Promise<string> {
   await git.clone(repoRoot, repoDir, { ref })
   await git.tag(repoDir, 'quimby/seed')
-  await configureAgentIdentity(repoRoot, repoDir, agentName)
+  await configureLocalAgentIdentity(repoRoot, repoDir, agentName)
   return git.getCurrentRef(repoDir)
 }
 
 /** Create a local agent's mailbox tree and baseline files (assignment/status, optional instructions). */
 async function writeAgentScaffold(
   agentDir: string,
-  opts: { agentName: string; agentId: string; withClaudeMd: boolean },
+  opts: { agentName: string; agentId: string },
 ): Promise<void> {
   // The explicit-lifecycle tree: agents author under out/draft and publish into out/queued;
   // parcels arrive in in/received; status mirrors sit at their own `status/` root.
@@ -338,11 +337,22 @@ async function writeAgentScaffold(
   await ensureDir(join(agentDir, 'status'))
   await writeText(join(agentDir, 'assignment.md'), '')
   await writeText(join(agentDir, 'status.md'), 'idle')
-  if (opts.withClaudeMd) {
-    const claudeMd = renderAgentClaudeMd({ agentName: opts.agentName, agentId: opts.agentId })
-    await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd())
-    await writeText(join(agentDir, 'CLAUDE.md'), claudeMd)
-  }
+  await writeAgentInstructions(agentDir, opts)
+}
+
+/**
+ * Write a local agent's Quimby-tier instruction files — `CLAUDE.md` (Claude Code) and `AGENTS.md`
+ * (Codex et al.), both carrying the shared context. Quimby-owned and regenerated, so it is called
+ * both at scaffold time and on every launch, so newer instructions reach an existing agent without
+ * a rebuild. The repo's own `repo/CLAUDE.md`/`repo/AGENTS.md` are a separate tier the tools
+ * discover natively and quimby never touches.
+ */
+export async function writeAgentInstructions(
+  agentDir: string,
+  opts: { agentName: string; agentId: string },
+): Promise<void> {
+  await writeText(join(agentDir, 'CLAUDE.md'), renderAgentClaudeMd(opts))
+  await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd(opts))
 }
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {

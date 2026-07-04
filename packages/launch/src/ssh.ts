@@ -1,6 +1,8 @@
 import {
   cloneAndSeedRemoteAgentRepo,
+  configureRemoteAgentIdentity,
   renderRemoteMailboxMigration,
+  writeRemoteAgentInstructions,
   writeRemoteAgentScaffold,
 } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
@@ -97,12 +99,23 @@ export async function prepareSshLaunch(
     await writeRemoteAgentScaffold(transport, rAgentDir, {
       agentName: agent.name,
       agentId: agent.id,
-      withClaudeMd: true,
     })
     await saveState(repoRoot, state)
     reporter.success('Remote agent initialized')
   } else {
     await transport.checkCapabilities(['tmux'])
+  }
+
+  // Re-apply the git identity and refresh the Quimby-tier instruction files on every launch (not
+  // just first-run init above), so fixing the host identity or shipping newer instructions reaches
+  // an existing remote agent without a rebuild. Both idempotent and best-effort — a transient
+  // remote hiccup must never block attaching.
+  const instructionOpts = { agentName: agent.name, agentId: agent.id }
+  try {
+    await configureRemoteAgentIdentity(transport, rRepoDir, agent.name, repoRoot)
+    await writeRemoteAgentInstructions(transport, rAgentDir, instructionOpts)
+  } catch {
+    // Advisory; leave whatever the remote clone already has.
   }
 
   const config = await loadQuimbyConfig(repoRoot)

@@ -1,4 +1,7 @@
+import { configureLocalAgentIdentity, writeAgentInstructions } from '@quimbyhq/agent'
 import {
+  getAgentDir,
+  getAgentRepoDir,
   getAgentSessionLogPath,
   getTmuxConfigPath,
   quimbyTmuxSocket,
@@ -105,6 +108,19 @@ export async function prepareLocalTmuxLaunch(
   const { state, repoRoot, agent } = opts
   const config = await loadQuimbyConfig(repoRoot)
   const { runtime, entrypoint, runtimeLabel, env } = resolveRuntimeSelection({ ...opts, config })
+
+  // Re-apply the git identity and refresh the Quimby-tier instruction files on every launch, so
+  // fixing the host identity or shipping newer instructions reaches an existing agent without a
+  // rebuild. Both idempotent and best-effort — a transient failure must never block the launch.
+  try {
+    await configureLocalAgentIdentity(repoRoot, getAgentRepoDir(repoRoot, agent.id), agent.name)
+    await writeAgentInstructions(getAgentDir(repoRoot, agent.id), {
+      agentName: agent.name,
+      agentId: agent.id,
+    })
+  } catch {
+    // Advisory; leave whatever the clone already has.
+  }
 
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, agent.name, state.id, agent.id)

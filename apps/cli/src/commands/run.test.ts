@@ -62,7 +62,6 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   resolveWorkspace: vi.fn(async () => ({
     state: {
       id: 'proj-id',
-      subscriptions: {},
       agents: {
         a: { id: 'id-a', name: 'a', location: { type: 'local' }, defaults: {} },
         b: { id: 'id-b', name: 'b', location: { type: 'local' }, defaults: {} },

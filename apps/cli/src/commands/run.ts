@@ -1,4 +1,8 @@
-import { configureRemoteAgentIdentity, renderRemoteMailboxMigration } from '@quimbyhq/agent'
+import {
+  configureRemoteAgentIdentity,
+  renderRemoteMailboxMigration,
+  writeRemoteAgentInstructions,
+} from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import {
   prepareLocalTmuxLaunch,
@@ -24,7 +28,7 @@ import {
 } from '@quimbyhq/paths'
 import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
 import { getAgentSessionState } from '@quimbyhq/session'
-import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
+import { renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
@@ -740,13 +744,20 @@ async function buildSSHWindow(
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
     await transport.writeFile(`${rAgentDir}/assignment.md`, '')
     await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
-    const claudeMd = renderAgentClaudeMd({ agentName: name, agentId: agent.id })
-    await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd())
-    await transport.writeFile(`${rAgentDir}/CLAUDE.md`, claudeMd)
+    await writeRemoteAgentInstructions(transport, rAgentDir, { agentName: name, agentId: agent.id })
 
     state.agents[name].seedCommit = seedCommit
     await saveState(repoRoot, state)
     logger.success(`Remote agent "${name}" initialized`)
+  }
+
+  // Refresh identity + Quimby-tier instructions on every dashboard launch too (not just first-run),
+  // mirroring prepareSshLaunch. Best-effort — a transient remote hiccup must not fail the window.
+  try {
+    await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)
+    await writeRemoteAgentInstructions(transport, rAgentDir, { agentName: name, agentId: agent.id })
+  } catch {
+    // Advisory; leave whatever the remote clone already has.
   }
 
   const config = await loadQuimbyConfig(repoRoot)

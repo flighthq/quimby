@@ -4,3 +4,6 @@ node_modules/
 flight/
 *.patch
 *.diff
+
+# Generated from QUIMBY.md by scripts/context.ts (edit the .md, not this)
+packages/template/src/quimbyContext.ts
