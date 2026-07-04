@@ -89,6 +89,6 @@ export interface QuimbyConfig {
    * torn down when the dashboard exits.
    */
   services?: Record<string, string>
-  /** Name of the preset `quimby run` opens when given no agent/layout. */
+  /** Name of the preset bare `quimby run` opens and bare `quimby up` creates. */
   default?: string
 }

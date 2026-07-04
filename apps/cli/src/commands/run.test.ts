@@ -6,7 +6,47 @@ const h = vi.hoisted(() => ({
   sessions: new Set<string>(),
   dead: false,
 }))
+const state = vi.hoisted(() => ({
+  value: {
+    id: 'proj-id',
+    agents: {
+      a: { id: 'id-a', name: 'a', location: { type: 'local' }, defaults: {} },
+      b: { id: 'id-b', name: 'b', location: { type: 'local' }, defaults: {} },
+    } as Record<
+      string,
+      { id: string; name: string; location: { type: 'local' }; defaults: object }
+    >,
+  },
+}))
+const addAgent = vi.hoisted(() =>
+  vi.fn(async (_repoRoot: string, name: string, opts: object) => {
+    state.value.agents[name] = {
+      id: `id-${name}`,
+      name,
+      location: { type: 'local' },
+      defaults: {},
+      ...opts,
+    }
+    return state.value.agents[name]
+  }),
+)
+const config = vi.hoisted(() => ({
+  value: {
+    default: 'loop',
+    roles: {
+      builder: { runtime: 'local', entrypoint: 'codex' },
+    },
+    layouts: { review: 'a | b' },
+    presets: {
+      loop: { layout: 'review', agents: { a: 'builder', b: 'builder' } },
+      solo: { layout: { expr: 'a' }, agents: { a: 'builder' } },
+    },
+    services: { server: 'quimby serve' },
+  },
+}))
 const saveDefaultPreset = vi.hoisted(() => vi.fn(async () => '/fake/root/.quimby/local.yaml'))
+
+vi.mock('@quimbyhq/agent', () => ({ addAgent }))
 
 vi.mock('execa', () => ({
   execa: vi.fn(async (_cmd: string, args: string[] = []) => {
@@ -53,20 +93,10 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   saveState: vi.fn(async () => {}),
   saveDefaultPreset,
-  loadQuimbyConfig: vi.fn(async () => ({
-    default: 'loop',
-    layouts: { review: 'a | b' },
-    presets: { loop: { layout: 'review' } },
-    services: { server: 'quimby serve' },
-  })),
+  loadQuimbyConfig: vi.fn(async () => config.value),
+  loadState: vi.fn(async () => state.value),
   resolveWorkspace: vi.fn(async () => ({
-    state: {
-      id: 'proj-id',
-      agents: {
-        a: { id: 'id-a', name: 'a', location: { type: 'local' }, defaults: {} },
-        b: { id: 'id-b', name: 'b', location: { type: 'local' }, defaults: {} },
-      },
-    },
+    state: state.value,
     repoRoot: '/fake/root',
   })),
 }))
@@ -77,6 +107,12 @@ let savedTmux: string | undefined
 beforeEach(() => {
   savedTmux = process.env.TMUX
   delete process.env.TMUX
+  state.value.agents = {
+    a: { id: 'id-a', name: 'a', location: { type: 'local' }, defaults: {} },
+    b: { id: 'id-b', name: 'b', location: { type: 'local' }, defaults: {} },
+  }
+  config.value.default = 'loop'
+  addAgent.mockClear()
 })
 
 afterEach(() => {
@@ -200,6 +236,36 @@ describe('runRunCommand', () => {
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: {} } as never)
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('creates missing default preset agents before running the default layout', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents = {}
+
+    await cmd.run!({ args: {} } as never)
+
+    expect(addAgent).toHaveBeenCalledWith('/fake/root', 'a', {
+      role: 'builder',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledWith('/fake/root', 'b', {
+      role: 'builder',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('creates missing named preset agents before running its layout', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents = {}
+
+    await cmd.run!({ args: { layout: 'solo' } } as never)
+
+    expect(addAgent).toHaveBeenCalledWith('/fake/root', 'a', {
+      role: 'builder',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(h.calls.filter((c) => c.includes('new-session')).length).toBeGreaterThan(0)
   })
 
   it('runs a `$service` layout token as its configured host command', async () => {

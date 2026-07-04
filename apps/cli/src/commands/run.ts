@@ -56,6 +56,7 @@ import {
   parseLayout,
   serviceNameOf,
 } from '../layout'
+import { createMissingPresetAgents } from '../presetAgents'
 
 export default defineCommand({
   meta: {
@@ -350,7 +351,11 @@ export async function runRunCommand({
 async function runNamedLayout(name: string, includeHost: boolean): Promise<void> {
   const { repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
-  const expr = config.presets?.[name]?.layout
+  const namedPreset = config.presets?.[name]
+  if (namedPreset?.layout) {
+    await createMissingPresetAgents(repoRoot, config, name)
+  }
+  const expr = namedPreset?.layout
     ? resolvePresetLayout(config, name)
     : config.layouts?.[name]
       ? resolveLayoutExpr(config, name)

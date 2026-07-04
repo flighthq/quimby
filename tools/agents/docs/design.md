@@ -231,7 +231,7 @@ Resolution order is concrete to general: CLI flags, existing agent state, projec
 
 ### Roles, Presets, And Layouts
 
-Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Presets create a named workspace shape from roles (formerly "recipes" — a legacy `recipes:` key still loads, folded into `presets`). Layouts name dashboard expressions, including panel dashboards. An optional top-level `default:` names the preset a bare `quimby run` opens. **Services** are named host-side commands a layout can place with a `$name` token: `services: { server: "quimby serve" }` plus `… / (host $server):30` runs `quimby serve` in a dashboard pane beside a plain host shell. A service pane is dashboard-local (it is not a retained agent session), so it is torn down when the dashboard exits — start-with-the-dashboard, stop-on-exit. Bare `$`/`host` stay plain shells; `$name` is the service form.
+Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Presets create a named workspace shape from roles (formerly "recipes" — a legacy `recipes:` key still loads, folded into `presets`). Layouts name dashboard expressions, including panel dashboards. An optional top-level `default:` names the preset a bare `quimby up` creates and a bare `quimby run` opens. **Services** are named host-side commands a layout can place with a `$name` token: `services: { server: "quimby serve" }` plus `… / (host $server):30` runs `quimby serve` in a dashboard pane beside a plain host shell. A service pane is dashboard-local (it is not a retained agent session), so it is torn down when the dashboard exits — start-with-the-dashboard, stop-on-exit. Bare `$`/`host` stay plain shells; `$name` is the service form.
 
 ```yaml
 default: review-loop
@@ -265,7 +265,7 @@ presets:
     layout: review
 ```
 
-`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents from the preset. `quimby run --layout review` opens the saved dashboard layout; `quimby run --layout review --default` also records it as the default, and a bare `quimby run` then opens it. The `default:` key (like host bindings) is auto-saved to ignored `.quimby/local.yaml` by default, or user config with `--global`; a tracked `quimby.yaml` may set it by hand for a team-shared default, but the tools never auto-write there.
+`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents from the preset; bare `quimby up` or `quimby up --default` creates from the configured default preset. `quimby run --layout review` opens the saved dashboard layout; `quimby run --layout review --default` also records it as the default, and a bare `quimby run` then opens it. The `default:` key (like host bindings) is auto-saved to ignored `.quimby/local.yaml` by default, or user config with `--global`; a tracked `quimby.yaml` may set it by hand for a team-shared default, but the tools never auto-write there.
 
 Host aliases should resolve from private local/user config, so even when a shared preset says `hostAlias: gpu`, the worker name or IP address stays out of git.
 

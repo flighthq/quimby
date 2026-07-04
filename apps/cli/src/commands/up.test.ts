@@ -12,19 +12,9 @@ const addAgent = vi.hoisted(() =>
     return state.value.agents[name]
   }),
 )
-const saveState = vi.hoisted(() => vi.fn(async () => {}))
-
-vi.mock('@quimbyhq/git', async (importOriginal) => ({
-  ...((await importOriginal()) as object),
-  findRoot: vi.fn(async () => '/repo'),
-}))
-vi.mock('@quimbyhq/agent', () => ({ addAgent }))
-vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
-  ...((await importOriginal()) as object),
-  ensureWorkspace: vi.fn(async () => state.value),
-  loadState: vi.fn(async () => state.value),
-  saveState,
-  loadQuimbyConfig: vi.fn(async () => ({
+const config = vi.hoisted(() => ({
+  value: {
+    default: 'loop' as string | undefined,
     roles: {
       builder: {
         runtimeProfile: 'sbxClaude',
@@ -45,8 +35,27 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
           reviewer: 'reviewer',
         },
       },
+      small: {
+        agents: {
+          reviewer: 'reviewer',
+        },
+      },
     },
-  })),
+  },
+}))
+const saveState = vi.hoisted(() => vi.fn(async () => {}))
+
+vi.mock('@quimbyhq/git', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  findRoot: vi.fn(async () => '/repo'),
+}))
+vi.mock('@quimbyhq/agent', () => ({ addAgent }))
+vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  ensureWorkspace: vi.fn(async () => state.value),
+  loadState: vi.fn(async () => state.value),
+  saveState,
+  loadQuimbyConfig: vi.fn(async () => config.value),
 }))
 
 import cmd from './up'
@@ -56,8 +65,37 @@ describe('runUpCommand', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
+  it('creates missing agents from the default preset with --default', async () => {
+    state.value.agents = {}
+    config.value.default = 'small'
+    addAgent.mockClear()
+
+    await cmd.run!({ args: { default: true } } as never)
+
+    expect(addAgent).toHaveBeenCalledTimes(1)
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', {
+      role: 'reviewer',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+  })
+
+  it('creates missing agents from the default preset with no arguments', async () => {
+    state.value.agents = {}
+    config.value.default = 'small'
+    addAgent.mockClear()
+
+    await cmd.run!({ args: {} } as never)
+
+    expect(addAgent).toHaveBeenCalledTimes(1)
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', {
+      role: 'reviewer',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+  })
+
   it('creates missing agents from preset roles', async () => {
     state.value.agents = {}
+    config.value.default = 'small'
     addAgent.mockClear()
 
     await cmd.run!({ args: { preset: 'loop' } } as never)
@@ -77,11 +115,30 @@ describe('runUpCommand', () => {
 
   it('skips agents that already exist', async () => {
     state.value.agents = { builder: { id: 'builder-id', name: 'builder' } }
+    config.value.default = 'loop'
     addAgent.mockClear()
 
     await cmd.run!({ args: { preset: 'loop' } } as never)
 
     expect(addAgent).not.toHaveBeenCalledWith('/repo', 'builder', expect.anything())
     expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', expect.anything())
+  })
+
+  it('throws clearly when a preset and --default are both provided', async () => {
+    state.value.agents = {}
+    config.value.default = 'small'
+
+    await expect(cmd.run!({ args: { preset: 'loop', default: true } } as never)).rejects.toThrow(
+      'Choose either a preset name or --default',
+    )
+  })
+
+  it('throws clearly when no preset or default is configured', async () => {
+    state.value.agents = {}
+    config.value.default = undefined
+
+    await expect(cmd.run!({ args: {} } as never)).rejects.toThrow(
+      'Provide a preset name or configure a default preset',
+    )
   })
 })

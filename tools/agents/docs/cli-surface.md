@@ -13,7 +13,7 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 ```
 quimby add <agent> [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
-quimby up <preset>                                  Create missing agents from a configured preset
+quimby up [<preset>] [--default]                    Create missing agents from a configured preset; bare/--default uses the configured default preset
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
 quimby run <agent> [--cmd <cmd>] [-r <runtime>] | --layout <name> [--default [--global]]   Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session); --layout opens a saved layout or preset layout; --default saves that layout as the one a bare `quimby run` opens; a bare `quimby run` (no target) opens the configured default preset
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop); a fresh start with a non-empty status.md nudges the agent to resume from it
@@ -73,6 +73,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--role` (add — creation defaults from layered config, commonly ignored `.quimby/local.yaml`)
 - `--runtime-profile` (add, run, start, set, doctor — named runtime/profile settings from layered config, commonly ignored `.quimby/local.yaml`; `set --runtime-profile ""` clears the saved reference)
 - `--host-alias` (add, doctor — private host binding from user/local config)
+- `--default` (up — use the configured default preset)
 - `--layout` (run — saved dashboard layout or preset layout)
 - `--default` / `--global` (run — save the opened `--layout` as the default a bare `quimby run` opens; `--global` writes to user config instead of `.quimby/local.yaml`)
 - `--attach` (handoff — carry a different agent's diff than the source)

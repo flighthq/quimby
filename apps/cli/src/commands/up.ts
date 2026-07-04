@@ -1,18 +1,9 @@
-import { addAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import { logger } from '@quimbyhq/utils'
-import {
-  ensureWorkspace,
-  loadQuimbyConfig,
-  loadState,
-  normalizeCheck,
-  resolveAgentRoleConfig,
-  resolveConfiguredAgent,
-  resolveHostAlias,
-  resolvePreset,
-} from '@quimbyhq/workspace'
+import { ensureWorkspace, loadQuimbyConfig } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
+
+import { createMissingPresetAgents } from '../presetAgents'
 
 export default defineCommand({
   meta: {
@@ -23,51 +14,38 @@ export default defineCommand({
     preset: {
       type: 'positional',
       description: 'Preset name from quimby.yaml',
-      required: true,
+      required: false,
+    },
+    default: {
+      type: 'boolean',
+      default: false,
+      description: 'Use the configured default preset',
     },
   },
   run: runUpCommand,
 })
 
-export async function runUpCommand({ args }: { args: { preset: string } }) {
+export async function runUpCommand({ args }: { args: { preset?: string; default?: boolean } }) {
   const repoRoot = await git.findRoot(process.cwd())
   if (!repoRoot) throw new QuimbyError('Not inside a git repository.')
 
   await ensureWorkspace(repoRoot)
   const config = await loadQuimbyConfig(repoRoot)
-  const preset = resolvePreset(config, args.preset)
+  const presetName = resolveUpPresetName(config.default, args)
+  await createMissingPresetAgents(repoRoot, config, presetName)
+}
 
-  for (const [name, rawAgent] of Object.entries(preset.agents ?? {})) {
-    const state = await loadState(repoRoot)
-    if (state.agents[name]) {
-      logger.info(`Agent "${name}" already exists`)
-      continue
-    }
-    const configured = resolveConfiguredAgent(config, rawAgent)
-    const role = resolveAgentRoleConfig(config, configured)
-    const check = normalizeCheck(role.check)
-    // Assert the alias is declared, then store the reference (resolved to a concrete
-    // host at launch) rather than a flattened address, keeping the address out of state.
-    if (configured.hostAlias) resolveHostAlias(config, configured.hostAlias)
-    const location =
-      configured.location ??
-      (configured.hostAlias ? { type: 'ssh' as const, alias: configured.hostAlias } : undefined)
-    await addAgent(repoRoot, name, {
-      ...(configured.role ? { role: configured.role } : {}),
-      defaults:
-        role.runtimeProfile || role.runtime || role.entrypoint
-          ? {
-              ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
-              runtime: role.runtime,
-              entrypoint: role.entrypoint,
-            }
-          : undefined,
-      ...(location ? { location } : {}),
-      ...(role.syncRef ? { syncRef: role.syncRef } : {}),
-      ...(role.tmux ? { tmux: true } : {}),
-      ...(check?.command ? { check: check.command } : {}),
-      ...((check?.verifyByDefault ?? role.verifyByDefault) ? { verifyByDefault: true } : {}),
-    })
-    logger.success(`Agent "${name}" created${configured.role ? ` (${configured.role})` : ''}`)
+function resolveUpPresetName(
+  configuredDefault: string | undefined,
+  args: Readonly<{ preset?: string; default?: boolean }>,
+): string {
+  if (args.preset && args.default) {
+    throw new QuimbyError('Choose either a preset name or --default, not both.')
   }
+  if (args.preset) return args.preset
+  if (configuredDefault) return configuredDefault
+  throw new QuimbyError(
+    'Provide a preset name or configure a default preset. ' +
+      'Set one with `quimby run --layout <name> --default`, or add `default: <preset>` to quimby config.',
+  )
 }
