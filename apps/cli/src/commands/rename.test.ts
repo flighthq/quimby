@@ -7,19 +7,19 @@ vi.mock('@quimbyhq/agent', () => ({ renameAgent }))
 vi.mock('@quimbyhq/session', () => ({ renameAgentWindow }))
 
 let resolved: {
-  state: { id: string; agents: Record<string, unknown>; subscriptions: object }
+  state: { id: string; agents: Record<string, unknown> }
   repoRoot: string
 }
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => resolved),
-  loadState: vi.fn(async () => ({ id: 'proj-id', agents: {}, subscriptions: {} })),
+  loadState: vi.fn(async () => ({ id: 'proj-id', agents: {} })),
   saveState: vi.fn(),
 }))
 
 function workspace(agents: Record<string, unknown>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 describe('run', () => {

@@ -33,7 +33,7 @@ Different tasks warrant different models and different compute. Opus for hard ar
 
 The user becomes a messenger relaying problems between agents. Builder hits an issue → user reads status → user manually tells reviewer → reviewer responds → user relays back.
 
-**Quimby's answer**: The server (`quimby serve`) polls agent status and routes updates via subscriptions. `quimby handoff` (and agent-authored `dispatch`) carries code and notes between agents. The user orchestrates at a higher level instead of manually shuttling information.
+**Quimby's answer**: The server (`quimby serve`) polls agent status and mirrors it to every agent (each reads a peer's status on demand). `quimby handoff` (and agent-authored `dispatch`) carries code and notes between agents. The user orchestrates at a higher level instead of manually shuttling information.
 
 ### 4. Integration Bottleneck (Most Acute)
 

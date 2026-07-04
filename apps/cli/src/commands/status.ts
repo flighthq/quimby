@@ -46,7 +46,7 @@ export default defineCommand({
     to: {
       type: 'string',
       description:
-        "Push <name>'s current status to this agent's status mirror (manual twin of subscribe)",
+        "Push <name>'s current status to this agent's status mirror (a manual one-shot of the server's continuous mirroring)",
     },
   },
   run: runStatusCommand,

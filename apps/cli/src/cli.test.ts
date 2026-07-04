@@ -42,9 +42,7 @@ describe('cli', () => {
       'storage',
       'up',
       'status',
-      'subscribe',
       'sync',
-      'unsubscribe',
     ]
     for (const name of commands) {
       const mod = await import(`./commands/${name}`)

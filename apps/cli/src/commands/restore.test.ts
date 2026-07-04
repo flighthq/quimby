@@ -39,9 +39,6 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
           review: { role: 'review', hostAlias: 'remote' },
           builder: { role: 'builder', hostAlias: 'remote' },
         },
-        subscriptions: {
-          review: ['builder'],
-        },
       },
     },
   })),
@@ -87,7 +84,6 @@ describe('restore', () => {
       '/repo',
       expect.objectContaining({
         id: 'proj-id',
-        subscriptions: { review: ['builder'] },
         agents: expect.objectContaining({
           review: expect.objectContaining({
             id: 'review-id',

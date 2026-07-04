@@ -12,18 +12,25 @@ export async function saveState(repoRoot: string, state: QuimbyState): Promise<v
 
 /**
  * Reconcile legacy schema keys in place so older state files load cleanly: the
- * `workers`→`agents` and `defaults.agent`→`defaults.entrypoint` renames.
- * Returns true when something was migrated (the caller persists the result).
+ * `workers`→`agents` and `defaults.agent`→`defaults.entrypoint` renames, plus scrubbing the
+ * dropped `subscriptions` map (status now mirrors to every agent, so subscriptions no longer
+ * exist). Returns true when something was migrated (the caller persists the result).
  */
 export function migrateState(state: QuimbyState): boolean {
   let dirty = false
   const loose = state as QuimbyState & {
     workers?: QuimbyState['agents']
+    subscriptions?: Record<string, string[]>
   }
 
   if (loose.workers && !state.agents) {
     state.agents = loose.workers
     delete loose.workers
+    dirty = true
+  }
+
+  if (loose.subscriptions !== undefined) {
+    delete loose.subscriptions
     dirty = true
   }
 

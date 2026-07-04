@@ -18,7 +18,7 @@ vi.mock('@quimbyhq/agent', () => ({
 }))
 
 let resolved: {
-  state: { id: string; agents: Record<string, { location: AgentLocation }>; subscriptions: object }
+  state: { id: string; agents: Record<string, { location: AgentLocation }> }
   repoRoot: string
 }
 
@@ -29,7 +29,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 }))
 
 function workspace(agents: Record<string, { location: AgentLocation }>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 describe('run', () => {

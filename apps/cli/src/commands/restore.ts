@@ -150,7 +150,6 @@ async function restoreFromRemote(
     snapshot,
     createdAt: now,
     agents,
-    ...(preset.subscriptions ? { subscriptions: preset.subscriptions } : {}),
   }
 
   await ensureDurableWorkspace(repoRoot, state)

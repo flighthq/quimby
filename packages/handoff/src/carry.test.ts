@@ -28,7 +28,7 @@ function stateWith(...names: string[]): QuimbyState {
   for (const name of names) {
     agents[name] = { id: `${name}-id`, name, seedCommit: 'seed', location: { type: 'local' } }
   }
-  return { id: 'proj', agents, subscriptions: {} } as unknown as QuimbyState
+  return { id: 'proj', agents } as unknown as QuimbyState
 }
 
 beforeEach(() => {

@@ -60,9 +60,6 @@ const config = {
         builder: { role: 'builder', hostAlias: 'gpu' },
         reviewer: 'reviewer',
       },
-      subscriptions: {
-        reviewer: ['builder'],
-      },
       layout: 'review',
     },
   },
@@ -243,7 +240,7 @@ describe('quimby config helpers', () => {
   })
 
   it('resolves presets and host aliases', () => {
-    expect(resolvePreset(config, 'loop').subscriptions?.reviewer).toEqual(['builder'])
+    expect(Object.keys(resolvePreset(config, 'loop').agents ?? {})).toEqual(['builder', 'reviewer'])
     expect(resolveHostAlias(config, 'gpu')).toMatchObject({ host: 'me@gpu', port: 2222 })
   })
 

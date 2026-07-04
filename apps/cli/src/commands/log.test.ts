@@ -11,7 +11,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 }))
 
 function workspace(agents: Record<string, unknown>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 describe('runLogCommand', () => {

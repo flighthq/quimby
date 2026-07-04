@@ -2,16 +2,9 @@ import type { QuimbyState } from '@quimbyhq/types'
 
 import type { StatusSnapshot } from './poller'
 
-/** A subscription change the router decided on; the server persists it. */
-export type RouteMutation =
-  | { type: 'subscribe'; subscriber: string; target: string }
-  | { type: 'unsubscribe'; subscriber: string; target: string }
-
 export interface RouteResult {
   status: number
   body: unknown
-  /** A state change to apply + persist before responding (subscriptions only). */
-  mutation?: RouteMutation
 }
 
 export interface RouteRequest {
@@ -25,10 +18,8 @@ export interface RouteRequest {
 }
 
 /**
- * Map an HTTP request to a response (and optional state mutation) for the server's API.
- * Pure — no socket, no filesystem — so every route, 404, and 400 is unit-testable; the
- * server writes the response and persists any mutation. Throws on a malformed POST body
- * (the server's outer handler turns that into a 500).
+ * Map an HTTP request to a response for the server's read-only API. Pure — no socket, no
+ * filesystem — so every route and 404 is unit-testable; the server just writes the response.
  */
 export function routeRequest(req: Readonly<RouteRequest>): RouteResult {
   const { method, path, state, statusCache, meta } = req
@@ -41,7 +32,6 @@ export function routeRequest(req: Readonly<RouteRequest>): RouteResult {
         port: meta.port,
         uptime: meta.uptime,
         agents: Object.keys(state.agents).length,
-        subscriptions: countSubscriptions(state),
       },
     }
   }
@@ -65,33 +55,5 @@ export function routeRequest(req: Readonly<RouteRequest>): RouteResult {
     }
   }
 
-  if (method === 'GET' && path === '/api/subscriptions') {
-    return { status: 200, body: state.subscriptions ?? {} }
-  }
-
-  if (method === 'POST' && path === '/api/subscriptions') {
-    const { subscriber, target } = JSON.parse(req.body)
-    if (!subscriber || !target) {
-      return { status: 400, body: { error: 'subscriber and target required' } }
-    }
-    return { status: 200, body: { ok: true }, mutation: { type: 'subscribe', subscriber, target } }
-  }
-
-  if (method === 'DELETE' && path.startsWith('/api/subscriptions/')) {
-    const parts = path.split('/')
-    const subscriber = decodeURIComponent(parts[3])
-    const target = decodeURIComponent(parts[4])
-    return {
-      status: 200,
-      body: { ok: true },
-      mutation: { type: 'unsubscribe', subscriber, target },
-    }
-  }
-
   return { status: 404, body: { error: 'Not found' } }
-}
-
-export function countSubscriptions(state: Readonly<QuimbyState>): number {
-  const subs = state.subscriptions ?? {}
-  return Object.values(subs).reduce((sum, targets) => sum + targets.length, 0)
 }

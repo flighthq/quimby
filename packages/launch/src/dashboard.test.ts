@@ -34,7 +34,6 @@ function stateWith(agents: Record<string, { location: unknown }>): QuimbyState {
     id: 'proj',
     sourceRef: 'main',
     agents: built,
-    subscriptions: {},
   } as unknown as QuimbyState
 }
 

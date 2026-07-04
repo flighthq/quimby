@@ -41,7 +41,7 @@ vi.mock('@quimbyhq/launch', () => ({
 
 function workspace(agents: Record<string, unknown>) {
   return {
-    state: { id: 'proj-id', agents, subscriptions: {} },
+    state: { id: 'proj-id', agents },
     repoRoot: '/fake/root',
   }
 }

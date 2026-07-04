@@ -37,8 +37,6 @@ const main = defineCommand({
     remove: () => import('./commands/remove').then((m) => m.default),
     serve: () => import('./commands/serve').then((m) => m.default),
     storage: () => import('./commands/storage').then((m) => m.default),
-    subscribe: () => import('./commands/subscribe').then((m) => m.default),
-    unsubscribe: () => import('./commands/unsubscribe').then((m) => m.default),
   },
 })
 

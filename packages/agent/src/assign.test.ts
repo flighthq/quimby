@@ -23,7 +23,6 @@ function stateWithLocalAgent(): QuimbyState {
   return {
     id: 'proj-uuid',
     sourceRef: 'main',
-    subscriptions: {},
     agents: {
       alice: {
         id: 'alice-uuid',

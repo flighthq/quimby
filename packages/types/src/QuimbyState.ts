@@ -7,5 +7,4 @@ export interface QuimbyState {
   snapshot: string
   createdAt: string
   agents: Record<string, AgentState>
-  subscriptions?: Record<string, string[]>
 }

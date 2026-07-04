@@ -57,21 +57,23 @@ export async function pollAgentStatus(
 
   reporter.info(`[${name}] Status changed`)
 
-  const subs = state.subscriptions ?? {}
   const statusPayload = formatStatusSnapshot(name, content, new Date().toISOString())
 
-  for (const [subscriber, targets] of Object.entries(subs)) {
-    if (!targets.includes(name)) continue
-    const subAgent = state.agents[subscriber]
-    if (!subAgent) continue
+  // Mirror this agent's status into every other agent's `status/` mirror — no subscriptions.
+  // Availability is universal because it's near-free (status files are tiny), and it removes the
+  // "forgot to subscribe" silent miss. Agents don't read the whole roster each cycle; they peek at
+  // `status/<peer>.md` on demand (see the generated agent context), so wide availability doesn't
+  // inflate any agent's context. The human still sees every agent via `quimby status`.
+  for (const [otherName, otherAgent] of Object.entries(state.agents)) {
+    if (otherName === name) continue
     await deliverStatusSnapshot({
       repoRoot,
       stateId: state.id,
       fromName: name,
-      toAgent: subAgent,
+      toAgent: otherAgent,
       payload: statusPayload,
     })
-    reporter.info(`  → routed to ${subscriber}`)
+    reporter.info(`  → mirrored to ${otherName}`)
   }
 }
 

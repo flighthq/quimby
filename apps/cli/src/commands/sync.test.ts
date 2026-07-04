@@ -5,7 +5,7 @@ const syncAgents = vi.hoisted(() => vi.fn())
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => ({
-    state: { id: 'proj-id', agents: {}, subscriptions: {} },
+    state: { id: 'proj-id', agents: {} },
     repoRoot: '/fake/root',
   })),
 }))

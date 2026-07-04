@@ -34,7 +34,6 @@ export interface LayoutConfig {
 
 export interface PresetConfig {
   agents?: Record<string, ConfiguredAgent | string>
-  subscriptions?: Record<string, string[]>
   layout?: string | LayoutConfig
 }
 

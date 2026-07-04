@@ -71,38 +71,17 @@ describe('startServer', () => {
     expect(await exists(join(dir, '.quimby', 'server.json'))).toBe(true)
   })
 
-  it('serves GET /api/status with live counts', async () => {
+  it('serves GET /api/status with the live agent count', async () => {
     await startOnEphemeral()
     const { status, json } = await api('GET', '/api/status')
     expect(status).toBe(200)
-    expect(json).toMatchObject({ port: handle!.port, agents: 2, subscriptions: 0 })
+    expect(json).toMatchObject({ port: handle!.port, agents: 2 })
   })
 
   it('serves GET /api/agents and 404s an unknown agent', async () => {
     await startOnEphemeral()
     expect((await api('GET', '/api/agents')).json).toHaveProperty('backend')
     expect((await api('GET', '/api/agents/ghost')).status).toBe(404)
-  })
-
-  it('adds and removes a subscription through the API, persisting to state', async () => {
-    await startOnEphemeral()
-
-    const added = await api('POST', '/api/subscriptions', {
-      subscriber: 'reviewer',
-      target: 'backend',
-    })
-    expect(added).toEqual({ status: 200, json: { ok: true } })
-    expect((await loadState(dir)).subscriptions?.reviewer).toEqual(['backend'])
-    expect((await api('GET', '/api/subscriptions')).json).toEqual({ reviewer: ['backend'] })
-
-    const removed = await api('DELETE', '/api/subscriptions/reviewer/backend')
-    expect(removed.status).toBe(200)
-    expect((await loadState(dir)).subscriptions?.reviewer).toBeUndefined()
-  })
-
-  it('rejects a subscription POST missing fields with 400', async () => {
-    await startOnEphemeral()
-    expect((await api('POST', '/api/subscriptions', { subscriber: 'reviewer' })).status).toBe(400)
   })
 
   it('404s an unknown route', async () => {

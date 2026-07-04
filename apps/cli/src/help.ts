@@ -20,7 +20,7 @@ const COMMAND_GROUPS: readonly CommandGroup[] = [
   },
   { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge'] },
   { title: 'Storage', names: ['restore', 'storage'] },
-  { title: 'Server', names: ['serve', 'subscribe', 'unsubscribe'] },
+  { title: 'Server', names: ['serve'] },
   { title: 'Help', names: ['help'] },
 ]
 
@@ -54,7 +54,7 @@ export async function renderRootHelp(
 
   for (const { title, names } of COMMAND_GROUPS) {
     // Pad to the group's own longest name, not the global maximum, so a long
-    // outlier (`unsubscribe`) only widens its own group instead of every row.
+    // outlier only widens its own group instead of every row.
     const width = Math.max(...names.map((name) => name.length))
     lines.push(colors.bold(colors.cyan(title)))
     lines.push('')

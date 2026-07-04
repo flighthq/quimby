@@ -4,7 +4,6 @@ const state = vi.hoisted(() => ({
   value: {
     id: 'proj',
     agents: {} as Record<string, unknown>,
-    subscriptions: {} as Record<string, string[]>,
   },
 }))
 const addAgent = vi.hoisted(() =>
@@ -45,9 +44,6 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
           builder: { role: 'builder', hostAlias: 'gpu' },
           reviewer: 'reviewer',
         },
-        subscriptions: {
-          reviewer: ['builder'],
-        },
       },
     },
   })),
@@ -60,11 +56,9 @@ describe('up', () => {
     expect(typeof cmd.run).toBe('function')
   })
 
-  it('creates missing agents from preset roles and subscriptions', async () => {
+  it('creates missing agents from preset roles', async () => {
     state.value.agents = {}
-    state.value.subscriptions = {}
     addAgent.mockClear()
-    saveState.mockClear()
 
     await cmd.run!({ args: { preset: 'loop' } } as never)
 
@@ -79,13 +73,10 @@ describe('up', () => {
       role: 'reviewer',
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
-    expect(state.value.subscriptions).toEqual({ reviewer: ['builder'] })
-    expect(saveState).toHaveBeenCalledWith('/repo', state.value)
   })
 
   it('skips agents that already exist', async () => {
     state.value.agents = { builder: { id: 'builder-id', name: 'builder' } }
-    state.value.subscriptions = {}
     addAgent.mockClear()
 
     await cmd.run!({ args: { preset: 'loop' } } as never)

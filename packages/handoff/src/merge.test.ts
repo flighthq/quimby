@@ -37,7 +37,7 @@ const mockedDiscard = vi.mocked(discardHandoff)
 function stateWith(...names: string[]): QuimbyState {
   const agents: Record<string, unknown> = {}
   for (const name of names) agents[name] = { id: `${name}-id`, name, location: { type: 'local' } }
-  return { id: 'proj', agents, subscriptions: {} } as unknown as QuimbyState
+  return { id: 'proj', agents } as unknown as QuimbyState
 }
 
 function baseOpts(overrides: Record<string, unknown> = {}) {

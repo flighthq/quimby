@@ -13,7 +13,7 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 
 ```
 quimby add <agent> [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
-quimby up <preset>                                  Create missing agents and subscriptions from a configured preset
+quimby up <preset>                                  Create missing agents from a configured preset
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)
 quimby run <agent> [--cmd <cmd>] [-r <runtime>] | --layout <name> [--default [--global]]   Launch the agent interactively (default entrypoint: claude; local tmux agents attach to a named session); --layout opens a saved layout or preset layout; --default saves that layout as the one a bare `quimby run` opens; a bare `quimby run` (no target) opens the configured default preset
 quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in a detached tmux session (idempotent; drive it with assign/nudge, attach with run, stop with stop); a fresh start with a non-empty status.md nudges the agent to resume from it
@@ -23,7 +23,7 @@ quimby set <agent> [-r <rt>] [--cmd <cmd>] [--role <role>] [-H <host>] [--port <
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SSH host aliases (no arg lists all with bound/unbound status; --set binds to ignored local config, --global to user config; a bare `host <alias>` prints it or prompts to bind when unbound)
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
-quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
+quimby list                                           Show agents (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, received/queued counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, received/queued, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s status mirror
 quimby log <agent> [-f]                              Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged; -f/--follow streams the durable transcript (session.log) as it grows
 quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify|--no-verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends an advisory self-check request
@@ -36,9 +36,7 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) t
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms + best-effort remote cleanup, tolerating an unreachable SSH host)
-quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (status routing + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits
-quimby subscribe <agent> <target>                    Agent receives target's status
-quimby unsubscribe <agent> <target>                  Remove subscription
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits
 ```
 
 ## Planned (not yet implemented)

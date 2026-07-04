@@ -5,7 +5,7 @@ const hasAgentSession = vi.hoisted(() => vi.fn(async () => true))
 
 vi.mock('@quimbyhq/session', () => ({ nudgeAgentSession, hasAgentSession }))
 
-let resolved = { state: { id: 'proj-id', agents: {}, subscriptions: {} }, repoRoot: '/fake/root' }
+let resolved = { state: { id: 'proj-id', agents: {} }, repoRoot: '/fake/root' }
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -40,7 +40,6 @@ describe('run', () => {
       state: {
         id: 'proj-id',
         agents: { builder: { id: 'b1', name: 'builder', tmux: true, check: 'npm run ci' } },
-        subscriptions: {},
       },
       repoRoot: '/fake/root',
     } as never

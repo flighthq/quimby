@@ -7,7 +7,7 @@ vi.mock('execa', () => ({ execa }))
 vi.mock('@quimbyhq/session', () => ({ getAgentSessionState: sessionState }))
 
 let resolved: {
-  state: { id: string; agents: Record<string, unknown>; subscriptions: object }
+  state: { id: string; agents: Record<string, unknown> }
   repoRoot: string
 }
 
@@ -17,7 +17,7 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 }))
 
 function workspace(agents: Record<string, unknown>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 describe('runStopCommand', () => {

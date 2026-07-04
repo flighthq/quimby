@@ -24,15 +24,12 @@ import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
 
 let dir: string
 
-function stateWith(
-  agents: Record<string, { id: string; location?: unknown }>,
-  subscriptions: Record<string, string[]> = {},
-): QuimbyState {
+function stateWith(agents: Record<string, { id: string; location?: unknown }>): QuimbyState {
   const built: Record<string, unknown> = {}
   for (const [name, a] of Object.entries(agents)) {
     built[name] = { id: a.id, name, location: a.location ?? { type: 'local' } }
   }
-  return { id: 'proj', sourceRef: 'main', agents: built, subscriptions } as unknown as QuimbyState
+  return { id: 'proj', sourceRef: 'main', agents: built } as unknown as QuimbyState
 }
 
 async function writeStatus(agentId: string, content: string): Promise<void> {
@@ -69,37 +66,41 @@ describe('getFileMtime', () => {
 })
 
 describe('pollAgentStatus', () => {
-  it('seeds the cache on first sighting without routing to subscribers', async () => {
+  it('seeds the cache on first sighting without mirroring (no spam on server start)', async () => {
     await writeStatus('b1', 'working')
     await mkdir(getAgentStatusMirrorDir(dir, 'r1'), { recursive: true })
     const cache = new Map<string, StatusSnapshot>()
 
     await pollAgentStatus(
       dir,
-      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }, { reviewer: ['backend'] }),
+      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }),
       'backend',
       cache,
     )
 
     expect(cache.get('backend')?.content).toBe('working')
-    // first sighting must NOT broadcast (would spam every subscriber on server start)
     expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(false)
   })
 
-  it('routes a changed status to a subscriber inbox', async () => {
-    await writeStatus('b1', 'done')
+  it('mirrors a changed status into every other agent, no subscription needed', async () => {
+    await writeStatus('b1', 'changed')
     const cache = new Map<string, StatusSnapshot>([['backend', { content: 'old', mtime: 1 }]])
 
     await pollAgentStatus(
       dir,
-      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }, { reviewer: ['backend'] }),
+      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' }, other: { id: 'o1' } }),
       'backend',
       cache,
     )
 
-    const routed = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
-    expect(routed).toContain('done')
-    expect(routed).toContain('# Status: backend')
+    // Every peer gets the snapshot — the always-mirror model, replacing subscribe-based routing.
+    for (const peer of ['r1', 'o1']) {
+      const mirrored = await readText(join(getAgentStatusMirrorDir(dir, peer), 'backend.md'))
+      expect(mirrored).toContain('changed')
+      expect(mirrored).toContain('# Status: backend')
+    }
+    // The source never mirrors to itself.
+    expect(await exists(join(getAgentStatusMirrorDir(dir, 'b1'), 'backend.md'))).toBe(false)
   })
 
   it('skips when the mtime is unchanged', async () => {
@@ -109,26 +110,12 @@ describe('pollAgentStatus', () => {
 
     await pollAgentStatus(
       dir,
-      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }, { reviewer: ['backend'] }),
+      stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }),
       'backend',
       cache,
     )
 
     expect(await exists(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toBe(false)
-  })
-
-  it('does not route to a non-subscriber', async () => {
-    await writeStatus('b1', 'changed')
-    const cache = new Map<string, StatusSnapshot>([['backend', { content: 'old', mtime: 1 }]])
-
-    await pollAgentStatus(
-      dir,
-      stateWith({ backend: { id: 'b1' }, other: { id: 'o1' } }, { other: ['someoneelse'] }),
-      'backend',
-      cache,
-    )
-
-    expect(await exists(join(getAgentStatusMirrorDir(dir, 'o1'), 'backend.md'))).toBe(false)
   })
 
   it('returns quietly when the status file is missing', async () => {
@@ -143,13 +130,10 @@ describe('pollAgentStatus', () => {
     const cache = new Map<string, StatusSnapshot>([
       ['backend', { content: 'old-remote', mtime: 0 }],
     ])
-    const state = stateWith(
-      {
-        backend: { id: 'b1', location: { type: 'ssh', host: 'box', base: '~' } },
-        reviewer: { id: 'r1' },
-      },
-      { reviewer: ['backend'] },
-    )
+    const state = stateWith({
+      backend: { id: 'b1', location: { type: 'ssh', host: 'box', base: '~' } },
+      reviewer: { id: 'r1' },
+    })
 
     await pollAgentStatus(dir, state, 'backend', cache)
 

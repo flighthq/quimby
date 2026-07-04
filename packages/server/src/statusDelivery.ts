@@ -12,8 +12,9 @@ export function formatStatusSnapshot(fromName: string, content: string, at: stri
 
 /**
  * Deliver a status snapshot from `fromName` into `toAgent`'s `status/<fromName>.md` mirror — the
- * same slot the poller writes for subscribers. Shared by the server's automatic routing (on
- * change) and the manual one-shot `quimby status <from> --to <agent>`, so both land identically.
+ * same slot the poller writes when it mirrors status to every agent. Shared by the server's
+ * automatic mirroring (on change) and the manual one-shot `quimby status <from> --to <agent>`, so
+ * both land identically.
  */
 export async function deliverStatusSnapshot(opts: {
   repoRoot: string

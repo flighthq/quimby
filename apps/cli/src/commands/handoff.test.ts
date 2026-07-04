@@ -14,7 +14,7 @@ vi.mock('@quimbyhq/agent', async (importOriginal) => ({
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => ({
-    state: { id: 'proj-id', agents: { review: { location: undefined } }, subscriptions: {} },
+    state: { id: 'proj-id', agents: { review: { location: undefined } } },
     repoRoot: '/fake/root',
   })),
 }))

@@ -73,7 +73,7 @@ function stateWith(...names: string[]): QuimbyState {
   for (const name of names) {
     agents[name] = { id: name, name, location: { type: 'local' } } as QuimbyState['agents'][string]
   }
-  return { id: 'proj', agents, subscriptions: {} } as QuimbyState
+  return { id: 'proj', agents } as QuimbyState
 }
 
 async function stageDraft(repoRoot: string, senderId: string, recipient: string, note: string) {

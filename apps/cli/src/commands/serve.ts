@@ -10,7 +10,7 @@ import { consolaReporter } from '../reporter'
 export default defineCommand({
   meta: {
     name: 'serve',
-    description: 'Start the quimby server (status polling, outbox auto-dispatch, subscriptions)',
+    description: 'Start the quimby server (status mirroring + outbox auto-dispatch)',
   },
   args: {
     port: {

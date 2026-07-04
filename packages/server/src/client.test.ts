@@ -7,14 +7,7 @@ import { writeText } from '@quimbyhq/utils'
 import { exists } from '@quimbyhq/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  getServerInfo,
-  isServerRunning,
-  serverDelete,
-  serverGet,
-  serverPost,
-  stopServer,
-} from './client'
+import { getServerInfo, isServerRunning, serverGet, stopServer } from './client'
 
 let dir: string
 
@@ -72,24 +65,6 @@ describe('isServerRunning', () => {
   })
 })
 
-describe('serverDelete', () => {
-  it('returns false when server is not running', async () => {
-    expect(await serverDelete(dir, '/api/subscriptions/a/b')).toBe(false)
-  })
-
-  it('returns true on 2xx response', async () => {
-    await writeServerJson(7749, process.pid)
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('', { status: 200 }))
-    expect(await serverDelete(dir, '/api/subscriptions/a/b')).toBe(true)
-  })
-
-  it('returns false on non-2xx response', async () => {
-    await writeServerJson(7749, process.pid)
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
-    expect(await serverDelete(dir, '/api/subscriptions/a/b')).toBe(false)
-  })
-})
-
 describe('serverGet', () => {
   it('returns null when server is not running', async () => {
     const result = await serverGet(dir, '/api/status')
@@ -110,24 +85,6 @@ describe('serverGet', () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
     const result = await serverGet(dir, '/api/missing')
     expect(result).toBeNull()
-  })
-})
-
-describe('serverPost', () => {
-  it('returns false when server is not running', async () => {
-    expect(await serverPost(dir, '/api/subscriptions', {})).toBe(false)
-  })
-
-  it('returns true on 2xx response', async () => {
-    await writeServerJson(7749, process.pid)
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 201 }))
-    expect(await serverPost(dir, '/api/subscriptions', { subscriber: 'a', target: 'b' })).toBe(true)
-  })
-
-  it('returns false on non-2xx response', async () => {
-    await writeServerJson(7749, process.pid)
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response('Bad Request', { status: 400 }))
-    expect(await serverPost(dir, '/api/subscriptions', {})).toBe(false)
   })
 })
 

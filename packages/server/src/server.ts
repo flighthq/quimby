@@ -5,20 +5,14 @@ import type { AddressInfo } from 'node:net'
 import { getQuimbyDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import type { QuimbyState } from '@quimbyhq/types'
 import { writeText } from '@quimbyhq/utils'
-import {
-  addSubscriptionToState,
-  loadState,
-  removeSubscriptionFromState,
-  saveState,
-} from '@quimbyhq/workspace'
+import { loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
-import { countSubscriptions, routeRequest } from './router'
+import { routeRequest } from './router'
 
 export interface ServerOptions {
   repoRoot: string
@@ -73,14 +67,6 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       meta: { pid: process.pid, port: boundPort, uptime: process.uptime() },
     })
 
-    if (result.mutation) {
-      const { type, subscriber, target } = result.mutation
-      state =
-        type === 'subscribe'
-          ? await addSubscription(repoRoot, state, subscriber, target)
-          : await removeSubscription(repoRoot, state, subscriber, target)
-    }
-
     res.writeHead(result.status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result.body))
   }
@@ -115,11 +101,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   reporter.success(`Server listening on http://127.0.0.1:${boundPort}`)
   reporter.info(`Polling every ${pollInterval / 1000}s`)
   reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
+  reporter.info('Mirroring status to every agent')
   if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
-  const subCount = countSubscriptions(state)
-  if (subCount > 0) {
-    reporter.info(`${subCount} active subscription(s)`)
-  }
 
   await writeServerInfo(repoRoot, boundPort)
 
@@ -133,30 +116,6 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   }
 
   return { port: boundPort, stop }
-}
-
-async function addSubscription(
-  repoRoot: string,
-  state: QuimbyState,
-  subscriber: string,
-  target: string,
-): Promise<QuimbyState> {
-  if (addSubscriptionToState(state, subscriber, target)) {
-    await saveState(repoRoot, state)
-  }
-  return state
-}
-
-async function removeSubscription(
-  repoRoot: string,
-  state: QuimbyState,
-  subscriber: string,
-  target: string,
-): Promise<QuimbyState> {
-  if (removeSubscriptionFromState(state, subscriber, target)) {
-    await saveState(repoRoot, state)
-  }
-  return state
 }
 
 async function writeServerInfo(repoRoot: string, port: number): Promise<void> {

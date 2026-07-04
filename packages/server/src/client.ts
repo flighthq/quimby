@@ -32,28 +32,6 @@ export async function serverGet(repoRoot: string, path: string): Promise<unknown
   return res.json()
 }
 
-export async function serverPost(repoRoot: string, path: string, body: unknown): Promise<boolean> {
-  const info = await getServerInfo(repoRoot)
-  if (!info) return false
-
-  const res = await fetch(`http://127.0.0.1:${info.port}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return res.ok
-}
-
-export async function serverDelete(repoRoot: string, path: string): Promise<boolean> {
-  const info = await getServerInfo(repoRoot)
-  if (!info) return false
-
-  const res = await fetch(`http://127.0.0.1:${info.port}${path}`, {
-    method: 'DELETE',
-  })
-  return res.ok
-}
-
 /**
  * Stop a running quimby server: read its `server.json`, signal the pid to shut down (the
  * server's SIGTERM handler runs its own graceful cleanup), and remove the pidfile so a stale

@@ -14,7 +14,7 @@ const mockedAssemble = vi.mocked(assembleHandoff)
 const mockedRemote = vi.mocked(assembleRemoteHandoff)
 
 function stateWith(agents: Record<string, unknown>): QuimbyState {
-  return { id: 'proj-id', agents, subscriptions: {} } as unknown as QuimbyState
+  return { id: 'proj-id', agents } as unknown as QuimbyState
 }
 
 beforeEach(() => {

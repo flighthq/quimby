@@ -26,7 +26,6 @@ function stateWith(agents: Record<string, { seedCommit?: string; syncRef?: strin
     id: 'proj',
     sourceRef: 'main',
     agents: built,
-    subscriptions: {},
   } as unknown as QuimbyState
 }
 

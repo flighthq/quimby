@@ -11,7 +11,7 @@ Quimby is a CLI tool for orchestrating multiple AI agents working on a single pr
 
 Named after Chief Quimby from Inspector Gadget — the user dispatches the work, agents deliver, and Quimby hand-delivers the briefings in between. The unit it carries is a **handoff**: a parcel of work moved from one place to another and then done with. Quimby is a courier, not a post office — it carries parcels, it does not run a mailroom. There is no standing archive of past work; durable history lives in git.
 
-This is infrastructure for multi-agent orchestration, not a thin wrapper around scripts. Networking, a local server, persistent state, and subscription management are all in scope.
+This is infrastructure for multi-agent orchestration, not a thin wrapper around scripts. Networking, a local server, persistent state, and status mirroring are all in scope.
 
 ## Core Concepts
 
@@ -29,7 +29,7 @@ A `meta.yaml` manifest (sender, recipient, `createdAt`, code source) is written 
 
 **Boundary** — The boundary between the workspace (where agents work) and the user's real repository. Work only crosses the boundary through explicit user action (`quimby merge`), landing in git — the durable side of the boundary.
 
-**Server** — The host-side process that enables cross-agent visibility. Agents in sandboxes are isolated from each other — the server is the only entity that can see all agents. It polls for status changes and routes updates to subscribing agents.
+**Server** — The host-side process that enables cross-agent visibility. Agents in sandboxes are isolated from each other — the server is the only entity that can see all agents. It polls for status changes and mirrors each agent's status into every other agent's `status/` directory.
 
 **Transport** — The abstraction layer over local filesystem vs SSH. `LocalTransport` operates on local paths; `SSHTransport` wraps all operations via `ssh` and `rsync`. Commands and core modules interact with agents through this abstraction without knowing where the agent lives.
 
@@ -52,16 +52,15 @@ tmux is the universal substrate: every agent — local or SSH — always runs in
 The host-side process that enables everything requiring cross-agent visibility:
 
 - Polls agent `status.md` files for changes (local and SSH agents)
-- Routes status updates to subscribing agents' `status/` mirror directories
-- Exposes an HTTP API on localhost for status aggregation and subscription management
+- Mirrors each agent's status into every other agent's `status/` directory (no subscriptions)
+- Exposes a read-only HTTP API on localhost for status aggregation
 
 The server doesn't replace `run` or `start` — it enables the connections between agents that sandbox isolation otherwise prevents. Implemented.
 
 ```
-quimby serve                        # start the server
+quimby serve                        # start the server (mirrors status to every agent)
 quimby add backend                  # create an agent
 quimby run backend                  # interactive session (server optional)
-quimby subscribe reviewer backend   # reviewer gets backend's status
 quimby assign backend -m "..."      # works with or without server
 ```
 
@@ -74,14 +73,14 @@ An agent's mailbox is a single `handoff/` tree with two trays: an **out** tray (
 ```
 my-project/
   .quimby/
-    state.yaml              # workspace state (agents, subscriptions, stable IDs)
+    state.yaml              # workspace state (agents, stable IDs)
     server.json             # server pidfile (when running)
     staging/                # host loading dock: a parcel mid-merge (kept only on conflict)
     agents/
       backend/
         repo/               # cloned source tree, tagged quimby/seed
         assignment.md       # current task (set by `quimby assign`)
-        status.md           # agent-written status (mirrored to subscribers)
+        status.md           # agent-written status (mirrored to every other agent)
         CLAUDE.md           # generated agent instructions
         handoff/            # the mailbox — grouped by direction, one explicit state per level
           out/                 # everything this agent is sending
@@ -101,7 +100,7 @@ my-project/
                 squashed.diff    #     the diff (optional)
                 commits/         #     the diff as patches (optional)
             processed/           # parcels this agent has acted on
-        status/             # live status mirrors from subscribed agents (its own root, not a parcel)
+        status/             # live status mirrors from every other agent (its own root, not a parcel)
           frontend.md
       frontend/
         ...
@@ -117,7 +116,7 @@ The mailbox is an explicit-lifecycle tree: **state is a directory level above th
 
 An agent authors under `out/draft/<recipient>/` and **publishes** with a single atomic `mv` into `out/queued/`, so a partial parcel never appears as queued (see the auto-dispatch race fix in the lifecycle section).
 
-`status/` is **not** a parcel — it is a live mirror the server overwrites each poll, pulled by subscribers, so it sits at its own root outside `handoff/`. Parcels are immutable, discrete deliveries; status is a continuously-updated reflection. They stay separate.
+`status/` is **not** a parcel — it is a live mirror the server overwrites each poll, read on demand, so it sits at its own root outside `handoff/`. Parcels are immutable, discrete deliveries; status is a continuously-updated reflection. They stay separate.
 
 ### Remote Layout (SSH Agents)
 
@@ -220,13 +219,13 @@ Configuration is split by boundary:
 - **Ignored project-local `.quimby/local.yaml`** — per-checkout roles, presets, dashboard layouts, runtime profiles, private host aliases, and provider settings.
 - **User config `~/.config/quimby/config.yaml`** — personal defaults and reusable private aliases across projects.
 - **Tracked `quimby.yaml`** — optional team-safe shared intent only, when a repository deliberately wants to share role/profile names or layouts.
-- **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, subscriptions, and created agents.
+- **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, and created agents.
 
 Resolution order is concrete to general: CLI flags, existing agent state, project-local config, user config, tracked project config, then built-ins.
 
 ### Roles, Presets, And Layouts
 
-Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Presets create a named workspace shape from roles and subscriptions (formerly "recipes" — a legacy `recipes:` key still loads, folded into `presets`). Layouts name dashboard expressions, including panel dashboards. An optional top-level `default:` names the preset a bare `quimby run` opens. **Services** are named host-side commands a layout can place with a `$name` token: `services: { server: "quimby serve" }` plus `… / (host $server):30` runs `quimby serve` in a dashboard pane beside a plain host shell. A service pane is dashboard-local (it is not a retained agent session), so it is torn down when the dashboard exits — start-with-the-dashboard, stop-on-exit. Bare `$`/`host` stay plain shells; `$name` is the service form.
+Roles describe what an agent is for: runtime, entrypoint, tmux behavior, sync ref, and advisory check command. Presets create a named workspace shape from roles (formerly "recipes" — a legacy `recipes:` key still loads, folded into `presets`). Layouts name dashboard expressions, including panel dashboards. An optional top-level `default:` names the preset a bare `quimby run` opens. **Services** are named host-side commands a layout can place with a `$name` token: `services: { server: "quimby serve" }` plus `… / (host $server):30` runs `quimby serve` in a dashboard pane beside a plain host shell. A service pane is dashboard-local (it is not a retained agent session), so it is torn down when the dashboard exits — start-with-the-dashboard, stop-on-exit. Bare `$`/`host` stay plain shells; `$name` is the service form.
 
 ```yaml
 default: review-loop
@@ -257,13 +256,10 @@ presets:
         role: reviewer
       integration:
         role: builder
-    subscriptions:
-      reviewer: [builder]
-      integration: [builder, reviewer]
     layout: review
 ```
 
-`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents and subscriptions from the preset. `quimby run --layout review` opens the saved dashboard layout; `quimby run --layout review --default` also records it as the default, and a bare `quimby run` then opens it. The `default:` key (like host bindings) is auto-saved to ignored `.quimby/local.yaml` by default, or user config with `--global`; a tracked `quimby.yaml` may set it by hand for a team-shared default, but the tools never auto-write there.
+`quimby add builder --role builder` creates one agent from a role. `quimby up review-loop` creates any missing agents from the preset. `quimby run --layout review` opens the saved dashboard layout; `quimby run --layout review --default` also records it as the default, and a bare `quimby run` then opens it. The `default:` key (like host bindings) is auto-saved to ignored `.quimby/local.yaml` by default, or user config with `--global`; a tracked `quimby.yaml` may set it by hand for a team-shared default, but the tools never auto-write there.
 
 Host aliases should resolve from private local/user config, so even when a shared preset says `hostAlias: gpu`, the worker name or IP address stays out of git.
 
@@ -291,17 +287,13 @@ For agent-authored routing, `quimby dispatch <agent>` enacts that agent's outbox
 
 ### Automatic (Server)
 
-`quimby serve` polls agent directories and routes based on subscriptions:
+`quimby serve` polls agent directories and **mirrors every agent's status to every other agent** — no subscriptions:
 
-```
-quimby subscribe reviewer backend   # reviewer gets backend's status changes
-```
+When backend's `status.md` changes, the server writes a snapshot into every other agent's `status/backend.md` mirror (for SSH agents, over transport). This happens continuously without user intervention.
 
-When backend's `status.md` changes, the server pushes a snapshot to `reviewer/status/backend.md`. For SSH agents, the server writes to the remote status mirror via transport. This happens continuously without user intervention.
+Status is the "to whom it may concern" channel, and availability is universal because it's near-free (status files are tiny). The discernment is on the **reading** side, not the routing side: agents don't slurp the whole roster each cycle — they `ls status/` and read a peer's file **on demand** (the generated agent context says so), so wide availability never inflates any agent's context. This replaces the earlier subscribe model: subscriptions bounded what got mirrored to bound what an agent read; pull-on-demand bounds reading directly, so mirroring can be universal and the "forgot to subscribe" silent miss disappears. The human still sees every agent via `quimby status`. The split is deliberate: **directed** work is pushed (a `handoff` parcel + nudge); **ambient** status is pulled (a `status/` peek).
 
-Subscriptions are the "to whom it may concern" channel: an agent publishes status, and anyone who subscribed pulls it. The discernment is the subscription, set once — so broadcasts don't pile copies into every inbox or make every agent read-and-filter. Subscriptions are stored in `state.yaml` and can be added/removed whether or not the server is running. The server reloads state on each poll cycle.
-
-The server also **auto-dispatches queued parcels**: on the same poll cycle it scans each agent's `out/queued/` and carries any _settled_ parcel to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. The partial-write race is prevented **by construction**: agents author under the unscanned `out/draft/` and publish with one atomic `mv` into `out/queued/`, so a parcel appears in the queue complete or not at all. The settle-debounce is kept as a cheap **fallback** (protecting an agent that writes directly into `out/queued/`, skipping draft): a parcel is dispatched only once its newest file has been unchanged for a full poll cycle. An atomically-published parcel lands complete and settles in one cycle, so net latency is ≤1 poll cycle. Each exact parcel version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored parcel (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. This is **additive to** subscriptions, not a replacement: dispatch carries directed, discrete parcels; subscriptions mirror ambient status. Auto-dispatch is on by default; `quimby serve --no-dispatch` disables it, leaving only status routing.
+The server also **auto-dispatches queued parcels**: on the same poll cycle it scans each agent's `out/queued/` and carries any _settled_ parcel to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. The partial-write race is prevented **by construction**: agents author under the unscanned `out/draft/` and publish with one atomic `mv` into `out/queued/`, so a parcel appears in the queue complete or not at all. The settle-debounce is kept as a cheap **fallback** (protecting an agent that writes directly into `out/queued/`, skipping draft): a parcel is dispatched only once its newest file has been unchanged for a full poll cycle. An atomically-published parcel lands complete and settles in one cycle, so net latency is ≤1 poll cycle. Each exact parcel version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored parcel (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. Dispatch (directed, discrete parcels) and status mirroring (ambient status) are orthogonal channels; auto-dispatch is on by default, and `quimby serve --no-dispatch` disables it, leaving only status mirroring.
 
 ## Server Architecture
 
@@ -315,18 +307,16 @@ The server prefers **7749**, but that is a preference, not a pin: when no `-p` i
 GET  /api/status                              Server health + overview
 GET  /api/agents                             All agents with cached status
 GET  /api/agents/:name                       Single agent detail
-GET  /api/subscriptions                       All subscriptions
-POST /api/subscriptions {subscriber, target}  Add subscription
-DELETE /api/subscriptions/:subscriber/:target Remove subscription
 ```
+
+The API is read-only — status routing is automatic (mirror-to-all), so there is nothing to POST.
 
 ### Status Poller (default 5s interval)
 
-1. Check `state.yaml` mtime — reload if changed (picks up new agents/subscriptions)
+1. Check `state.yaml` mtime — reload if changed (picks up new agents)
 2. For each agent, check `status.md` (local: mtime; SSH: content comparison)
-3. If changed, read content, update cache, route to subscribers
-4. Route = write to subscriber's `status/<target>.md` mirror (local or remote)
-5. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
+3. If changed, read content, update cache, and mirror it into **every other agent's** `status/<name>.md` (local or remote) — no subscription filter
+4. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
 
 The server writes `.quimby/server.json` (pid, port, startedAt) on startup and removes it on shutdown. CLI commands use this file to detect a running server and display its status.
 
@@ -432,4 +422,4 @@ Diff operates on agents only. Handoffs are carried, not stored, so there is noth
 
 ## Key Design Decisions
 
-The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; the explicit-lifecycle `handoff/` tree (no dot-dirs); addressed-out / content-named-in; author-then-publish atomic rename; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-merge-by-default; merge-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; auto-dispatch-vs-subscribe; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.
+The full rationale log — every choice and what was rejected — lives in **[design-decisions.md](./design-decisions.md)**. It covers: courier-not-post-office; the one-shape handoff; content-derived names; the explicit-lifecycle `handoff/` tree (no dot-dirs); addressed-out / content-named-in; author-then-publish atomic rename; non-destructive delivery; a verb per movement; directed-handoff-vs-broadcast; the diff as wire format; squashed-merge-by-default; merge-is-a-merge-not-a-patch; merge-advances-the-seed-when-lossless; the-boundary-never-fabricates-a-commit-message; assign-syncs-by-default; server-as-infrastructure; status-mirrors-to-all-with-pull-on-demand; auto-dispatch; `serve -it`; the three coexisting interaction modes; stable-IDs-not-names; the UUID identity and path-hash sandbox naming; SSH lazy init; rsync as transport; tmux-as-universal-substrate and the dashboard viewport; quimby-owns-its-tmux; nudge policy per movement; headless = detached-tmux + nudge; `list` session-state probing; the transport abstraction and its never-commit rule; the three levels of "catch up"; `remove --force`; and no-artificial-simplicity.

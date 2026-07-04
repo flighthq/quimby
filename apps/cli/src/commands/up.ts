@@ -3,7 +3,6 @@ import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { logger } from '@quimbyhq/utils'
 import {
-  addSubscriptionToState,
   ensureWorkspace,
   loadQuimbyConfig,
   loadState,
@@ -12,14 +11,13 @@ import {
   resolveConfiguredAgent,
   resolveHostAlias,
   resolvePreset,
-  saveState,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
   meta: {
     name: 'up',
-    description: 'Create missing agents and subscriptions from a configured preset',
+    description: 'Create missing agents from a configured preset',
   },
   args: {
     preset: {
@@ -71,20 +69,5 @@ export async function runUpCommand({ args }: { args: { preset: string } }) {
       ...((check?.verifyByDefault ?? role.verifyByDefault) ? { verifyByDefault: true } : {}),
     })
     logger.success(`Agent "${name}" created${configured.role ? ` (${configured.role})` : ''}`)
-  }
-
-  const state = await loadState(repoRoot)
-  let changed = false
-  for (const [subscriber, targets] of Object.entries(preset.subscriptions ?? {})) {
-    if (!state.agents[subscriber]) throw new QuimbyError(`Agent "${subscriber}" not found`)
-    for (const target of targets) {
-      if (!state.agents[target]) throw new QuimbyError(`Agent "${target}" not found`)
-      if (subscriber === target) continue
-      changed = addSubscriptionToState(state, subscriber, target) || changed
-    }
-  }
-  if (changed) {
-    await saveState(repoRoot, state)
-    logger.success(`Subscriptions updated for preset "${args.preset}"`)
   }
 }

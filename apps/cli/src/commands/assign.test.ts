@@ -4,7 +4,7 @@ const assignAgentTask = vi.hoisted(() => vi.fn())
 const nudgeAgentSession = vi.hoisted(() => vi.fn(async (_opts: Record<string, unknown>) => {}))
 
 function workspace(agents: Record<string, unknown>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 let resolved = workspace({})

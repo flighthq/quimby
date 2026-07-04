@@ -15,7 +15,7 @@ import { withRemoteProbeTimeout } from '../remoteProbe'
 export default defineCommand({
   meta: {
     name: 'list',
-    description: 'List agents and subscriptions',
+    description: 'List agents with their live session state',
   },
   run: runListCommand,
 })
@@ -24,8 +24,6 @@ export async function runListCommand() {
   const { state, repoRoot } = await resolveWorkspace()
 
   const agentNames = Object.keys(state.agents)
-  const subs = state.subscriptions ?? {}
-  const subEntries = Object.entries(subs)
 
   if (agentNames.length === 0) {
     logger.info('No agents. Run `quimby add <name>` to create an agent.')
@@ -106,16 +104,6 @@ export async function runListCommand() {
       console.log(
         `  ${name}  ${stateStr}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${pendingStr}${behindStr}${remoteTimeoutStr}`,
       )
-    }
-  }
-
-  if (subEntries.length > 0) {
-    console.log()
-    console.log(bold('Subscriptions'))
-    for (const [subscriber, targets] of subEntries) {
-      for (const target of targets) {
-        console.log(`  ${subscriber} ${dim('←')} ${target}`)
-      }
     }
   }
 
