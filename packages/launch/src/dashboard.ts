@@ -242,4 +242,4 @@ const MONITOR_OPTS: [string, string][] = [
 const WINDOW_STATUS_FORMAT =
   '#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}'
 const WINDOW_STATUS_CURRENT_FORMAT =
-  '#{?window_silence_flag,#[fg=colour231,bg=colour24,bold]● #W ,#{?window_activity_flag,#[fg=colour231,bg=colour24,bold]◐ #W ,#[fg=colour231,bg=colour24,bold]○ #W }}'
+  '#{?window_silence_flag,#[fg=colour108,bg=colour238]● #[fg=colour231,bg=colour238,bold]#W ,#{?window_activity_flag,#[fg=colour109,bg=colour238]◐ #[fg=colour231,bg=colour238,bold]#W ,#[fg=colour240,bg=colour238]○ #[fg=colour231,bg=colour238,bold]#W }}'

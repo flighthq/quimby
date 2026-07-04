@@ -81,7 +81,8 @@ describe('buildDashboardPlan', () => {
     expect(flat).toContain('○')
     expect(flat).toContain('◐')
     expect(flat).toContain('●')
-    expect(flat).toContain('bg=colour24')
+    expect(flat).toContain('bg=colour238')
+    expect(flat).not.toContain('bg=colour24')
   })
 
   it('ends with a select-window and returns the attach invocation', () => {

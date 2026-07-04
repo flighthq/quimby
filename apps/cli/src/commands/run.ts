@@ -428,13 +428,14 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Icons
 // carry state so colour can stay gentle: open circle = idle, half circle = recently active,
-// filled circle = quiet after activity, × = exited. The selected tab is the only filled tab.
+// filled circle = quiet after activity, × = exited. Selected keeps the same state icon but
+// uses a neutral grey background so selection and status remain separate signals.
 const AGENT_WINDOW_FMT =
   '#{?pane_dead,#[fg=colour131]× #[fg=colour244]#W ,#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}}'
 const HOST_WINDOW_FMT =
   '#{?window_silence_flag,#[fg=colour108]● #[fg=colour248]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour248]#W ,#[fg=colour240]○ #[fg=colour248]#W }}'
 const CURRENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour231,bg=colour24,bold]× #W ,#{?window_silence_flag,#[fg=colour231,bg=colour24,bold]● #W ,#{?window_activity_flag,#[fg=colour231,bg=colour24,bold]◐ #W ,#[fg=colour231,bg=colour24,bold]○ #W }}}'
+  '#{?pane_dead,#[fg=colour131,bg=colour238]× #[fg=colour231,bg=colour238,bold]#W ,#{?window_silence_flag,#[fg=colour108,bg=colour238]● #[fg=colour231,bg=colour238,bold]#W ,#{?window_activity_flag,#[fg=colour109,bg=colour238]◐ #[fg=colour231,bg=colour238,bold]#W ,#[fg=colour240,bg=colour238]○ #[fg=colour231,bg=colour238,bold]#W }}}'
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
 const PANEL_STATUS_RIGHT =

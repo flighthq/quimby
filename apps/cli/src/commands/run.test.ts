@@ -138,7 +138,7 @@ describe('runRunCommand', () => {
     expect(h.calls.some((c) => c.includes('select-window'))).toBe(true)
   })
 
-  it('styles in-dashboard agent tabs with muted state icons and a filled selected tab', async () => {
+  it('styles in-dashboard agent tabs with colored state icons and a grey selected tab', async () => {
     process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
@@ -147,7 +147,8 @@ describe('runRunCommand', () => {
     expect(flat).toContain('◐')
     expect(flat).toContain('●')
     expect(flat).toContain('×')
-    expect(flat).toContain('bg=colour24')
+    expect(flat).toContain('bg=colour238')
+    expect(flat).not.toContain('bg=colour24')
   })
 
   it('outside quimby tmux, a foreign $TMUX does not trigger the in-dashboard jump', async () => {
