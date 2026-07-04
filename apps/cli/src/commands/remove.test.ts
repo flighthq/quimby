@@ -8,7 +8,7 @@ vi.mock('execa', () => ({ execa }))
 vi.mock('@quimbyhq/agent', () => ({ removeAgent }))
 
 let resolved: {
-  state: { id: string; agents: Record<string, unknown>; subscriptions: object }
+  state: { id: string; agents: Record<string, unknown> }
   repoRoot: string
 }
 
@@ -18,13 +18,12 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   loadState: vi.fn(async () => ({
     id: 'proj-id',
     agents: { researcher: {} },
-    subscriptions: {},
   })),
   saveState,
 }))
 
 function workspace(agents: Record<string, unknown>) {
-  return { state: { id: 'proj-id', agents, subscriptions: {} }, repoRoot: '/fake/root' }
+  return { state: { id: 'proj-id', agents }, repoRoot: '/fake/root' }
 }
 
 describe('runRemoveCommand', () => {

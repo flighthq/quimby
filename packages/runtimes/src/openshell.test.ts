@@ -57,4 +57,12 @@ describe('openshell', () => {
     await expect(openshell.teardown(ctx)).resolves.toBeUndefined()
     expect(execa).toHaveBeenCalledWith('openshell', expect.arrayContaining(['sandbox', 'rm']))
   })
+
+  it('teardownSpec returns the sandbox rm command as data without executing', () => {
+    execa.mockClear()
+    const spec = openshell.teardownSpec(ctx)
+    expect(spec?.command).toBe('openshell')
+    expect(spec?.args.slice(0, 2)).toEqual(['sandbox', 'rm'])
+    expect(execa).not.toHaveBeenCalled()
+  })
 })

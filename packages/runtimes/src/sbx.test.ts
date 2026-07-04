@@ -85,4 +85,13 @@ describe('sbx', () => {
     await expect(sbx.teardown(ctx)).resolves.toBeUndefined()
     expect(execa).toHaveBeenCalledWith('sbx', expect.arrayContaining(['rm']))
   })
+
+  it('teardownSpec returns the `sbx rm <sandbox>` command as data without executing', () => {
+    execa.mockClear()
+    const spec = sbx.teardownSpec(ctx)
+    expect(spec?.command).toBe('sbx')
+    // The rm targets the exact sandbox name runSpec launches, so a teardown hits the right box.
+    expect(spec?.args).toEqual(['rm', sbx.runSpec(ctx, 'claude').args[2]])
+    expect(execa).not.toHaveBeenCalled()
+  })
 })

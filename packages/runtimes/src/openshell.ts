@@ -40,8 +40,16 @@ export const openshell: RuntimeAdapter = {
     }
   },
 
-  // Best-effort sandbox cleanup on agent teardown; the exact removal verb may need adjusting.
+  // The remove verb for the agent's sandbox, as data so the caller can run it locally or over an
+  // SSH transport (a remote agent's sandbox lives on the remote host).
+  teardownSpec(ctx: RuntimeContext): RunSpec {
+    return { command: 'openshell', args: ['sandbox', 'rm', sandboxName(ctx)], cwd: ctx.agentDir }
+  },
+
+  // Best-effort sandbox cleanup on agent teardown on the local host; the exact removal verb may
+  // need adjusting.
   async teardown(ctx: RuntimeContext) {
-    await bestEffortExec('openshell', ['sandbox', 'rm', sandboxName(ctx)])
+    const spec = this.teardownSpec(ctx)
+    if (spec) await bestEffortExec(spec.command, spec.args)
   },
 }

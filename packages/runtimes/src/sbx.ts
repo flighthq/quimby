@@ -50,9 +50,17 @@ export const sbx: RuntimeAdapter = {
     }
   },
 
-  // Remove the agent's sandbox when the agent is torn down (remove/rebuild). Best-effort:
-  // a missing sandbox or CLI is fine. The exact `sbx` removal verb may need adjusting.
+  // The remove verb for the agent's sandbox, as data so the caller can run it locally or over an
+  // SSH transport (a remote agent's sandbox lives on the remote host). The exact `sbx` removal
+  // verb may need adjusting as the CLI settles.
+  teardownSpec(ctx: RuntimeContext): RunSpec {
+    return { command: 'sbx', args: ['rm', sandboxName(ctx)], cwd: ctx.agentDir }
+  },
+
+  // Remove the agent's sandbox when the agent is torn down (remove/rebuild) on the local host.
+  // Best-effort: a missing sandbox or CLI is fine.
   async teardown(ctx: RuntimeContext) {
-    await bestEffortExec('sbx', ['rm', sandboxName(ctx)])
+    const spec = this.teardownSpec(ctx)
+    if (spec) await bestEffortExec(spec.command, spec.args)
   },
 }

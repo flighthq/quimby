@@ -42,4 +42,8 @@ describe('local', () => {
   it('teardown resolves without error', async () => {
     await expect(local.teardown(ctx)).resolves.toBeUndefined()
   })
+
+  it('teardownSpec returns null — a local agent has no sandbox to remove', () => {
+    expect(local.teardownSpec(ctx)).toBeNull()
+  })
 })
