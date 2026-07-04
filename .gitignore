@@ -3,6 +3,10 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Generated from QUIMBY.md by scripts/context.ts (npm run context:build). Rebuilt automatically
+# before build/typecheck/test/check and on install — QUIMBY.md is the only committed source.
+packages/template/src/quimbyContext.ts
+
 .quimby
 
 # Local reference checkout (not part of quimby)

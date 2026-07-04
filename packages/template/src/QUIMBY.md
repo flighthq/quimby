@@ -14,7 +14,7 @@ You are **{{agentName}}**, one of several agents working on this project in isol
 ## Working
 
 1. **Resume first.** If `status.md` is non-empty, a prior instance of you left it — read it and continue from there.
-2. Read `assignment.md`, do the work in `repo/`, commit as you go.
+2. Read `assignment.md`, do the work in `repo/`, commit as you go. Keep all work on your original branch — don't create or switch branches; Quimby captures your working tree against its seed, so a new branch isn't carried.
 3. Keep `status.md` current — what you're doing, what's done, blockers, the next concrete step. It's your handoff to your own successor, who resumes from it alone after a reset. Write "done" + a summary when finished. These writes are silent; don't announce them.
 
 ## Keep `assignment.md` true
