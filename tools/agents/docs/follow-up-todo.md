@@ -2,9 +2,10 @@
 
 ## Cross-platform and Runtime Resilience
 
-- Audit whether the host machine can be Windows, and which local path, shell, process, and tmux assumptions must change or fail clearly.
-- Audit whether the host machine can be macOS, including whether default config/data paths feel native and match platform expectations.
-- Decide whether SSH agent runs can fall back gracefully to a standard SSH connection when remote tmux is unavailable, with a clear warning about lost persistence.
-- Decide whether local/host runs can fall back gracefully when tmux is unavailable, with a clear warning about lost persistence.
-- Ensure missing SSH client/server access fails with actionable diagnostics at add, doctor, run, restore, and status boundaries.
-- Review `--all` commands and aggregate status flows for hanging remote connections: stream results as they arrive, show progress for pending hosts, and apply bounded timeouts where appropriate.
+- Done: user-level config/data roots are platform-aware. Linux keeps XDG-style defaults, macOS uses `~/Library/Application Support/quimby`, Windows uses AppData (`Roaming` for config, `Local` for durable data), and explicit XDG/Quimby env overrides still win.
+- Done: SSH transport errors distinguish missing local OpenSSH/rsync from unreachable hosts and from missing remote tools, so add/run/restore/doctor surfaces can point at the right machine.
+- Done: existing SSH agents always re-check remote `tmux` before launch, not only during first-run provisioning.
+- Done: aggregate remote probes in `list` and `status` are bounded by `QUIMBY_REMOTE_PROBE_TIMEOUT_MS` (`QUIMBY_REMOTE_STATUS_TIMEOUT_MS` remains accepted as a compatibility alias). Timed-out remote probes degrade to the normal fallback value and print `remote timeout`.
+- Decision: no standard-SSH fallback when remote tmux is unavailable. SSH persistence, reconnect, nudges, logs, and dashboard tabs are built around retained tmux sessions; silently dropping to a raw SSH command would look successful while losing those semantics.
+- Decision: no local/host fallback for tmux-managed runs. Foreground local runs remain the non-tmux mode; host shells in dashboards are part of the dashboard tmux view, so missing tmux should fail clearly rather than create a different UI.
+- Still open: a full Windows host audit beyond path defaults. Shell assumptions (`bash`, POSIX quoting, `sh -c`, tmux availability, rsync/OpenSSH packaging) still need a deliberate compatibility strategy or explicit unsupported-host diagnostics.

@@ -127,6 +127,24 @@ describe('SSHTransport', () => {
     expect(args[args.length - 1]).toBe('whoami')
   })
 
+  it('exec reports a missing local SSH client clearly', async () => {
+    execa.mockRejectedValueOnce(Object.assign(new Error('spawn ssh ENOENT'), { code: 'ENOENT' }))
+
+    await expect(new SSHTransport(LOC).exec('whoami')).rejects.toThrow(
+      'SSH client not found locally',
+    )
+  })
+
+  it('readFile reports SSH reachability failures with the host name', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('connect timed out'), { stderr: 'ssh: connect timed out' }),
+    )
+
+    await expect(new SSHTransport(LOC).readFile('/remote/f')).rejects.toThrow(
+      'Could not reach SSH host user@box',
+    )
+  })
+
   it('scpTo uses the -P (uppercase) port flag and host:path target', async () => {
     await new SSHTransport(LOC).scpTo('/local/f', '/remote/f')
     const [bin, args] = callsTo('scp')[0] as [string, string[]]
@@ -197,6 +215,14 @@ describe('SSHTransport', () => {
     )
   })
 
+  it('rsyncFrom reports a missing local rsync clearly', async () => {
+    execa.mockRejectedValueOnce(Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' }))
+
+    await expect(new SSHTransport(LOC).rsyncFrom('/remote/src', '/local/dst')).rejects.toThrow(
+      'rsync not found locally',
+    )
+  })
+
   it('checkCapabilities probes each tool and throws when any are missing', async () => {
     execa.mockImplementation(async (_bin: string, args: string[]) => {
       if (args[args.length - 1] === 'command -v rsync') throw new Error('not found')
@@ -212,6 +238,24 @@ describe('SSHTransport', () => {
 
   it('checkCapabilities resolves when every tool is present', async () => {
     await expect(new SSHTransport(LOC).checkCapabilities(['git'])).resolves.toBeUndefined()
+  })
+
+  it('checkCapabilities reports a missing local SSH client instead of remote tools', async () => {
+    execa.mockRejectedValueOnce(Object.assign(new Error('spawn ssh ENOENT'), { code: 'ENOENT' }))
+
+    await expect(new SSHTransport(LOC).checkCapabilities(['git'])).rejects.toThrow(
+      'SSH client not found locally',
+    )
+  })
+
+  it('checkCapabilities reports unreachable SSH hosts instead of remote tools', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('Permission denied'), { stderr: 'Permission denied (publickey).' }),
+    )
+
+    await expect(new SSHTransport(LOC).checkCapabilities(['git'])).rejects.toThrow(
+      'Could not reach SSH host user@box',
+    )
   })
 
   it('syncProjectTo wires the exclude plumbing and cleans up its temp file', async () => {

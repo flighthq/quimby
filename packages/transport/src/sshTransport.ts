@@ -48,6 +48,37 @@ export function toRsyncExcludeList(gitLsFilesZ: string): string {
     .join('\0')
 }
 
+const SSH_CONNECTIVITY_FAILURE =
+  /connect timed out|connection timed out|connection refused|could not resolve hostname|no route to host|network is unreachable|permission denied|connection closed/i
+
+function sshFailureMessage(tool: 'ssh' | 'scp' | 'rsync', host: string, err: unknown): string {
+  const e = err as { code?: string; stderr?: string; shortMessage?: string; message?: string }
+  const detail = e.stderr || e.shortMessage || e.message || String(err)
+  if (e.code === 'ENOENT') {
+    const noun = tool === 'ssh' ? 'SSH client' : tool === 'scp' ? 'scp client' : 'rsync'
+    return `${noun} not found locally. Install ${tool === 'rsync' ? 'rsync' : 'OpenSSH'} before using SSH agents.`
+  }
+  if (SSH_CONNECTIVITY_FAILURE.test(detail)) {
+    return `Could not reach SSH host ${host}: ${detail.trim()}`
+  }
+  if (tool === 'rsync') {
+    return `rsync failed while communicating with SSH host ${host}: ${detail.trim()}`
+  }
+  return `SSH command failed for ${host}: ${detail.trim()}`
+}
+
+async function remoteCall<T>(
+  tool: 'ssh' | 'scp' | 'rsync',
+  host: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run()
+  } catch (err) {
+    throw new Error(sshFailureMessage(tool, host, err))
+  }
+}
+
 export class SSHTransport implements Transport {
   private readonly sshFlags: string[]
   private readonly scpFlags: string[]
@@ -90,19 +121,19 @@ export class SSHTransport implements Transport {
   }
 
   async readFile(path: string): Promise<string> {
-    const { stdout } = await execa('ssh', [...this.sshFlags, this.loc.host, `cat ${sp(path)}`])
+    const { stdout } = await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', [...this.sshFlags, this.loc.host, `cat ${sp(path)}`]),
+    )
     return stdout
   }
 
   async writeFile(path: string, content: string): Promise<void> {
     // Ensure parent dir exists, then pipe content via stdin to avoid escaping issues.
     const dir = dirname(path)
-    await execa(
-      'ssh',
-      [...this.sshFlags, this.loc.host, `mkdir -p ${sp(dir)} && cat > ${sp(path)}`],
-      {
+    await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(dir)} && cat > ${sp(path)}`], {
         input: content,
-      },
+      }),
     )
   }
 
@@ -116,22 +147,28 @@ export class SSHTransport implements Transport {
   }
 
   async ensureDir(path: string): Promise<void> {
-    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(path)}`])
+    await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(path)}`]),
+    )
   }
 
   async exec(cmd: string, opts?: { cwd?: string }): Promise<string> {
     const remoteCmd = opts?.cwd ? `cd ${sp(opts.cwd)} && ${cmd}` : cmd
-    const { stdout } = await execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
-      maxBuffer: 256 * 1024 * 1024,
-      stripFinalNewline: false,
-    })
+    const { stdout } = await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
+        maxBuffer: 256 * 1024 * 1024,
+        stripFinalNewline: false,
+      }),
+    )
     return stdout
   }
 
   async runInteractive(cmd: string, args: string[], cwd?: string): Promise<void> {
     const parts = [cmd, ...args].join(' ')
     const remoteCmd = cwd ? `cd ${sp(cwd)} && ${parts}` : parts
-    await execa('ssh', ['-t', ...this.sshFlags, this.loc.host, remoteCmd], { stdio: 'inherit' })
+    await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', ['-t', ...this.sshFlags, this.loc.host, remoteCmd], { stdio: 'inherit' }),
+    )
   }
 
   async checkCapabilities(required: string[]): Promise<void> {
@@ -139,7 +176,12 @@ export class SSHTransport implements Transport {
     for (const cmd of required) {
       try {
         await execa('ssh', [...this.sshFlags, this.loc.host, `command -v ${cmd}`])
-      } catch {
+      } catch (err) {
+        const e = err as { code?: string; stderr?: string; shortMessage?: string; message?: string }
+        const detail = e.stderr || e.shortMessage || e.message || String(err)
+        if (e.code === 'ENOENT' || SSH_CONNECTIVITY_FAILURE.test(detail)) {
+          throw new Error(sshFailureMessage('ssh', this.loc.host, err))
+        }
         missing.push(cmd)
       }
     }
@@ -152,42 +194,48 @@ export class SSHTransport implements Transport {
 
   /** Copy a file from local to remote using scp. */
   async scpTo(localPath: string, remotePath: string): Promise<void> {
-    await execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${sp(remotePath)}`])
+    await remoteCall('scp', this.loc.host, () =>
+      execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${sp(remotePath)}`]),
+    )
   }
 
   /** Copy a directory from remote to local using rsync. */
   async rsyncFrom(remotePath: string, localPath: string): Promise<void> {
-    await execa(
-      'rsync',
-      [
-        '-a',
-        '--protect-args',
-        '-e',
-        this.sshRsyncCmd,
-        rsyncRemoteSpec(this.loc.host, remotePath),
-        `${localPath}/`,
-      ],
-      {
-        stdio: 'inherit',
-      },
+    await remoteCall('rsync', this.loc.host, () =>
+      execa(
+        'rsync',
+        [
+          '-a',
+          '--protect-args',
+          '-e',
+          this.sshRsyncCmd,
+          rsyncRemoteSpec(this.loc.host, remotePath),
+          `${localPath}/`,
+        ],
+        {
+          stdio: 'inherit',
+        },
+      ),
     )
   }
 
   /** Copy a local directory to a remote path using rsync. */
   async rsyncTo(localPath: string, remotePath: string): Promise<void> {
-    await execa(
-      'rsync',
-      [
-        '-a',
-        '--protect-args',
-        '-e',
-        this.sshRsyncCmd,
-        `${localPath}/`,
-        rsyncRemoteSpec(this.loc.host, remotePath),
-      ],
-      {
-        stdio: 'inherit',
-      },
+    await remoteCall('rsync', this.loc.host, () =>
+      execa(
+        'rsync',
+        [
+          '-a',
+          '--protect-args',
+          '-e',
+          this.sshRsyncCmd,
+          `${localPath}/`,
+          rsyncRemoteSpec(this.loc.host, remotePath),
+        ],
+        {
+          stdio: 'inherit',
+        },
+      ),
     )
   }
 
@@ -204,31 +252,31 @@ export class SSHTransport implements Transport {
    * own dir) and `flight/` (a sibling repo that may not be ignored).
    */
   async syncProjectTo(localRoot: string, remotePath: string): Promise<void> {
-    await execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(remotePath)}`])
+    await remoteCall('ssh', this.loc.host, () =>
+      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(remotePath)}`]),
+    )
     const excludeFile = await this.writeGitignoreExcludeFile(localRoot)
     try {
-      await execa(
-        'rsync',
-        [
-          '-av',
-          '--delete',
-          // No trailing slash: with durable workspace storage the local `.quimby`
-          // is a symlink, not a directory, and a trailing-slash rule matches
-          // directories only — leaving the symlink to be shipped and rsync to try
-          // replacing the remote's real `.quimby/` tree with it (delete cascade).
-          '--exclude=.quimby',
-          '--exclude=node_modules/',
-          '--exclude=dist/',
-          '--exclude=.git/hooks/',
-          '--exclude=flight/',
-          ...(excludeFile ? [`--exclude-from=${excludeFile}`, '--from0'] : []),
-          '--protect-args',
-          '-e',
-          this.sshRsyncCmd,
-          `${localRoot}/`,
-          rsyncRemoteSpec(this.loc.host, remotePath),
-        ],
-        { stdio: 'inherit' },
+      await remoteCall('rsync', this.loc.host, () =>
+        execa(
+          'rsync',
+          [
+            '-av',
+            '--delete',
+            '--exclude=.quimby/',
+            '--exclude=node_modules/',
+            '--exclude=dist/',
+            '--exclude=.git/hooks/',
+            '--exclude=flight/',
+            ...(excludeFile ? [`--exclude-from=${excludeFile}`, '--from0'] : []),
+            '--protect-args',
+            '-e',
+            this.sshRsyncCmd,
+            `${localRoot}/`,
+            rsyncRemoteSpec(this.loc.host, remotePath),
+          ],
+          { stdio: 'inherit' },
+        ),
       )
     } finally {
       if (excludeFile) await rm(dirname(excludeFile), { recursive: true, force: true })

@@ -10,15 +10,51 @@ import { join } from 'pathe'
  */
 export const QUIMBY_DIRNAME = '.quimby'
 
+export interface UserDirOptions {
+  env?: NodeJS.ProcessEnv
+  home?: string
+  platform?: NodeJS.Platform
+}
+
+export interface UserDirs {
+  configBase: string
+  dataBase: string
+  dataDir?: string
+}
+
 export function getUserConfigDir(): string {
-  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'quimby')
+  return join(resolveUserDirs().configBase, 'quimby')
 }
 
 export function getUserDataDir(): string {
-  return (
-    process.env.QUIMBY_DATA_HOME ??
-    join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'quimby')
-  )
+  const dirs = resolveUserDirs()
+  return dirs.dataDir ?? join(dirs.dataBase, 'quimby')
+}
+
+export function resolveUserDirs(opts: UserDirOptions = {}): UserDirs {
+  const env = opts.env ?? process.env
+  const home = opts.home ?? homedir()
+  const platform = opts.platform ?? process.platform
+  if (platform === 'win32') {
+    return {
+      configBase: env.XDG_CONFIG_HOME ?? env.APPDATA ?? join(home, 'AppData', 'Roaming'),
+      dataBase: env.XDG_DATA_HOME ?? env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'),
+      ...(env.QUIMBY_DATA_HOME ? { dataDir: env.QUIMBY_DATA_HOME } : {}),
+    }
+  }
+  if (platform === 'darwin') {
+    const appSupport = join(home, 'Library', 'Application Support')
+    return {
+      configBase: env.XDG_CONFIG_HOME ?? appSupport,
+      dataBase: env.XDG_DATA_HOME ?? appSupport,
+      ...(env.QUIMBY_DATA_HOME ? { dataDir: env.QUIMBY_DATA_HOME } : {}),
+    }
+  }
+  return {
+    configBase: env.XDG_CONFIG_HOME ?? join(home, '.config'),
+    dataBase: env.XDG_DATA_HOME ?? join(home, '.local', 'share'),
+    ...(env.QUIMBY_DATA_HOME ? { dataDir: env.QUIMBY_DATA_HOME } : {}),
+  }
 }
 
 export function getProjectRegistryPath(): string {

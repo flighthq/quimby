@@ -21,6 +21,7 @@ import { join } from 'pathe'
 import { formatAttestation } from '../attestation'
 import { bold, cyan, dim, green, red, yellow } from '../colors'
 import { page } from '../pager'
+import { inCompletionOrder, withRemoteProbeTimeout } from '../remoteProbe'
 import { formatWorkSummary } from '../workSummary'
 
 const STATUS_EXCERPT_LINES = 8
@@ -104,13 +105,12 @@ async function renderOverview(
   state: QuimbyState,
   names: string[],
 ): Promise<void> {
-  const snapshots = await Promise.all(
-    names.map((name) => gatherSnapshot(repoRoot, state, state.agents[name])),
+  const snapshots = names.map((name) =>
+    gatherSnapshot(repoRoot, state, state.agents[name]).then((snap) => ({ name, snap })),
   )
 
   console.log(bold(`Agents (${names.length})`))
-  names.forEach((name, i) => {
-    const snap = snapshots[i]
+  for await (const { name, snap } of inCompletionOrder(snapshots)) {
     const cells = [
       `  ${bold(name)}`,
       renderSession(snap.sessionState),
@@ -118,11 +118,12 @@ async function renderOverview(
       countCell('queued', snap.outbox.length),
       dim(formatWorkSummary(snap.summary)),
     ]
+    if (snap.remoteTimedOut) cells.push(yellow('remote timeout'))
     // The seed-vs-base axis, distinct from unmerged work — surfaced so a stale baseline
     // ("run quimby sync") is visible in the overview, not just the deep-dive.
     if (snap.behind > 0) cells.push(yellow(`${snap.behind} behind ${snap.syncRef}`))
     console.log(cells.join('  '))
-  })
+  }
 
   const server = await getServerInfo(repoRoot)
   if (server) console.log(dim(`\nServer running on :${server.port} (PID ${server.pid})`))
@@ -153,10 +154,11 @@ async function renderDeepDive(
 
   const seed = agent.seedCommit ? agent.seedCommit.slice(0, 8) : '(unseeded)'
   const behind = snap.behind > 0 ? yellow(` · ${snap.behind} behind ${snap.syncRef}`) : ''
+  const remoteTimedOut = snap.remoteTimedOut ? yellow(' · remote timeout') : ''
 
   console.log(`${bold(name)}  ${renderSession(snap.sessionState)}`)
   console.log(row('assignment', assignment ? firstLine(assignment) : dim('(none)')))
-  console.log(row('base', `seed ${seed} · tracks ${snap.syncRef}${behind}`))
+  console.log(row('base', `seed ${seed} · tracks ${snap.syncRef}${behind}${remoteTimedOut}`))
   console.log(row('work', formatWorkSummary(snap.summary)))
   // The agent's own attestation (relayed, never a quimby-run guarantee) — shown when it recorded
   // one or a check command is configured, so a stale/absent self-report is visible before merge.
@@ -191,6 +193,7 @@ interface AgentSnapshot {
   /** How far the agent's seed baseline trails the ref it tracks (the `quimby sync` axis). */
   behind: number
   syncRef: string
+  remoteTimedOut: boolean
 }
 
 async function gatherSnapshot(
@@ -198,21 +201,34 @@ async function gatherSnapshot(
   state: QuimbyState,
   agent: Readonly<AgentState>,
 ): Promise<AgentSnapshot> {
+  const sessionProbe = getAgentSessionState(agent).catch((): AgentSessionState => 'stopped')
+  const summaryProbe = getAgentWorkSummary(repoRoot, state.id, agent)
+  const syncProbe = getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => null)
   const [sessionState, summary, inbox, outbox, sync] = await Promise.all([
-    getAgentSessionState(agent).catch((): AgentSessionState => 'stopped'),
-    getAgentWorkSummary(repoRoot, state.id, agent),
+    maybeBoundRemoteProbe(agent, sessionProbe, 'stopped' as AgentSessionState),
+    maybeBoundRemoteProbe(agent, summaryProbe, null),
     readInboxParcelNames(repoRoot, agent.id),
     readOutboxRecipients(repoRoot, agent.id),
-    getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => null),
+    maybeBoundRemoteProbe(agent, syncProbe, null),
   ])
   return {
-    sessionState,
-    summary,
+    sessionState: sessionState.value,
+    summary: summary.value,
     inbox,
     outbox,
-    behind: sync?.behind ?? 0,
-    syncRef: sync?.syncRef ?? agent.syncRef ?? state.sourceRef,
+    behind: sync.value?.behind ?? 0,
+    syncRef: sync.value?.syncRef ?? agent.syncRef ?? state.sourceRef,
+    remoteTimedOut: sessionState.timedOut || summary.timedOut || sync.timedOut,
   }
+}
+
+async function maybeBoundRemoteProbe<T>(
+  agent: Readonly<AgentState>,
+  probe: Promise<T>,
+  fallback: T,
+) {
+  if (!isSSH(agent.location)) return { value: await probe, timedOut: false }
+  return withRemoteProbeTimeout(probe, fallback)
 }
 
 async function readAgentFile(

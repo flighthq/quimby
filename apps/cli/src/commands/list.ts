@@ -3,13 +3,14 @@ import { readOutboxRecipients } from '@quimbyhq/handoff'
 import { tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { getAgentSessionState } from '@quimbyhq/session'
-import type { AgentSessionState } from '@quimbyhq/types'
+import type { AgentSessionState, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { bold, cyan, dim, green, yellow } from '../colors'
+import { withRemoteProbeTimeout } from '../remoteProbe'
 
 export default defineCommand({
   meta: {
@@ -38,20 +39,36 @@ export async function runListCommand() {
       const defaults = agent.defaults
 
       const [syncStatus, pending, outboxDrafts, sessionState] = await Promise.all([
-        getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => ({
-          behind: 0,
-          syncRef: agent.syncRef ?? state.sourceRef,
-          targetCommit: '',
-        })),
-        getAgentPendingWork(repoRoot, state.id, agent),
+        maybeBoundRemoteProbe(
+          agent,
+          getAgentSyncStatus(repoRoot, agent, state.sourceRef).catch(() => ({
+            behind: 0,
+            syncRef: agent.syncRef ?? state.sourceRef,
+            targetCommit: '',
+          })),
+          {
+            behind: 0,
+            syncRef: agent.syncRef ?? state.sourceRef,
+            targetCommit: '',
+          },
+        ),
+        maybeBoundRemoteProbe(agent, getAgentPendingWork(repoRoot, state.id, agent), null),
         readOutboxRecipients(repoRoot, agent.id).then((r) => r.length),
-        getAgentSessionState(agent).catch((): AgentSessionState => 'stopped'),
+        maybeBoundRemoteProbe(
+          agent,
+          getAgentSessionState(agent).catch((): AgentSessionState => 'stopped'),
+          'stopped' as AgentSessionState,
+        ),
       ])
 
-      const { behind, syncRef: resolvedSyncRef } = syncStatus
+      const remoteTimedOut = syncStatus.timedOut || pending.timedOut || sessionState.timedOut
+      const { behind, syncRef: resolvedSyncRef } = syncStatus.value
+      const pendingValue = pending.value
+      const sessionStateValue = sessionState.value
       const syncRef = resolvedSyncRef
       const behindStr = behind > 0 ? `  ${yellow(`${behind} behind ${syncRef}`)}` : ''
       const syncStr = syncRef !== state.sourceRef ? `  ${dim(`↟ ${syncRef}`)}` : ''
+      const remoteTimeoutStr = remoteTimedOut ? `  ${yellow('remote timeout')}` : ''
 
       let locationStr = ''
       if (isSSH(agent.location)) {
@@ -67,10 +84,10 @@ export async function runListCommand() {
       const outboxStr = outboxDrafts > 0 ? `  ${cyan(`queued: ${outboxDrafts}`)}` : ''
 
       let pendingStr = ''
-      if (pending !== null) {
+      if (pendingValue !== null) {
         const parts: string[] = []
-        if (pending.commits > 0) parts.push(`${pending.commits} ahead`)
-        if (pending.dirty) parts.push('dirty')
+        if (pendingValue.commits > 0) parts.push(`${pendingValue.commits} ahead`)
+        if (pendingValue.dirty) parts.push('dirty')
         if (parts.length > 0) pendingStr = `  ${green(`● ${parts.join(', ')}`)}`
       }
 
@@ -78,16 +95,16 @@ export async function runListCommand() {
       // `quimby run`; stopped = no session. A local non-tmux agent reads as stopped
       // (it has no session to probe even while a foreground `run` is live).
       const stateStr =
-        sessionState === 'attached'
+        sessionStateValue === 'attached'
           ? cyan('● attached')
-          : sessionState === 'running'
+          : sessionStateValue === 'running'
             ? green('● running')
             : dim('○ stopped')
 
       // The short id matches the tmux session (`qb-<id8>`) and sandbox names, so the
       // roster correlates with `tmux ls` / `sbx ls`.
       console.log(
-        `  ${name}  ${stateStr}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${pendingStr}${behindStr}`,
+        `  ${name}  ${stateStr}  ${dim(`id:${agent.id.slice(0, 8)}`)}  ${dim(`seed:${agent.seedCommit.slice(0, 8)}`)}  ${config}${locationStr}${syncStr}${outboxStr}${pendingStr}${behindStr}${remoteTimeoutStr}`,
       )
     }
   }
@@ -107,4 +124,13 @@ export async function runListCommand() {
     console.log()
     console.log(dim(`Server running on :${serverInfo.port} (PID: ${serverInfo.pid})`))
   }
+}
+
+async function maybeBoundRemoteProbe<T>(
+  agent: Readonly<Pick<AgentState, 'location'>>,
+  probe: Promise<T>,
+  fallback: T,
+) {
+  if (!isSSH(agent.location)) return { value: await probe, timedOut: false }
+  return withRemoteProbeTimeout(probe, fallback)
 }

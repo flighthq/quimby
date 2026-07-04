@@ -1,7 +1,5 @@
-import { homedir } from 'node:os'
-
 import { QuimbyError } from '@quimbyhq/errors'
-import { getLocalConfigPath, getProjectConfigPath } from '@quimbyhq/paths'
+import { getLocalConfigPath, getProjectConfigPath, getUserConfigDir } from '@quimbyhq/paths'
 import type {
   AgentRoleConfig,
   CheckConfig,
@@ -32,7 +30,7 @@ export type SSHConnectionResolution =
   | { location?: undefined; unboundAlias: string; port?: number; base?: string }
 
 export function getUserConfigPath(): string {
-  return join(homedir(), '.config', 'quimby', 'config.yaml')
+  return join(getUserConfigDir(), 'config.yaml')
 }
 
 export async function loadQuimbyConfig(repoRoot: string): Promise<QuimbyConfig> {

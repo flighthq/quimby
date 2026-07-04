@@ -25,6 +25,7 @@ import {
   getTmuxConfigPath,
   getUserConfigDir,
   getUserDataDir,
+  resolveUserDirs,
 } from './localPaths'
 
 describe('getAgentDir', () => {
@@ -176,5 +177,42 @@ describe('getStorageWorkspaceDir', () => {
 describe('getTmuxConfigPath', () => {
   it('returns the .quimby/tmux.conf path', () => {
     expect(getTmuxConfigPath('/root')).toBe('/root/.quimby/tmux.conf')
+  })
+})
+
+describe('resolveUserDirs', () => {
+  it('uses XDG defaults on Linux', () => {
+    expect(resolveUserDirs({ platform: 'linux', home: '/home/me', env: {} })).toEqual({
+      configBase: '/home/me/.config',
+      dataBase: '/home/me/.local/share',
+    })
+  })
+
+  it('uses Application Support on macOS when XDG is not set', () => {
+    expect(resolveUserDirs({ platform: 'darwin', home: '/Users/me', env: {} })).toEqual({
+      configBase: '/Users/me/Library/Application Support',
+      dataBase: '/Users/me/Library/Application Support',
+    })
+  })
+
+  it('uses AppData locations on Windows when XDG is not set', () => {
+    expect(resolveUserDirs({ platform: 'win32', home: 'C:/Users/me', env: {} })).toEqual({
+      configBase: 'C:/Users/me/AppData/Roaming',
+      dataBase: 'C:/Users/me/AppData/Local',
+    })
+  })
+
+  it('lets explicit env vars override platform defaults', () => {
+    expect(
+      resolveUserDirs({
+        platform: 'darwin',
+        home: '/Users/me',
+        env: { XDG_CONFIG_HOME: '/cfg', QUIMBY_DATA_HOME: '/data' },
+      }),
+    ).toEqual({
+      configBase: '/cfg',
+      dataBase: '/Users/me/Library/Application Support',
+      dataDir: '/data',
+    })
   })
 })

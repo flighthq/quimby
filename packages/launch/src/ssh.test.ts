@@ -138,7 +138,7 @@ describe('prepareSshLaunch', () => {
 
     // Still rsyncs, but skips the whole init path.
     expect(transport.syncProjectTo).toHaveBeenCalled()
-    expect(transport.checkCapabilities).not.toHaveBeenCalled()
+    expect(transport.checkCapabilities).toHaveBeenCalledWith(['tmux'])
     expect(mockedClone).not.toHaveBeenCalled()
     expect(mockedScaffold).not.toHaveBeenCalled()
     expect(mockedSaveState).not.toHaveBeenCalled()
@@ -178,6 +178,7 @@ describe('prepareSshLaunch', () => {
 
     await prepareSshLaunch(optsFrom(state))
 
+    expect(transport.checkCapabilities).toHaveBeenCalledWith(['tmux'])
     expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx'])
   })
 
@@ -189,6 +190,7 @@ describe('prepareSshLaunch', () => {
 
     const launch = await prepareSshLaunch(optsFrom(state))
 
+    expect(transport.checkCapabilities).toHaveBeenCalledWith(['tmux'])
     expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx', 'ollama'])
     expect(launch.shellCmd).toContain("OLLAMA_HOST='http://gpu:11434'")
   })

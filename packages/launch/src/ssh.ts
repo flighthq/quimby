@@ -101,6 +101,8 @@ export async function prepareSshLaunch(
     })
     await saveState(repoRoot, state)
     reporter.success('Remote agent initialized')
+  } else {
+    await transport.checkCapabilities(['tmux'])
   }
 
   const config = await loadQuimbyConfig(repoRoot)
