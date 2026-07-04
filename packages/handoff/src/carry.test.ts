@@ -82,9 +82,7 @@ describe('handoffWork', () => {
       to: 'r',
       message: 'please review',
     })
-    expect(withNote.nudgeText).toBe(
-      'Please review: @handoff/in/received/builder-abc123/\n\nplease review',
-    )
+    expect(withNote.nudgeText).toBe('@handoff/in/received/builder-abc123/\n\nplease review')
 
     const noNote = await handoffWork({
       state: stateWith('b', 'r'),
@@ -103,7 +101,7 @@ describe('handoffWork', () => {
       to: 'r',
       nudge: true,
     })
-    expect(forcedOn.nudgeText).not.toBeNull()
+    expect(forcedOn.nudgeText).toBe('@handoff/in/received/builder-abc123/\n\nplease review')
 
     const forcedOff = await handoffWork({
       state: stateWith('b', 'r'),
