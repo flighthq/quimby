@@ -19,19 +19,22 @@ export function attestationResolver(
 
 /**
  * Render an agent's self-attestation as a one-line signal for `status`/`merge`/`handoff`:
- * `"attests: \`npm run ci\` PASSED @ a1b2c3 — 646 tests green"`, or `"unverified (no attestation)"`
- * when the agent recorded none. Deliberately says "attests", not "verified": it is the agent's own
- * report, relayed — never a quimby-run guarantee. Colorless — callers add any emphasis. When
- * `liveHash` is given and differs from the attested `atCommit`, the work changed since the agent
- * verified, so it is flagged stale.
+ * `` `npm run ci` passed @ a1b2c3 — 646 tests green (self-reported) ``, or `"not run"` when the agent
+ * recorded none. The headline speaks the CLI noun **check** — callers front this body with a `check`
+ * label (`status`'s row) or a `check:` prefix (`merge`/`handoff`) — matching what `--check` sets. The
+ * `(self-reported)` qualifier carries the one thing that must stay true: quimby only relays the agent's
+ * own report, it never runs the check, so the wording is never "verified"/"validated" (which would
+ * imply a quimby-run guarantee). Colorless — callers add any emphasis. When `liveHash` is given and
+ * differs from the attested `atCommit`, the work changed since the agent reported, so it is flagged
+ * stale, folded into the same parenthetical.
  */
 export function formatAttestation(att: AgentAttestation | null, liveHash?: string | null): string {
-  if (!att) return 'unverified (no attestation)'
-  const mark = att.result === 'pass' ? 'PASSED' : 'FAILED'
+  if (!att) return 'not run'
+  const mark = att.result === 'pass' ? 'passed' : 'failed'
   const at = att.atCommit ? ` @ ${att.atCommit}` : ''
   const summary = att.summary ? ` — ${att.summary}` : ''
-  const stale = isStale(att.atCommit, liveHash) ? ' (STALE — agent changed since)' : ''
-  return `attests: \`${att.command}\` ${mark}${at}${summary}${stale}`
+  const stale = isStale(att.atCommit, liveHash) ? '; STALE — agent changed since' : ''
+  return `\`${att.command}\` ${mark}${at}${summary} (self-reported${stale})`
 }
 
 // Prefix-tolerant so a short attested hash (e.g. `a1b2c3d`) matches a full live one — stale only

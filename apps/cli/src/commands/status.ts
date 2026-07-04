@@ -168,7 +168,7 @@ async function renderDeepDive(
     const text = formatAttestation(attestation, liveHash)
     console.log(
       row(
-        'verify',
+        'check',
         !attestation ? dim(text) : attestation.result === 'pass' ? green(text) : red(text),
       ),
     )

@@ -11,20 +11,21 @@ const pass: AgentAttestation = {
 }
 
 describe('formatAttestation', () => {
-  it('renders a passing attestation with command, mark, commit, and summary', () => {
+  it('renders a passing attestation with command, mark, commit, summary, and self-reported qualifier', () => {
     const out = formatAttestation(pass)
     expect(out).toContain('npm run ci')
-    expect(out).toContain('PASSED')
+    expect(out).toContain('passed')
     expect(out).toContain('a1b2c3d')
     expect(out).toContain('646 tests green')
+    expect(out).toContain('(self-reported)')
   })
 
-  it('renders FAILED for a failing result', () => {
-    expect(formatAttestation({ command: 'x', result: 'fail' })).toContain('FAILED')
+  it('renders failed for a failing result', () => {
+    expect(formatAttestation({ command: 'x', result: 'fail' })).toContain('failed')
   })
 
-  it('reads as unverified when there is no attestation', () => {
-    expect(formatAttestation(null)).toBe('unverified (no attestation)')
+  it('reads as "not run" when there is no attestation', () => {
+    expect(formatAttestation(null)).toBe('not run')
   })
 
   it('flags stale when the live hash differs from the attested atCommit', () => {

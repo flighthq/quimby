@@ -55,7 +55,7 @@ The model is: **quimby asks, the agent checks, quimby relays — never re-runs, 
 - **Travels with the work** — `handoff`/`dispatch`/`merge` embed the code source's attestation into the parcel `meta.yaml` (via a `resolveAttestation` seam, since `@quimbyhq/handoff` can't read an agent's status.md), so it reaches the recipient's inbox. Implemented.
 - **Staleness** — the displayed attestation is flagged **STALE** when the agent's live `HEAD` no longer matches the block's `atCommit` (prefix-tolerant). The agent writes a git commit hash (it can't compute quimby's parcel content-hash), so the compare is HEAD-based — which catches new commits but not raw uncommitted drift. The verify convention closes that gap by instruction rather than mechanism: `renderVerifyRequest` and the generated CLAUDE.md tell the agent to **commit its work first, then attest**, so `atCommit` reflects the tree that gets carried. Implemented.
 
-Because quimby only relays a self-report, user-facing text says "attests", not "verified".
+Because quimby only relays a self-report, the display headline speaks the CLI noun **check** with a **(self-reported)** qualifier that carries the relay honesty — never "verified"/"validated", which would imply quimby ran the check itself.
 
 ## Flag conventions
 

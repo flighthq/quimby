@@ -77,7 +77,7 @@ export async function runHandoffCommand({
       getAgentAttestation(repoRoot, state.id, src),
       getAgentHeadHash(repoRoot, state.id, src),
     ])
-    logger.info(formatAttestation(att, liveHash))
+    logger.info(`check: ${formatAttestation(att, liveHash)}`)
   }
 
   const result = await handoffWork(
