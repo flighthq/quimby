@@ -1,13 +1,19 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import * as git from '@quimbyhq/git'
 import { getStorageWorkspaceDir } from '@quimbyhq/paths'
 import { logger } from '@quimbyhq/utils'
 import {
   listStorageWorkspaces,
+  loadQuimbyConfig,
+  loadState,
+  pruneRemoteWorkspaces,
   pruneStorageWorkspaces,
   removeStorageWorkspace,
   resolveWorkspace,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
+
+import { resolveSSHLocationInteractive } from '../hostAlias'
 
 export default defineCommand({
   meta: {
@@ -43,6 +49,27 @@ export default defineCommand({
         },
       },
       run: (ctx) => runStoragePruneCommand(ctx as never),
+    }),
+    'prune-remote': defineCommand({
+      meta: {
+        name: 'prune-remote',
+        description:
+          'Remove orphaned remote workspaces for this repo on a host (keeps the active one)',
+      },
+      args: {
+        host: {
+          type: 'string',
+          description: 'Host alias to prune orphaned remote workspaces on',
+          required: true,
+        },
+        force: {
+          type: 'boolean',
+          alias: 'f',
+          default: false,
+          description: 'Actually remove the orphaned remote workspaces; without this, only preview',
+        },
+      },
+      run: (ctx) => runStoragePruneRemoteCommand(ctx as never),
     }),
     remove: defineCommand({
       meta: {
@@ -103,6 +130,45 @@ export async function runStoragePruneCommand({
     logger.info(`${args.force ? 'removed' : 'would remove'} ${workspace.id}  ${workspace.path}`)
   }
   if (!args.force) logger.info('Pass --force to remove these stale workspaces.')
+}
+
+export async function runStoragePruneRemoteCommand({
+  args,
+}: {
+  args: { host: string; force?: boolean }
+}): Promise<void> {
+  const repoRoot = await git.findRoot(process.cwd())
+  if (!repoRoot) throw new QuimbyError('Not inside a git repository.')
+
+  // The active workspace is the one to keep; without it we cannot tell which remote lane
+  // is the live one, so refuse rather than risk deleting it.
+  const state = await loadState(repoRoot).catch(() => undefined)
+  if (!state) {
+    throw new QuimbyError(
+      'No local workspace here to protect. Run `quimby up`/`quimby run` (or `quimby restore`) to adopt one first, then prune.',
+    )
+  }
+  const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
+  const config = await loadQuimbyConfig(repoRoot)
+  const location = await resolveSSHLocationInteractive(repoRoot, config, {
+    type: 'ssh',
+    alias: args.host,
+  })
+
+  const stale = await pruneRemoteWorkspaces(location, {
+    sourceRepo,
+    keepId: state.id,
+    force: args.force,
+  })
+  if (stale.length === 0) {
+    logger.success(`No orphaned remote workspaces for this repo on "${args.host}".`)
+    return
+  }
+  for (const workspace of stale) {
+    logger.info(`${args.force ? 'removed' : 'would remove'} ${workspace.id}  (on ${args.host})`)
+  }
+  if (!args.force) logger.info('Pass --force to remove these orphaned remote workspaces.')
+  else logger.success(`Removed ${stale.length} orphaned remote workspace(s); kept "${state.id}".`)
 }
 
 export async function runStorageRemoveCommand({

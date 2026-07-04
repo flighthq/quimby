@@ -9,6 +9,8 @@ import { ensureDir, exists, readYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
+import { loadQuimbyConfig } from './config'
+import { adoptRemoteWorkspace } from './remoteAdopt'
 import { migrateState, saveState } from './state'
 import { ensureDurableWorkspace, restoreWorkspaceLink } from './storage'
 
@@ -28,6 +30,12 @@ export async function resolveWorkspace(): Promise<{
   if (!(await exists(statePath))) {
     const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
     await restoreWorkspaceLink(repoRoot, { sourceRepo })
+    if (!(await exists(statePath))) {
+      // No local state and no durable link: reconnect to an existing remote workspace
+      // for this repo (reusing its id) before giving up, so a lost `.quimby/` doesn't
+      // orphan the remote agents. Bound aliases only — silent, never prompts.
+      await adoptRemoteWorkspace(repoRoot, await loadQuimbyConfig(repoRoot), { sourceRepo })
+    }
     if (!(await exists(statePath))) {
       throw new QuimbyError(
         'No quimby workspace found. Run `quimby add <name>` to create an agent, or `quimby restore` to reconnect durable storage.',
@@ -189,6 +197,13 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
     await ensureDurableWorkspace(repoRoot, state)
     return state
   }
+
+  // Before minting a fresh id (which would orphan any existing remote workspace for this
+  // repo), try to reconnect to one. Bound aliases only — silent, never prompts.
+  const adopted = await adoptRemoteWorkspace(repoRoot, await loadQuimbyConfig(repoRoot), {
+    sourceRepo,
+  })
+  if (adopted) return adopted
 
   const sourceRef = await getCurrentBranch(repoRoot)
   const snapshot = await git.getCurrentRef(repoRoot)

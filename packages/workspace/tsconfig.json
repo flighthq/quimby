@@ -15,6 +15,9 @@
       "path": "../paths"
     },
     {
+      "path": "../transport"
+    },
+    {
       "path": "../types"
     },
     {

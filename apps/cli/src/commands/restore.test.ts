@@ -1,52 +1,37 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const restoreWorkspaceLink = vi.hoisted(() => vi.fn())
-const ensureDurableWorkspace = vi.hoisted(() => vi.fn(async () => {}))
-const saveState = vi.hoisted(() => vi.fn(async () => {}))
-const exec = vi.hoisted(() => vi.fn())
-const getSSHTransport = vi.hoisted(() => vi.fn(() => ({ exec })))
+const scanRemoteProjects = vi.hoisted(() => vi.fn())
+const reconstructRemoteWorkspace = vi.hoisted(() => vi.fn(async () => ({ id: 'proj-id' })))
 
 vi.mock('@quimbyhq/git', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   findRoot: vi.fn(async () => '/repo'),
   getRemoteUrl: vi.fn(async () => 'git@example.com:repo.git'),
-  getCurrentRef: vi.fn(async () => 'host-head'),
-}))
-
-vi.mock('@quimbyhq/transport', async (importOriginal) => ({
-  ...((await importOriginal()) as object),
-  getSSHTransport,
 }))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
-  ensureDurableWorkspace,
   restoreWorkspaceLink,
-  saveState,
+  scanRemoteProjects,
+  reconstructRemoteWorkspace,
   loadQuimbyConfig: vi.fn(async () => ({
     hosts: {
       // Bound in (mock) private config, so restore's own scan connection resolves
       // to a concrete host without prompting.
       remote: { type: 'ssh', host: 'user@remote-box' },
     },
-    roles: {
-      review: { runtimeProfile: 'remote-claude', tmux: true },
-      builder: { runtimeProfile: 'remote-codex', tmux: true },
-    },
-    presets: {
-      remote: {
-        agents: {
-          review: { role: 'review', hostAlias: 'remote' },
-          builder: { role: 'builder', hostAlias: 'remote' },
-        },
-      },
-    },
   })),
 }))
 
-vi.mock('execa', () => ({ execa: vi.fn(async () => ({ stdout: 'main' })) }))
-
 import cmd, { runRestoreCommand } from './restore'
+
+beforeEach(() => {
+  restoreWorkspaceLink.mockReset()
+  scanRemoteProjects.mockReset()
+  reconstructRemoteWorkspace.mockReset()
+  reconstructRemoteWorkspace.mockResolvedValue({ id: 'proj-id' })
+})
 
 describe('runRestoreCommand', () => {
   it('is a command', () => {
@@ -62,44 +47,63 @@ describe('runRestoreCommand', () => {
       id: undefined,
       sourceRepo: 'git@example.com:repo.git',
     })
-    expect(getSSHTransport).not.toHaveBeenCalled()
+    expect(scanRemoteProjects).not.toHaveBeenCalled()
   })
 
-  it('reconstructs state from a remote workspace when local registry is missing', async () => {
+  it('errors without a host when the local registry has no match', async () => {
     restoreWorkspaceLink.mockResolvedValueOnce(null)
-    exec
-      .mockResolvedValueOnce('PROJECT\tproj-id\tgit@example.com:repo.git\tmain\n')
-      .mockResolvedValueOnce(
-        'AGENT\treview-id\treview\tseed-review\nAGENT\tbuilder-id\tbuilder\tseed-builder\n',
-      )
+
+    await expect(runRestoreCommand({ args: {} })).rejects.toThrow(/quimby restore --host/)
+    expect(scanRemoteProjects).not.toHaveBeenCalled()
+  })
+
+  it('reconstructs from the single remote workspace matching this repo', async () => {
+    restoreWorkspaceLink.mockResolvedValueOnce(null)
+    scanRemoteProjects.mockResolvedValueOnce([
+      { id: 'proj-id', sourceRepo: 'git@example.com:repo.git', sourceRef: 'main' },
+      { id: 'other-id', sourceRepo: 'git@example.com:other.git', sourceRef: 'main' },
+    ])
 
     await runRestoreCommand({ args: { host: 'remote' } })
 
-    expect(exec.mock.calls[1][0]).toContain('root=$HOME/')
-    expect(ensureDurableWorkspace).toHaveBeenCalledWith(
-      '/repo',
-      expect.objectContaining({ id: 'proj-id' }),
+    expect(scanRemoteProjects).toHaveBeenCalledWith(
+      expect.objectContaining({ host: 'user@remote-box', alias: 'remote' }),
     )
-    expect(saveState).toHaveBeenCalledWith(
+    expect(reconstructRemoteWorkspace).toHaveBeenCalledWith(
       '/repo',
-      expect.objectContaining({
-        id: 'proj-id',
-        agents: expect.objectContaining({
-          review: expect.objectContaining({
-            id: 'review-id',
-            seedCommit: 'seed-review',
-            // Recovered agents store the alias reference; the address resolves at launch.
-            location: { type: 'ssh', alias: 'remote' },
-            defaults: { runtimeProfile: 'remote-claude' },
-            tmux: true,
-          }),
-          builder: expect.objectContaining({
-            id: 'builder-id',
-            seedCommit: 'seed-builder',
-            defaults: { runtimeProfile: 'remote-codex' },
-          }),
-        }),
-      }),
+      expect.objectContaining({ host: 'user@remote-box' }),
+      expect.any(Object),
+      { id: 'proj-id', sourceRepo: 'git@example.com:repo.git', sourceRef: 'main' },
+      { presetName: 'remote', fallbackAlias: 'remote', sourceRepo: 'git@example.com:repo.git' },
+    )
+  })
+
+  it('throws when multiple remote workspaces match, asking for --id', async () => {
+    restoreWorkspaceLink.mockResolvedValueOnce(null)
+    scanRemoteProjects.mockResolvedValueOnce([
+      { id: 'a', sourceRepo: 'git@example.com:repo.git' },
+      { id: 'b', sourceRepo: 'git@example.com:repo.git' },
+    ])
+
+    await expect(runRestoreCommand({ args: { host: 'remote' } })).rejects.toThrow(/--id/)
+    expect(reconstructRemoteWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('selects a remote workspace by explicit --id', async () => {
+    restoreWorkspaceLink.mockResolvedValueOnce(null)
+    scanRemoteProjects.mockResolvedValueOnce([
+      { id: 'a', sourceRepo: 'git@example.com:repo.git' },
+      { id: 'b', sourceRepo: 'git@example.com:other.git' },
+    ])
+
+    await runRestoreCommand({ args: { host: 'remote', id: 'b' } })
+
+    expect(reconstructRemoteWorkspace).toHaveBeenCalledWith(
+      '/repo',
+      expect.any(Object),
+      expect.any(Object),
+      { id: 'b', sourceRepo: 'git@example.com:other.git' },
+      expect.objectContaining({ fallbackAlias: 'remote' }),
     )
   })
 })

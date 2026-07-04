@@ -1,21 +1,15 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import { getQuimbyDir, remoteProjectRoot } from '@quimbyhq/paths'
-import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentState, QuimbyState } from '@quimbyhq/types'
+import { getQuimbyDir } from '@quimbyhq/paths'
+import type { QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
-  ensureDurableWorkspace,
   loadQuimbyConfig,
-  normalizeCheck,
-  resolveAgentRoleConfig,
-  resolveConfiguredAgent,
-  resolvePreset,
+  reconstructRemoteWorkspace,
   restoreWorkspaceLink,
-  saveState,
+  scanRemoteProjects,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-import { execa } from 'execa'
 
 import { resolveSSHLocationInteractive } from '../hostAlias'
 
@@ -82,8 +76,7 @@ async function restoreFromRemote(
     type: 'ssh',
     alias: opts.hostAlias,
   })
-  const transport = getSSHTransport(location)
-  const remoteProjects = parseRemoteProjects(await transport.exec(remoteProjectScanScript()))
+  const remoteProjects = await scanRemoteProjects(location)
   const candidates = opts.projectId
     ? remoteProjects.filter((p) => p.id === opts.projectId)
     : remoteProjects.filter((p) => p.sourceRepo === opts.sourceRepo)
@@ -98,140 +91,9 @@ async function restoreFromRemote(
     )
   }
 
-  const project = candidates[0]
-  const remoteAgents = parseRemoteAgents(
-    await transport.exec(remoteAgentScanScript(remoteProjectRoot(project.id, location.base))),
-  )
-  if (remoteAgents.length === 0) {
-    throw new QuimbyError(`Remote workspace "${project.id}" has no recoverable agents.`)
-  }
-
-  const preset = config.presets?.[opts.presetName] ? resolvePreset(config, opts.presetName) : {}
-  const sourceRef = await getCurrentBranch(repoRoot)
-  const snapshot = await git.getCurrentRef(repoRoot)
-  const now = new Date().toISOString()
-  const agents: Record<string, AgentState> = {}
-  for (const remoteAgent of remoteAgents) {
-    const raw = preset.agents?.[remoteAgent.name]
-    const configured = resolveConfiguredAgent(config, raw)
-    const role = resolveAgentRoleConfig(config, configured)
-    const check = normalizeCheck(role.check)
-    // Store the alias reference so the concrete host resolves from private config at
-    // launch — recovered agents inherit any local/user binding, and the address never
-    // lands in reconstructed state.
-    const agentAliasName = configured.hostAlias ?? opts.hostAlias
-    agents[remoteAgent.name] = {
-      id: remoteAgent.id,
-      name: remoteAgent.name,
-      seedCommit: remoteAgent.seedCommit || snapshot,
-      syncRef: sourceRef,
-      createdAt: now,
-      location: configured.location ?? { type: 'ssh', alias: agentAliasName },
-      ...(configured.role ? { role: configured.role } : {}),
-      ...(role.runtimeProfile || role.runtime || role.entrypoint
-        ? {
-            defaults: {
-              ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
-              ...(role.runtime ? { runtime: role.runtime } : {}),
-              ...(role.entrypoint ? { entrypoint: role.entrypoint } : {}),
-            },
-          }
-        : {}),
-      ...(role.tmux ? { tmux: true } : {}),
-      ...(check?.command ? { check: check.command } : {}),
-      ...((check?.verifyByDefault ?? role.verifyByDefault) ? { verifyByDefault: true } : {}),
-    }
-  }
-
-  const state: QuimbyState = {
-    id: project.id,
+  return reconstructRemoteWorkspace(repoRoot, location, config, candidates[0], {
+    presetName: opts.presetName,
+    fallbackAlias: opts.hostAlias,
     sourceRepo: opts.sourceRepo,
-    sourceRef,
-    snapshot,
-    createdAt: now,
-    agents,
-  }
-
-  await ensureDurableWorkspace(repoRoot, state)
-  await saveState(repoRoot, state)
-  return state
-}
-
-function remoteProjectScanScript(): string {
-  return [
-    'for p in ~/.quimby/workspaces/*; do',
-    '[ -d "$p/.quimby/agents" ] || continue;',
-    'id=${p##*/};',
-    'source=$(git -C "$p" remote get-url origin 2>/dev/null || true);',
-    'branch=$(git -C "$p" rev-parse --abbrev-ref HEAD 2>/dev/null || true);',
-    'printf "PROJECT\\t%s\\t%s\\t%s\\n" "$id" "$source" "$branch";',
-    'done',
-  ].join(' ')
-}
-
-function remoteAgentScanScript(remoteRoot: string): string {
-  return [
-    remoteRootAssignment(remoteRoot),
-    'for a in "$root"/.quimby/agents/*; do',
-    '[ -d "$a" ] || continue;',
-    'id=${a##*/};',
-    'name=$(sed -n "s/^You are the \\*\\*\\(.*\\)\\*\\* agent\\.$/\\1/p" "$a/CLAUDE.md" 2>/dev/null | head -n 1);',
-    '[ -n "$name" ] || name="$id";',
-    'seed=$(git -C "$a/repo" rev-parse quimby/seed 2>/dev/null || git -C "$a/repo" rev-parse HEAD 2>/dev/null || true);',
-    'printf "AGENT\\t%s\\t%s\\t%s\\n" "$id" "$name" "$seed";',
-    'done',
-  ].join(' ')
-}
-
-function remoteRootAssignment(remoteRoot: string): string {
-  if (remoteRoot === '~') return 'root=$HOME;'
-  if (remoteRoot.startsWith('~/')) {
-    return `root=$HOME/${remoteRoot.slice(2).split('/').map(shellQuote).join('/')};`
-  }
-  return `root=${shellQuote(remoteRoot)};`
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`
-}
-
-function parseRemoteProjects(output: string): RemoteProject[] {
-  return output
-    .split('\n')
-    .filter((line) => line.startsWith('PROJECT\t'))
-    .map((line) => {
-      const [, id, sourceRepo, sourceRef] = line.split('\t')
-      return { id, sourceRepo, sourceRef }
-    })
-}
-
-function parseRemoteAgents(output: string): RemoteAgent[] {
-  return output
-    .split('\n')
-    .filter((line) => line.startsWith('AGENT\t'))
-    .map((line) => {
-      const [, id, name, seedCommit] = line.split('\t')
-      return { id, name, seedCommit }
-    })
-}
-
-async function getCurrentBranch(repoRoot: string): Promise<string> {
-  try {
-    const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot })
-    return stdout.trim()
-  } catch {
-    return 'main'
-  }
-}
-
-interface RemoteProject {
-  id: string
-  sourceRepo: string
-  sourceRef?: string
-}
-
-interface RemoteAgent {
-  id: string
-  name: string
-  seedCommit: string
+  })
 }

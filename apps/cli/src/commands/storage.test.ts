@@ -1,24 +1,41 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const listStorageWorkspaces = vi.hoisted(() => vi.fn())
 const pruneStorageWorkspaces = vi.hoisted(() => vi.fn())
+const pruneRemoteWorkspaces = vi.hoisted(() => vi.fn())
 const removeStorageWorkspace = vi.hoisted(() => vi.fn())
 const resolveWorkspace = vi.hoisted(() => vi.fn())
+const loadState = vi.hoisted(() => vi.fn())
+
+vi.mock('@quimbyhq/git', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  findRoot: vi.fn(async () => '/repo'),
+  getRemoteUrl: vi.fn(async () => 'git@example.com:repo.git'),
+}))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   listStorageWorkspaces,
   pruneStorageWorkspaces,
+  pruneRemoteWorkspaces,
   removeStorageWorkspace,
   resolveWorkspace,
+  loadState,
+  loadQuimbyConfig: vi.fn(async () => ({ hosts: { remote: { type: 'ssh', host: 'user@box' } } })),
 }))
 
 import cmd, {
   runStorageListCommand,
   runStoragePathCommand,
   runStoragePruneCommand,
+  runStoragePruneRemoteCommand,
   runStorageRemoveCommand,
 } from './storage'
+
+beforeEach(() => {
+  pruneRemoteWorkspaces.mockReset()
+  loadState.mockReset()
+})
 
 describe('runStorageListCommand', () => {
   it('lists durable workspaces', async () => {
@@ -65,6 +82,29 @@ describe('runStoragePruneCommand', () => {
     await runStoragePruneCommand({ args: { force: false } })
 
     expect(pruneStorageWorkspaces).toHaveBeenCalledWith({ force: false })
+  })
+})
+
+describe('runStoragePruneRemoteCommand', () => {
+  it('prune-remote keeps the active workspace and previews unless forced', async () => {
+    loadState.mockResolvedValueOnce({ id: 'active-id' })
+    pruneRemoteWorkspaces.mockResolvedValueOnce([{ id: 'orphan', sourceRepo: 'x' }])
+
+    await runStoragePruneRemoteCommand({ args: { host: 'remote', force: false } })
+
+    expect(pruneRemoteWorkspaces).toHaveBeenCalledWith(
+      expect.objectContaining({ host: 'user@box', alias: 'remote' }),
+      { sourceRepo: 'git@example.com:repo.git', keepId: 'active-id', force: false },
+    )
+  })
+
+  it('prune-remote refuses when there is no local workspace to protect', async () => {
+    loadState.mockRejectedValueOnce(new Error('no state'))
+
+    await expect(
+      runStoragePruneRemoteCommand({ args: { host: 'remote', force: true } }),
+    ).rejects.toThrow(/adopt one first/)
+    expect(pruneRemoteWorkspaces).not.toHaveBeenCalled()
   })
 })
 
