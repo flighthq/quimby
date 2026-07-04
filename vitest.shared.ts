@@ -35,6 +35,7 @@ export const alias = Object.fromEntries(
 export default defineConfig({
   resolve: { alias },
   test: {
+    setupFiles: [fileURLToPath(new URL('./scripts/vitest-setup.ts', import.meta.url))],
     // Never collect tests from worker clones under .quimby/, build output, the local
     // flight/ reference checkout, or the slow end-to-end integration lane (which has its
     // own config and `npm run test:integration` entry point — kept out of default `npm test`).

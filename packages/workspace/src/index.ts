@@ -1,4 +1,6 @@
 export * from './config'
+export * from './registry'
 export * from './state'
+export * from './storage'
 export * from './subscriptions'
 export * from './workspace'

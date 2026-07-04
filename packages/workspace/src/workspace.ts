@@ -10,6 +10,7 @@ import { execa } from 'execa'
 import { join } from 'pathe'
 
 import { migrateState, saveState } from './state'
+import { ensureDurableWorkspace, restoreWorkspaceLink } from './storage'
 
 export async function resolveWorkspace(): Promise<{
   state: QuimbyState
@@ -25,10 +26,17 @@ export async function resolveWorkspace(): Promise<{
   const statePath = getStatePath(repoRoot)
 
   if (!(await exists(statePath))) {
-    throw new QuimbyError('No quimby workspace found. Run `quimby add <name>` to create an agent.')
+    const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
+    await restoreWorkspaceLink(repoRoot, { sourceRepo })
+    if (!(await exists(statePath))) {
+      throw new QuimbyError(
+        'No quimby workspace found. Run `quimby add <name>` to create an agent, or `quimby restore` to reconnect durable storage.',
+      )
+    }
   }
 
   const state = await readYaml<QuimbyState>(statePath)
+  await ensureDurableWorkspace(repoRoot, state)
 
   let dirty = migrateState(state)
 
@@ -169,13 +177,19 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
   const statePath = getStatePath(repoRoot)
 
   if (await exists(statePath)) {
-    return readYaml<QuimbyState>(statePath)
+    const state = await readYaml<QuimbyState>(statePath)
+    await ensureDurableWorkspace(repoRoot, state)
+    return state
   }
 
-  const quimbyDir = getQuimbyDir(repoRoot)
-  await ensureDir(quimbyDir)
-
   const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
+  await restoreWorkspaceLink(repoRoot, { sourceRepo })
+  if (await exists(statePath)) {
+    const state = await readYaml<QuimbyState>(statePath)
+    await ensureDurableWorkspace(repoRoot, state)
+    return state
+  }
+
   const sourceRef = await getCurrentBranch(repoRoot)
   const snapshot = await git.getCurrentRef(repoRoot)
 
@@ -188,6 +202,8 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
     agents: {},
   }
 
+  await ensureDir(getQuimbyDir(repoRoot))
+  await ensureDurableWorkspace(repoRoot, state)
   await saveState(repoRoot, state)
   await addToGitignore(repoRoot)
 

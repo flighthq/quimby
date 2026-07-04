@@ -15,11 +15,16 @@ import {
   getAgentRepoDir,
   getAgentsDir,
   getAgentStatusMirrorDir,
+  getProjectRegistryPath,
   getQuimbyDir,
   getStagingDir,
   getStagingHandoffDir,
   getStatePath,
+  getStorageRoot,
+  getStorageWorkspaceDir,
   getTmuxConfigPath,
+  getUserConfigDir,
+  getUserDataDir,
 } from './localPaths'
 
 describe('getAgentDir', () => {
@@ -124,6 +129,12 @@ describe('getAgentStatusMirrorDir', () => {
   })
 })
 
+describe('getProjectRegistryPath', () => {
+  it('returns projects.yaml under the user config dir', () => {
+    expect(getProjectRegistryPath()).toBe(`${getUserConfigDir()}/projects.yaml`)
+  })
+})
+
 describe('getQuimbyDir', () => {
   it('returns .quimby under repo root', () => {
     expect(getQuimbyDir('/foo/bar')).toBe('/foo/bar/.quimby')
@@ -147,6 +158,18 @@ describe('getStagingHandoffDir', () => {
 describe('getStatePath', () => {
   it('returns state.yaml path', () => {
     expect(getStatePath('/root')).toBe('/root/.quimby/state.yaml')
+  })
+})
+
+describe('getStorageRoot', () => {
+  it('returns the durable workspace storage root under user data', () => {
+    expect(getStorageRoot()).toBe(`${getUserDataDir()}/workspaces`)
+  })
+})
+
+describe('getStorageWorkspaceDir', () => {
+  it('returns a durable workspace dir by project id', () => {
+    expect(getStorageWorkspaceDir('proj')).toBe(`${getStorageRoot()}/proj`)
   })
 })
 

@@ -24,7 +24,7 @@ npm install -g quimby
 
 ## Quick Start
 
-No config file or init command required. The first `quimby add` creates the `.quimby/` workspace automatically.
+No config file or init command required. The first `quimby add` creates durable workspace storage automatically and links it into the repo as `.quimby/`.
 
 ```bash
 # Create an agent (runs an interactive walkthrough, or pass flags to stay scriptable)
@@ -89,6 +89,8 @@ quimby sync <agent...> [--all] [-f] [--base <ref>]        Sync agent(s) to their
 quimby rebuild <agent> --force                            Recreate agent from scratch
 quimby rename <agent> <new-name>                          Rename agent
 quimby remove <agent> [--force]                           Remove agent
+quimby restore [--host <alias>] [--id <id>]                Reconnect durable storage after .quimby is lost
+quimby storage <path|list|prune|remove>                    Inspect and clean durable workspace storage
 ```
 
 ### Handoffs
@@ -118,6 +120,19 @@ quimby run researcher                                     Sync, init if needed, 
 ```
 
 SSH agents are initialized lazily on first `quimby run` — no SSH connection required at add time. Sessions run in named tmux sessions that persist across disconnects.
+
+### Durable storage
+
+Quimby's durable local state lives under your user data directory (`$QUIMBY_DATA_HOME` when set, otherwise `$XDG_DATA_HOME/quimby` or `~/.local/share/quimby`). The project `.quimby/` entry is a link to that durable storage, so a `git clean -xfd` can remove the link without deleting the stored agent state.
+
+```bash
+quimby restore                         # relink this repo from the local registry
+quimby restore --host remote           # reconstruct state from remote agent storage
+quimby storage path                    # show this project's durable storage path
+quimby storage list                    # list known durable workspaces
+quimby storage prune                   # preview unregistered storage cleanup
+quimby storage prune --force           # remove unregistered storage
+```
 
 ## Merge Modes
 

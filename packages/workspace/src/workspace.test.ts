@@ -1,12 +1,13 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentDir, getStatePath } from '@quimbyhq/paths'
+import { getAgentDir, getQuimbyDir, getStatePath, getStorageWorkspaceDir } from '@quimbyhq/paths'
 import { ensureDir, exists, writeYaml } from '@quimbyhq/utils'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { loadProjectRegistry } from './registry'
 import { loadState } from './state'
 import { ensureWorkspace, resolveWorkspace } from './workspace'
 
@@ -58,9 +59,12 @@ describe('ensureWorkspace', () => {
   })
 
   it('creates state.yaml and .gitignore on first call', async () => {
-    await ensureWorkspace(dir)
+    const state = await ensureWorkspace(dir)
     expect(await exists(getStatePath(dir))).toBe(true)
     expect(await exists(join(dir, '.gitignore'))).toBe(true)
+    expect((await lstat(getQuimbyDir(dir))).isSymbolicLink()).toBe(true)
+    expect(await exists(join(getStorageWorkspaceDir(state.id), 'state.yaml'))).toBe(true)
+    expect((await loadProjectRegistry()).projects?.[state.id]?.repoRoot).toBe(dir)
   })
 
   it('is idempotent — does not overwrite existing state', async () => {
@@ -110,6 +114,24 @@ describe('ensureWorkspace', () => {
     expect(state.id).toBeDefined()
     expect(state.agents.alice.id).toBeDefined()
   })
+
+  it('migrates an existing repo-local .quimby directory into durable storage', async () => {
+    const projectId = `ws-local-${crypto.randomUUID()}`
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      id: projectId,
+      sourceRepo: dir,
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {},
+    })
+
+    await ensureWorkspace(dir)
+
+    expect((await lstat(getQuimbyDir(dir))).isSymbolicLink()).toBe(true)
+    expect(await exists(join(getStorageWorkspaceDir(projectId), 'state.yaml'))).toBe(true)
+  })
 })
 
 describe('resolveWorkspace', () => {
@@ -119,6 +141,19 @@ describe('resolveWorkspace', () => {
     const { state, repoRoot } = await resolveWorkspace()
     expect(repoRoot).toBe(dir)
     expect(state.agents).toBeDefined()
+  })
+
+  it('restores the repo-local .quimby link from the registry after it is deleted', async () => {
+    const created = await ensureWorkspace(dir)
+    await rm(getQuimbyDir(dir), { recursive: true, force: true })
+    expect(await exists(getQuimbyDir(dir))).toBe(false)
+
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
+
+    expect(state.id).toBe(created.id)
+    expect((await lstat(getQuimbyDir(dir))).isSymbolicLink()).toBe(true)
+    expect(await exists(getStatePath(dir))).toBe(true)
   })
 
   it('migrates legacy schema keys (workers, defaults.agent) and preserves advisory checks', async () => {

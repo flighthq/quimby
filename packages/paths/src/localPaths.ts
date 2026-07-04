@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+
 import { join } from 'pathe'
 
 /**
@@ -7,6 +9,29 @@ import { join } from 'pathe'
  * project may lack) so a diff/handoff/apply can never carry `.quimby` itself.
  */
 export const QUIMBY_DIRNAME = '.quimby'
+
+export function getUserConfigDir(): string {
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'quimby')
+}
+
+export function getUserDataDir(): string {
+  return (
+    process.env.QUIMBY_DATA_HOME ??
+    join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'quimby')
+  )
+}
+
+export function getProjectRegistryPath(): string {
+  return join(getUserConfigDir(), 'projects.yaml')
+}
+
+export function getStorageRoot(): string {
+  return join(getUserDataDir(), 'workspaces')
+}
+
+export function getStorageWorkspaceDir(projectId: string): string {
+  return join(getStorageRoot(), projectId)
+}
 
 export function getQuimbyDir(repoRoot: string): string {
   return join(repoRoot, QUIMBY_DIRNAME)
