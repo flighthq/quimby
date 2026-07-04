@@ -5,7 +5,7 @@ import { getSSHTransport } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { loadQuimbyConfig, resolveHostAlias, resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveSSHConnection, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
@@ -47,8 +47,23 @@ export async function runDoctorCommand({
   const agent = args.agent ? state.agents[args.agent] : undefined
   if (args.agent && !agent) throw new QuimbyError(`Agent "${args.agent}" not found`)
 
-  const alias = resolveHostAlias(config, args.hostAlias)
-  const location = isSSH(agent?.location) ? agent.location : aliasToLocation(alias)
+  const rawLocation: SSHLocation | undefined = isSSH(agent?.location)
+    ? agent.location
+    : args.hostAlias
+      ? { type: 'ssh', alias: args.hostAlias }
+      : undefined
+  let location: (SSHLocation & { host: string }) | undefined
+  if (rawLocation) {
+    const res = resolveSSHConnection(config, rawLocation)
+    if (res.unboundAlias) {
+      logger.warn(
+        `Host alias "${res.unboundAlias}" is not bound to an address. Bind it with ` +
+          `\`quimby host ${res.unboundAlias} --set <user@host>\` (or run the agent to be prompted), then re-run doctor.`,
+      )
+      return
+    }
+    location = res.location
+  }
   const selection = resolveRuntimeSelection({
     config,
     saved: agent?.defaults ?? config.defaults,
@@ -65,12 +80,8 @@ export async function runDoctorCommand({
     entrypointCommand,
   ]
 
-  logger.start(
-    `Checking ${location ? `remote host ${(location as SSHLocation).host}` : 'local host'} (${runtime})`,
-  )
-  const results = location
-    ? await checkRemote(location as SSHLocation, required)
-    : await checkLocal(required)
+  logger.start(`Checking ${location ? `remote host ${location.host}` : 'local host'} (${runtime})`)
+  const results = location ? await checkRemote(location, required) : await checkLocal(required)
 
   let ok = true
   for (const result of results) {
@@ -113,16 +124,6 @@ async function checkRemote(
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter(Boolean))]
-}
-
-function aliasToLocation(alias: ReturnType<typeof resolveHostAlias>): SSHLocation | undefined {
-  if (!alias) return undefined
-  return {
-    type: 'ssh',
-    host: alias.host,
-    ...(alias.port ? { port: alias.port } : {}),
-    ...(alias.base ? { base: alias.base } : {}),
-  }
 }
 
 interface CheckResult {

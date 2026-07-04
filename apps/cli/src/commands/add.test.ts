@@ -64,7 +64,7 @@ describe('run', () => {
         runtime: 'sbx',
         entrypoint: 'codex --model "gpt 5"',
       },
-      location: { type: 'ssh', host: 'me@gpu', port: 2222, base: '/srv/quimby' },
+      location: { type: 'ssh', alias: 'gpu' },
       syncRef: 'main',
       tmux: true,
       check: 'npm run ci',

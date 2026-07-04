@@ -10,9 +10,26 @@ import type {
   QuimbyConfig,
   RecipeConfig,
   RuntimeProfileConfig,
+  SSHLocation,
 } from '@quimbyhq/types'
-import { exists, readYaml } from '@quimbyhq/utils'
-import { join } from 'pathe'
+import { ensureDir, exists, readYaml, writeYaml } from '@quimbyhq/utils'
+import { dirname, join } from 'pathe'
+
+/** A concrete SSH binding — the address an alias resolves to. */
+export interface HostAliasBinding {
+  host: string
+  port?: number
+  base?: string
+}
+
+/**
+ * The result of resolving a stored SSH location against layered config: either a
+ * connection-ready location (`host` bound) or the name of an alias still needing a
+ * binding. The CLI prompts for and persists the binding when it is unbound.
+ */
+export type SSHConnectionResolution =
+  | { location: SSHLocation & { host: string }; unboundAlias?: undefined }
+  | { location?: undefined; unboundAlias: string; port?: number; base?: string }
 
 export function getUserConfigPath(): string {
   return join(homedir(), '.config', 'quimby', 'config.yaml')
@@ -87,6 +104,101 @@ export function resolveHostAlias(
   const host = config.hosts?.[alias]
   if (!host) throw new QuimbyError(`Host alias "${alias}" not found in quimby config`)
   return host
+}
+
+/**
+ * Whether an alias declaration carries a real address. A declaration with no
+ * `host`, an empty `host`, or a `host` equal to its own name (the self-referential
+ * placeholder a tracked `quimby.yaml` uses to declare an alias without leaking an
+ * address) is unbound — it needs a private binding before it can connect.
+ */
+export function isHostAliasBound(
+  alias: Readonly<HostAliasConfig> | undefined,
+  name: string,
+): boolean {
+  return Boolean(alias?.host && alias.host !== name)
+}
+
+/**
+ * The concrete binding for an alias name across the layered config, or null when
+ * it is declared-but-unbound (or undeclared). Because local/user config is merged
+ * over the tracked project config, a private binding transparently wins here.
+ */
+export function resolveBoundHostAlias(
+  config: Readonly<QuimbyConfig>,
+  name: string,
+): HostAliasBinding | null {
+  const alias = config.hosts?.[name]
+  if (!isHostAliasBound(alias, name)) return null
+  return {
+    host: alias!.host!,
+    ...(alias!.port ? { port: alias!.port } : {}),
+    ...(alias!.base ? { base: alias!.base } : {}),
+  }
+}
+
+/**
+ * Resolve a stored SSH location against layered config. An explicit `alias` — or a
+ * legacy `host` that is really a declared alias name — is bound to its private
+ * address; a location that already carries a concrete host passes through. When the
+ * alias has no binding yet, the name is returned for the CLI to prompt on.
+ */
+export function resolveSSHConnection(
+  config: Readonly<QuimbyConfig>,
+  loc: Readonly<SSHLocation>,
+): SSHConnectionResolution {
+  const name = loc.alias ?? (loc.host && config.hosts?.[loc.host] ? loc.host : undefined)
+  if (!name) {
+    if (!loc.host) throw new QuimbyError('SSH location has neither a host nor an alias.')
+    return { location: { ...loc, host: loc.host } }
+  }
+  const bound = resolveBoundHostAlias(config, name)
+  if (!bound) {
+    return {
+      unboundAlias: name,
+      ...(loc.port ? { port: loc.port } : {}),
+      ...(loc.base ? { base: loc.base } : {}),
+    }
+  }
+  const port = loc.port ?? bound.port
+  const base = loc.base ?? bound.base
+  return {
+    location: {
+      type: 'ssh',
+      host: bound.host,
+      alias: name,
+      ...(port ? { port } : {}),
+      ...(base ? { base } : {}),
+    },
+  }
+}
+
+/**
+ * Persist a host-alias binding to ignored config so the address never touches the
+ * tracked repo: `.quimby/local.yaml` for this project (default) or the user config
+ * for every project (`global`). Existing config content is preserved. Returns the
+ * file written, for the caller to report.
+ */
+export async function saveHostAliasBinding(
+  repoRoot: string,
+  name: string,
+  binding: Readonly<HostAliasBinding>,
+  opts: Readonly<{ global?: boolean }> = {},
+): Promise<string> {
+  const path = opts.global ? getUserConfigPath() : getLocalConfigPath(repoRoot)
+  const existing: QuimbyConfig = (await exists(path)) ? await readYaml<QuimbyConfig>(path) : {}
+  existing.hosts = {
+    ...(existing.hosts ?? {}),
+    [name]: {
+      type: 'ssh',
+      host: binding.host,
+      ...(binding.port ? { port: binding.port } : {}),
+      ...(binding.base ? { base: binding.base } : {}),
+    },
+  }
+  await ensureDir(dirname(path))
+  await writeYaml(path, existing)
+  return path
 }
 
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {

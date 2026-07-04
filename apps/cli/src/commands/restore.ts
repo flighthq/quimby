@@ -2,7 +2,7 @@ import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getQuimbyDir, remoteProjectRoot } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
+import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   ensureDurableWorkspace,
@@ -10,13 +10,14 @@ import {
   normalizeCheck,
   resolveAgentRoleConfig,
   resolveConfiguredAgent,
-  resolveHostAlias,
   resolveRecipe,
   restoreWorkspaceLink,
   saveState,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
+
+import { resolveSSHLocationInteractive } from '../hostAlias'
 
 export default defineCommand({
   meta: {
@@ -75,9 +76,12 @@ async function restoreFromRemote(
   opts: Readonly<{ projectId?: string; hostAlias: string; recipeName: string; sourceRepo: string }>,
 ): Promise<QuimbyState> {
   const config = await loadQuimbyConfig(repoRoot)
-  const alias = resolveHostAlias(config, opts.hostAlias)
-  if (!alias) throw new QuimbyError(`Host alias "${opts.hostAlias}" not found in quimby config`)
-  const location = aliasToLocation(alias)
+  // Resolve (and, if needed, prompt for + persist) the alias's address before we scan —
+  // restore's own SSH connection needs a concrete host just like a launch does.
+  const location = await resolveSSHLocationInteractive(repoRoot, config, {
+    type: 'ssh',
+    alias: opts.hostAlias,
+  })
   const transport = getSSHTransport(location)
   const remoteProjects = parseRemoteProjects(await transport.exec(remoteProjectScanScript()))
   const candidates = opts.projectId
@@ -96,7 +100,7 @@ async function restoreFromRemote(
 
   const project = candidates[0]
   const remoteAgents = parseRemoteAgents(
-    await transport.exec(remoteAgentScanScript(remoteProjectRoot(project.id, alias.base))),
+    await transport.exec(remoteAgentScanScript(remoteProjectRoot(project.id, location.base))),
   )
   if (remoteAgents.length === 0) {
     throw new QuimbyError(`Remote workspace "${project.id}" has no recoverable agents.`)
@@ -112,14 +116,17 @@ async function restoreFromRemote(
     const configured = resolveConfiguredAgent(config, raw)
     const role = resolveAgentRoleConfig(config, configured)
     const check = normalizeCheck(role.check)
-    const agentAlias = resolveHostAlias(config, configured.hostAlias ?? opts.hostAlias)
+    // Store the alias reference so the concrete host resolves from private config at
+    // launch — recovered agents inherit any local/user binding, and the address never
+    // lands in reconstructed state.
+    const agentAliasName = configured.hostAlias ?? opts.hostAlias
     agents[remoteAgent.name] = {
       id: remoteAgent.id,
       name: remoteAgent.name,
       seedCommit: remoteAgent.seedCommit || snapshot,
       syncRef: sourceRef,
       createdAt: now,
-      location: configured.location ?? aliasToLocation(agentAlias ?? alias),
+      location: configured.location ?? { type: 'ssh', alias: agentAliasName },
       ...(role.runtimeProfile || role.runtime || role.entrypoint
         ? {
             defaults: {
@@ -214,15 +221,6 @@ async function getCurrentBranch(repoRoot: string): Promise<string> {
     return stdout.trim()
   } catch {
     return 'main'
-  }
-}
-
-function aliasToLocation(alias: NonNullable<ReturnType<typeof resolveHostAlias>>): SSHLocation {
-  return {
-    type: 'ssh',
-    host: alias.host,
-    ...(alias.port ? { port: alias.port } : {}),
-    ...(alias.base ? { base: alias.base } : {}),
   }
 }
 

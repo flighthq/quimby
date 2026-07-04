@@ -3,6 +3,7 @@ import {
   renderRemoteMailboxMigration,
   writeRemoteAgentScaffold,
 } from '@quimbyhq/agent'
+import { QuimbyError } from '@quimbyhq/errors'
 import {
   remoteAgentDir,
   remoteAgentRepoDir,
@@ -17,6 +18,7 @@ import { renderTmuxConfig } from '@quimbyhq/template'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
+import { isResolvedSSHLocation } from '@quimbyhq/types'
 import { loadQuimbyConfig, saveState } from '@quimbyhq/workspace'
 
 import type { LaunchOptions } from './local'
@@ -53,6 +55,11 @@ export async function prepareSshLaunch(
   reporter: Reporter = silentReporter,
 ): Promise<SshLaunch> {
   const { state, repoRoot, agent, location: loc } = opts
+  if (!isResolvedSSHLocation(loc)) {
+    throw new QuimbyError(
+      `SSH agent "${agent.name}" has an unbound host alias "${loc.alias ?? '?'}". Bind it with \`quimby host ${loc.alias ?? '<alias>'} --set <user@host>\` or run interactively to be prompted.`,
+    )
+  }
   const transport = getSSHTransport(loc)
   const rRoot = remoteProjectRoot(state.id, loc.base)
   const rAgentDir = remoteAgentDir(state.id, agent.id, loc.base)

@@ -29,6 +29,10 @@ describe('getSSHTransport', () => {
     expect(typeof transport.readFile).toBe('function')
     expect(typeof transport.exec).toBe('function')
   })
+
+  it('throws on an unresolved alias-only location (no host)', () => {
+    expect(() => getSSHTransport({ type: 'ssh', alias: 'remote' })).toThrow(/unresolved/)
+  })
 })
 
 describe('sp', () => {

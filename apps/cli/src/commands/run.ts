@@ -26,7 +26,7 @@ import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
 import { renderAgentAgentsMd, renderAgentClaudeMd, renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
-import { isSSH } from '@quimbyhq/types'
+import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
 import { logger, writeText } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
@@ -39,6 +39,7 @@ import { defineCommand } from 'citty'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
+import { ensureAgentConnections } from '../hostAlias'
 import type { LayoutNode } from '../layout'
 import { collectLayoutAgents, isLayoutExpr, layoutWeights, parseLayout } from '../layout'
 
@@ -165,6 +166,9 @@ export async function runRunCommand({
   if (!agent) {
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
+
+  // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
+  await ensureAgentConnections(repoRoot, state, [args.agent])
 
   // ── SSH agent ──────────────────────────────────────────────────────────────
   if (isSSH(agent.location)) {
@@ -410,6 +414,8 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
     }
   }
 
+  await ensureAgentConnections(repoRoot, state, names)
+
   const TMUX = ['-L', quimbyTmuxSocket]
   const tmuxConf = getTmuxConfigPath(repoRoot)
   await writeText(tmuxConf, renderTmuxConfig())
@@ -554,6 +560,8 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
     }
   }
 
+  await ensureAgentConnections(repoRoot, state, names)
+
   const TMUX = ['-L', quimbyTmuxSocket]
   const session = (
     await execa('tmux', [...TMUX, 'display-message', '-p', '#{session_name}'])
@@ -649,6 +657,11 @@ async function buildSSHWindow(
   repoRoot: string,
 ): Promise<WindowSpec> {
   const loc = agent.location as SSHLocation
+  if (!isResolvedSSHLocation(loc)) {
+    throw new QuimbyError(
+      `SSH agent "${name}" has an unbound host alias "${loc.alias ?? '?'}" — bind it with \`quimby host ${loc.alias ?? '<alias>'} --set <user@host>\`.`,
+    )
+  }
   const transport = getSSHTransport(loc)
   const rRoot = remoteProjectRoot(state.id, loc.base)
   const rAgentDir = remoteAgentDir(state.id, agent.id, loc.base)
@@ -921,11 +934,18 @@ async function runPanelDashboard(expr: string): Promise<void> {
   const layout = parseLayout(expr) // throws QuimbyError on malformed input
   const { state, repoRoot } = await resolveWorkspace()
 
-  for (const name of collectLayoutAgents(layout)) {
+  const layoutAgents = collectLayoutAgents(layout)
+  for (const name of layoutAgents) {
     if (!isHostToken(name) && !state.agents[name]) {
       throw new QuimbyError(`Agent "${name}" not found`)
     }
   }
+
+  await ensureAgentConnections(
+    repoRoot,
+    state,
+    layoutAgents.filter((n) => !isHostToken(n)),
+  )
 
   const TMUX = ['-L', quimbyTmuxSocket]
   const tmuxConf = getTmuxConfigPath(repoRoot)

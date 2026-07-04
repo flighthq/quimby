@@ -1,7 +1,6 @@
 import { addAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
-import type { SSHLocation } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   addSubscriptionToState,
@@ -49,8 +48,12 @@ export async function runUpCommand({ args }: { args: { recipe: string } }) {
     const configured = resolveConfiguredAgent(config, rawAgent)
     const role = resolveAgentRoleConfig(config, configured)
     const check = normalizeCheck(role.check)
-    const alias = resolveHostAlias(config, configured.hostAlias)
-    const location = configured.location ?? aliasToLocation(alias)
+    // Assert the alias is declared, then store the reference (resolved to a concrete
+    // host at launch) rather than a flattened address, keeping the address out of state.
+    if (configured.hostAlias) resolveHostAlias(config, configured.hostAlias)
+    const location =
+      configured.location ??
+      (configured.hostAlias ? { type: 'ssh' as const, alias: configured.hostAlias } : undefined)
     await addAgent(repoRoot, name, {
       defaults:
         role.runtimeProfile || role.runtime || role.entrypoint
@@ -82,15 +85,5 @@ export async function runUpCommand({ args }: { args: { recipe: string } }) {
   if (changed) {
     await saveState(repoRoot, state)
     logger.success(`Subscriptions updated for recipe "${args.recipe}"`)
-  }
-}
-
-function aliasToLocation(alias: ReturnType<typeof resolveHostAlias>): SSHLocation | undefined {
-  if (!alias) return undefined
-  return {
-    type: 'ssh',
-    host: alias.host,
-    ...(alias.port ? { port: alias.port } : {}),
-    ...(alias.base ? { base: alias.base } : {}),
   }
 }

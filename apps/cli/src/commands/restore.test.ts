@@ -25,7 +25,9 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   saveState,
   loadQuimbyConfig: vi.fn(async () => ({
     hosts: {
-      remote: { type: 'ssh', host: 'remote' },
+      // Bound in (mock) private config, so restore's own scan connection resolves
+      // to a concrete host without prompting.
+      remote: { type: 'ssh', host: 'user@remote-box' },
     },
     roles: {
       review: { runtimeProfile: 'remote-claude', tmux: true },
@@ -90,7 +92,8 @@ describe('restore', () => {
           review: expect.objectContaining({
             id: 'review-id',
             seedCommit: 'seed-review',
-            location: { type: 'ssh', host: 'remote' },
+            // Recovered agents store the alias reference; the address resolves at launch.
+            location: { type: 'ssh', alias: 'remote' },
             defaults: { runtimeProfile: 'remote-claude' },
             tmux: true,
           }),

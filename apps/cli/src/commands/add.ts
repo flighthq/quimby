@@ -125,16 +125,12 @@ export async function runAddCommand({
         : undefined
     if (args.host) {
       location = buildSSHLocation(args.host, args.port ? Number.parseInt(args.port, 10) : undefined)
-    } else {
-      const alias = resolveHostAlias(config, args.hostAlias)
-      if (alias) {
-        location = {
-          type: 'ssh',
-          host: alias.host,
-          ...(alias.port ? { port: alias.port } : {}),
-          ...(alias.base ? { base: alias.base } : {}),
-        }
-      }
+    } else if (args.hostAlias) {
+      // Store the alias reference, not a flattened address, so the concrete host is
+      // resolved from private config at launch (and a rebinding propagates). resolveHostAlias
+      // asserts the alias is at least declared in config.
+      resolveHostAlias(config, args.hostAlias)
+      location = { type: 'ssh', alias: args.hostAlias }
     }
     syncRef = args.sync ?? role?.syncRef
     tmux = role?.tmux
@@ -159,7 +155,7 @@ export async function runAddCommand({
     ...(verifyByDefault ? { verifyByDefault: true } : {}),
   })
 
-  const locationHint = location ? ` [ssh: ${location.host}]` : ''
+  const locationHint = location ? ` [ssh: ${location.host ?? `@${location.alias ?? '?'}`}]` : ''
   const defaultsHint = defaults
     ? ` (${[defaults.runtime, defaults.entrypoint].filter(Boolean).join(', ')})`
     : ''

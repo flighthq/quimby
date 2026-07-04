@@ -218,7 +218,8 @@ async function buildSshWindow(
     name,
     cwd: repoRoot,
     rootCwd: repoRoot,
-    cmd: ['ssh', '-t', ...sshFlags, loc.host, remoteTmuxArgs],
+    // launch.host is the resolved connection target (prepareSshLaunch throws on an unbound alias).
+    cmd: ['ssh', '-t', ...sshFlags, launch.host, remoteTmuxArgs],
   }
 }
 

@@ -118,7 +118,8 @@ export async function runAgentWalkthrough(
 }
 
 function formatSSHHost(location: SSHLocation): string {
-  return location.base ? `${location.host}:${location.base}` : location.host
+  const target = location.host ?? `@${location.alias ?? '?'}`
+  return location.base ? `${target}:${location.base}` : target
 }
 
 // Normalize a @clack prompt result: a cancellation collapses to null so callers

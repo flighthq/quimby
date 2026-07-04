@@ -70,7 +70,7 @@ describe('up', () => {
 
     expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
       defaults: { runtimeProfile: 'sbxClaude', runtime: 'sbx', entrypoint: 'claude' },
-      location: { type: 'ssh', host: 'me@gpu' },
+      location: { type: 'ssh', alias: 'gpu' },
       tmux: true,
       check: 'npm run ci',
     })

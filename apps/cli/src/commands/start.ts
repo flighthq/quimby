@@ -23,6 +23,7 @@ import { resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { ensureAgentConnections } from '../hostAlias'
 import { consolaReporter } from '../reporter'
 
 // A freshly-launched agent needs a beat to bring up its prompt before the resume nudge is typed,
@@ -110,6 +111,9 @@ export async function runStartCommand({
     )
     return
   }
+
+  // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
+  await ensureAgentConnections(repoRoot, state, [args.agent])
 
   if (isSSH(agent.location)) {
     const launch = await prepareSshLaunch(

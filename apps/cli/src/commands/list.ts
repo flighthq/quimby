@@ -56,7 +56,8 @@ export async function runListCommand() {
       let locationStr = ''
       if (isSSH(agent.location)) {
         const session = tmuxSessionName(agent.id)
-        locationStr = `  ${cyan(`[ssh: ${agent.location.host}]`)} ${dim(`tmux: ${session}`)}`
+        const target = agent.location.host ?? `@${agent.location.alias ?? '?'} (unbound)`
+        locationStr = `  ${cyan(`[ssh: ${target}]`)} ${dim(`tmux: ${session}`)}`
       }
 
       const config = defaults

@@ -20,6 +20,7 @@ quimby start <agent> [--cmd <cmd>] [-r <runtime>]   Launch the agent headless in
 quimby stop <agent>                                  Kill the agent's tmux session (headless or attached); work on disk is untouched
 quimby set <agent> [-r <rt>] [--cmd <cmd>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's advisory self-check command)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
+quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SSH host aliases (no arg lists all with bound/unbound status; --set binds to ignored local config, --global to user config; a bare `host <alias>` prints it or prompts to bind when unbound)
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
 quimby list                                           Show agents and subscriptions (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, received/queued counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, received/queued, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s status mirror

@@ -194,6 +194,19 @@ quimby remove researcher --force
 
 `quimby remove` is destructive, so — like `rebuild` — a bare `quimby remove <agent>` only warns and removes nothing; `--force` confirms the removal. `--force` cleans up the remote workspace **best-effort**: it attempts the remote `rm -rf`, but if the SSH host is unreachable it tolerates the failure — it removes the local state entry anyway and warns that the remote wasn't cleaned. There is no separate "skip remote" flag: an unreachable host simply degrades to a local-only removal.
 
+### Host aliases (declared shared, bound private)
+
+An SSH agent's connection target is reached through a **host alias** so the address stays out of the tracked repo. A shared `quimby.yaml` _declares_ an alias — either with no `host`, or with the self-referential placeholder `hosts: { remote: { host: remote } }` — which marks it **unbound**. The concrete `user@host` is **bound per machine** into ignored config: `.quimby/local.yaml` (this project, default) or user config (`--global`), so a recipe can say `hostAlias: remote` while the worker's real address never enters git.
+
+The agent stores the alias _reference_, not a flattened address (`location: { type: ssh, alias: remote }`), and the address is resolved from layered config **at launch** — so binding it once, or rebinding it later, propagates to every agent on that alias, and `restore` on a fresh machine reconnects by re-resolving rather than carrying a stale IP. When a launch (or `restore`'s own scan) needs an unbound alias, quimby **prompts once** and persists the answer — interactive only; a non-interactive run instead errors with the exact `quimby host <alias> --set …` command rather than a raw DNS failure.
+
+```
+quimby host                                   # list aliases with bound / unbound status
+quimby host remote --set user@gpu-box         # bind → .quimby/local.yaml (ignored)
+quimby host remote --set user@gpu-box --global # bind → ~/.config/quimby/config.yaml (all projects)
+quimby host remote                            # print the binding, or prompt to bind when unbound
+```
+
 ## CLI Surface
 
 The complete command reference, planned commands, advisory checks, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`merge`), or sets a task in (`assign`).

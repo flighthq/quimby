@@ -14,6 +14,7 @@ const main = defineCommand({
     add: () => import('./commands/add').then((m) => m.default),
     up: () => import('./commands/up').then((m) => m.default),
     config: () => import('./commands/config').then((m) => m.default),
+    host: () => import('./commands/host').then((m) => m.default),
     doctor: () => import('./commands/doctor').then((m) => m.default),
     run: () => import('./commands/run').then((m) => m.default),
     start: () => import('./commands/start').then((m) => m.default),

@@ -52,8 +52,18 @@ export class SSHTransport implements Transport {
   private readonly sshFlags: string[]
   private readonly scpFlags: string[]
   private readonly sshRsyncCmd: string
+  private readonly loc: SSHLocation & { host: string }
 
-  constructor(private readonly loc: SSHLocation) {
+  constructor(loc: Readonly<SSHLocation>) {
+    // A transport only ever operates on a resolved location — an unbound alias
+    // must be resolved (and possibly bound) before we reach the wire. This is a
+    // programmer-error guard, not a user-facing failure: the CLI resolves first.
+    if (!loc.host) {
+      throw new Error(
+        `SSH location for alias "${loc.alias ?? '?'}" is unresolved (no host). Resolve it before opening a transport.`,
+      )
+    }
+    this.loc = loc as SSHLocation & { host: string }
     // Derive a short socket path from the host spec. Used by ControlMaster to
     // multiplex all SSH connections for this agent through a single TCP session
     // — the user only authenticates once per 60-second window.

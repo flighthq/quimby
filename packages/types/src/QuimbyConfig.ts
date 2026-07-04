@@ -40,7 +40,14 @@ export interface RecipeConfig {
 
 export interface HostAliasConfig {
   type?: 'ssh'
-  host: string
+  /**
+   * The concrete connection target ("user@host"). Optional so a tracked
+   * `quimby.yaml` can *declare* an alias without committing a private address —
+   * the binding is filled in per-machine from ignored local/user config (or an
+   * interactive prompt at first use). An alias whose `host` is absent, empty, or
+   * equal to its own name is treated as unbound.
+   */
+  host?: string
   port?: number
   base?: string
 }
