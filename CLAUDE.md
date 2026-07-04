@@ -36,7 +36,7 @@ An npm-workspace monorepo. The domain is split into one package per capability s
 - `packages/utils/` — `@quimbyhq/utils` — tiny generic helpers only: fs, yaml, logger (the consola primitive; only `apps/cli` consumes it)
 - `packages/paths/` — `@quimbyhq/paths` — quimby on-disk + remote layout (getAgentDir, the explicit-lifecycle mailbox tree `getAgentHandoffOut{Draft,Queued,Sent}*`/`getAgentHandoffIn{Received,Processed}*`/`getAgentStatusMirrorDir` and their `remoteAgentHandoff*` twins, remote\*, tmuxSessionName, getTmuxConfigPath, `quimbyTmuxSocket`)
 - `packages/reporter/` — `@quimbyhq/reporter` — the `Reporter` progress-sink contract (start/success/info/warn/error) + `silentReporter` + `collectingReporter` (tests). Operations take a `Reporter` so package logic never imports consola; the consola-backed impl lives in `apps/cli`
-- `packages/template/` — `@quimbyhq/template` — generated text: agent CLAUDE.md (renderAgentClaudeMd) and the bundled tmux config (renderTmuxConfig)
+- `packages/template/` — `@quimbyhq/template` — generated text: agent CLAUDE.md (renderAgentClaudeMd), the agent-side mailbox tool `quimby-agent.sh`/`.cmd` (renderAgentScript/renderAgentScriptCmd — mechanical enactment of the handoff/inbox/attest conventions, scaffolded into every agent), and the bundled tmux config (renderTmuxConfig)
 - `packages/git/` — `@quimbyhq/git` — typed wrapper over the git CLI
 - `packages/transport/` — `@quimbyhq/transport` — LocalTransport / SSHTransport abstraction (`sq`, getTransport, getSSHTransport) + SSHLocation parsing primitives (parseSSHHostSpec, buildSSHLocation, mergeSSHLocation)
 - `packages/runtimes/` — `@quimbyhq/runtimes` — execution adapters (local, sbx, openshell) + registry + buildContext

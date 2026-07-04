@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -95,6 +95,10 @@ describe('addAgent', () => {
     expect(await exists(join(agentDir, 'CLAUDE.md'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
     expect(await exists(join(agentDir, 'status.md'))).toBe(true)
+    // The agent-side mailbox tool is scaffolded too; the .sh must be executable to run directly.
+    expect(await exists(join(agentDir, 'quimby-agent.sh'))).toBe(true)
+    expect(await exists(join(agentDir, 'quimby-agent.cmd'))).toBe(true)
+    expect((await stat(join(agentDir, 'quimby-agent.sh'))).mode & 0o100).toBeTruthy()
   })
 
   it('honors an explicit syncRef', async () => {

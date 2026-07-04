@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { chmod, rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -9,7 +9,14 @@ import {
   remoteAgentRepoDir,
   remoteProjectRoot,
 } from '@quimbyhq/paths'
-import { renderAgentAgentsMd, renderAgentClaudeMd } from '@quimbyhq/template'
+import {
+  AGENT_SCRIPT_CMD_FILENAME,
+  AGENT_SCRIPT_SH_FILENAME,
+  renderAgentAgentsMd,
+  renderAgentClaudeMd,
+  renderAgentScript,
+  renderAgentScriptCmd,
+} from '@quimbyhq/template'
 import type { SSHTransport, Transport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentDefaults, AgentLocation, AgentState } from '@quimbyhq/types'
@@ -250,6 +257,12 @@ export async function writeRemoteAgentInstructions(
 ): Promise<void> {
   await transport.writeFile(`${rAgentDir}/CLAUDE.md`, renderAgentClaudeMd(opts))
   await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd(opts))
+  // The agent-side mailbox tool (see the local twin). The remote floor is POSIX, so the .sh is
+  // what actually runs there; the .cmd is written too for parity. chmod +x so it runs directly.
+  const shPath = `${rAgentDir}/${AGENT_SCRIPT_SH_FILENAME}`
+  await transport.writeFile(shPath, renderAgentScript())
+  await transport.exec(`chmod +x ${sp(shPath)}`)
+  await transport.writeFile(`${rAgentDir}/${AGENT_SCRIPT_CMD_FILENAME}`, renderAgentScriptCmd())
 }
 
 /**
@@ -353,6 +366,13 @@ export async function writeAgentInstructions(
 ): Promise<void> {
   await writeText(join(agentDir, 'CLAUDE.md'), renderAgentClaudeMd(opts))
   await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd(opts))
+  // The agent-side mailbox tool: quimby-owned and regenerated like the instruction files, so a
+  // newer tool reaches an existing agent on its next launch. The .sh is canonical (POSIX floor);
+  // the .cmd twin is the Windows fallback. The .sh must be executable to run as `./quimby-agent.sh`.
+  const shPath = join(agentDir, AGENT_SCRIPT_SH_FILENAME)
+  await writeText(shPath, renderAgentScript())
+  await chmod(shPath, 0o755)
+  await writeText(join(agentDir, AGENT_SCRIPT_CMD_FILENAME), renderAgentScriptCmd())
 }
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {

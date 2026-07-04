@@ -14,6 +14,7 @@ You run inside an isolated sandbox — your own clone, with no view of the other
   - `out/draft/<recipient>/` — author outgoing parcels here (not picked up).
   - `out/queued/<recipient>/` — publish a draft by moving it here (one atomic `mv`).
 - `status/<peer>.md` — other agents' latest status, mirrored for you. Run `ls status/` to see who's around; read one when you need a peer's state. Every current agent has a file here (a placeholder until it reports), so this is the full roster of who you can address — whether or not that peer is running right now.
+- `quimby-agent.sh` — your mailbox tool. It does the mechanical steps (sending, inbox, attesting) reliably so you don't have to hand-format them; run `./quimby-agent.sh help`. (A `.cmd` twin exists for Windows. If the tool is missing, the manual steps below still work.)
 
 ## Working
 
@@ -31,13 +32,19 @@ Use the handoff and status lanes on your own initiative — ask, answer, share s
 
 ## Sending work
 
-Author under `out/draft/<recipient>/` (a `README.md` note + any files), then publish with one atomic move into `out/queued/`: `mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>`. Your committed work attaches automatically; to attach another agent's diff, add frontmatter to the note (`---` / `attach: builder` / `---`). The user runs `quimby dispatch {{agentName}}` (and the server auto-dispatches) to deliver queued parcels.
+Preferred: `./quimby-agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files). To read what's been delivered to you: `./quimby-agent.sh inbox`, then `inbox show <parcel>` / `inbox done <parcel>`.
+
+Manual fallback (if the tool is unavailable): author under `out/draft/<recipient>/` (a `README.md` note + any files), then publish with one atomic move into `out/queued/`: `mv handoff/out/draft/<recipient> handoff/out/queued/<recipient>`. Your committed work attaches automatically; to attach another agent's diff, add frontmatter to the note (`---` / `attach: builder` / `---`).
+
+Either way, the user runs `quimby dispatch {{agentName}}` (and the server auto-dispatches) to deliver queued parcels.
 
 You can address **any** agent in `status/` — the recipient does **not** need to be running. Delivery lands in its inbox and it's picked up whenever it next runs; a stopped recipient just isn't woken immediately. So never decline to send because a peer "isn't running" — queue it anyway.
 
 ## Verify
 
-When you finish, or when asked: **commit first**, run your check (the `check` command quimby set, or the project's tests/build), and append the result to `status.md`:
+When you finish, or when asked: **commit first**, run your check (the `check` command quimby set, or the project's tests/build), then record the result. Preferred: `./quimby-agent.sh attest --command "npm run ci" --result pass --summary "…"` — it appends the block below and fills `atCommit` from your repo HEAD for you (and warns if the tree is dirty, since `atCommit` wouldn't cover uncommitted work).
+
+Manual fallback — append this block to the end of `status.md` yourself:
 
 ```quimby-attest
 command: npm run ci
