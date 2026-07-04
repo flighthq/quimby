@@ -10,9 +10,25 @@ const loadQuimbyConfig = vi.hoisted(() =>
   })),
 )
 
+const saveHostAliasBinding = vi.hoisted(() => vi.fn(async () => '/repo/.quimby/local.yaml'))
+
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   loadQuimbyConfig,
+  saveHostAliasBinding,
+}))
+
+const prompts = vi.hoisted(() => ({
+  text: vi.fn(),
+  select: vi.fn(),
+}))
+
+vi.mock('@clack/prompts', () => ({
+  intro: vi.fn(),
+  outro: vi.fn(),
+  isCancel: (v: unknown) => typeof v === 'symbol',
+  text: prompts.text,
+  select: prompts.select,
 }))
 
 import { ensureAgentConnections, resolveSSHLocationInteractive } from './hostAlias'
@@ -69,5 +85,31 @@ describe('resolveSSHLocationInteractive', () => {
     await expect(
       resolveSSHLocationInteractive('/repo', config, { type: 'ssh', alias: 'remote' }),
     ).rejects.toThrow(/quimby host remote --set/)
+  })
+
+  it('returns the concrete location after prompting to bind an unbound alias', async () => {
+    // Regression: the in-memory config update must spread the binding's address,
+    // not the {value, global} wrapper — otherwise the immediate re-resolve sees no
+    // host, returns undefined, and the caller crashes on `location.host`.
+    process.stdout.isTTY = true
+    prompts.text.mockResolvedValueOnce('me@box').mockResolvedValueOnce('') // address, then blank port
+    prompts.select.mockResolvedValueOnce('local')
+    const config = { hosts: {} }
+
+    const location = await resolveSSHLocationInteractive('/repo', config, {
+      type: 'ssh',
+      alias: 'default',
+    })
+
+    expect(location).toEqual({ type: 'ssh', host: 'me@box', alias: 'default' })
+    expect(config.hosts).toEqual({ default: { type: 'ssh', host: 'me@box' } })
+    expect(saveHostAliasBinding).toHaveBeenCalledWith(
+      '/repo',
+      'default',
+      { host: 'me@box' },
+      {
+        global: false,
+      },
+    )
   })
 })

@@ -22,7 +22,7 @@ export async function resolveSSHLocationInteractive(
   if (res.location) return res.location
 
   const binding = await promptForHostAlias(res.unboundAlias)
-  config.hosts = { ...(config.hosts ?? {}), [res.unboundAlias]: { type: 'ssh', ...binding } }
+  config.hosts = { ...(config.hosts ?? {}), [res.unboundAlias]: { type: 'ssh', ...binding.value } }
   const path = await saveHostAliasBinding(repoRoot, res.unboundAlias, binding.value, {
     global: binding.global,
   })
