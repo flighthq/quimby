@@ -1,11 +1,10 @@
+import type { Reporter } from '@quimbyhq/reporter'
 import type { QuimbyServerHandle } from '@quimbyhq/server'
 import { getServerInfo, startServer, stopServer } from '@quimbyhq/server'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
-
-import { consolaReporter } from '../reporter'
 
 export default defineCommand({
   meta: {
@@ -67,9 +66,9 @@ export async function runServeCommand({
   if (args.stop) {
     const stopped = await stopServer(repoRoot)
     if (stopped) {
-      logger.success(`Stopped quimby server (pid ${stopped.pid}, port ${stopped.port}).`)
+      serveLog.success(`Stopped quimby server (pid ${stopped.pid}, port ${stopped.port}).`)
     } else {
-      logger.info('No quimby server is running for this workspace.')
+      serveLog.info('No quimby server is running for this workspace.')
     }
     return
   }
@@ -79,7 +78,7 @@ export async function runServeCommand({
   // double-starts a poller. -it stacks a shell over the existing server without owning it.
   const existing = await getServerInfo(repoRoot)
   if (existing) {
-    logger.info(`quimby server already running (pid ${existing.pid}, port ${existing.port}).`)
+    serveLog.info(`quimby server already running (pid ${existing.pid}, port ${existing.port}).`)
     if (args.interactive || args.tty) await runInteractiveShell(null)
     return
   }
@@ -93,7 +92,7 @@ export async function runServeCommand({
     port,
     pollInterval,
     autoDispatch,
-    reporter: consolaReporter,
+    reporter: timestampedServeReporter,
   })
 
   if (args.interactive || args.tty) {
@@ -108,7 +107,7 @@ export async function runServeCommand({
 // stop it on exit, since this invocation doesn't own its lifecycle.
 async function runInteractiveShell(handle: Readonly<QuimbyServerHandle> | null): Promise<void> {
   const shell = process.env.SHELL || 'bash'
-  logger.info(
+  serveLog.info(
     handle
       ? `quimby server running on port ${handle.port} — run quimby commands normally; ` +
           'type `exit` (or press Ctrl+C twice) to stop the server.'
@@ -126,7 +125,7 @@ async function runInteractiveShell(handle: Readonly<QuimbyServerHandle> | null):
       return
     }
     lastSigint = now
-    logger.info(
+    serveLog.info(
       handle
         ? 'Press Ctrl+C again (or type `exit`) to stop the quimby server.'
         : 'Press Ctrl+C again (or type `exit`) to leave (the server keeps running).',
@@ -141,19 +140,38 @@ async function runInteractiveShell(handle: Readonly<QuimbyServerHandle> | null):
   process.off('SIGINT', onSigint)
   process.off('SIGTERM', onSigterm)
   if (handle) {
-    logger.info('Stopping quimby server...')
+    serveLog.info('Stopping quimby server...')
     await handle.stop()
-    logger.success('quimby server stopped.')
+    serveLog.success('quimby server stopped.')
   }
   process.exit(0)
 }
 
 function installSignalShutdown(handle: Readonly<QuimbyServerHandle>): void {
   const shutdown = async () => {
-    logger.info('Shutting down...')
+    serveLog.info('Shutting down...')
     await handle.stop()
     process.exit(0)
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+}
+
+const serveLog = {
+  start: (message: string): void => logger.start(formatServeLogMessage(message)),
+  success: (message: string): void => logger.success(formatServeLogMessage(message)),
+  info: (message: string): void => logger.info(formatServeLogMessage(message)),
+  warn: (message: string): void => logger.warn(formatServeLogMessage(message)),
+  error: (message: string): void => logger.error(formatServeLogMessage(message)),
+}
+
+const timestampedServeReporter: Reporter = serveLog
+
+export function formatServeLogMessage(message: string, date = new Date()): string {
+  return `[${formatServeTimestamp(date)}] ${message}`
+}
+
+function formatServeTimestamp(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }

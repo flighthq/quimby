@@ -428,13 +428,14 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Color
 // tracks *attention*, not just state: an agent going quiet (silence → settled, likely waiting
-// on you) is the notable event, so it gets green-bold; ongoing work is normal, so activity
-// gets the calm quimby-blue accent rather than an alarming amber; idle is grey; a dead agent
-// (process exited, pane held by remain-on-exit) is red so it reads as "stopped", not a glitch.
+// on you) is the notable event, so it gets green-bold; ongoing work stays neutral grey so
+// non-selected active tabs do not visually outrank the selected tab; idle is darker grey; a
+// dead agent (process exited, pane held by remain-on-exit) is red so it reads as "stopped",
+// not a glitch.
 const AGENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour244] #W }}}'
+  '#{?pane_dead,#[fg=colour174]#[bold] ✗ #W ,#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour244] #W }}}'
 const HOST_WINDOW_FMT =
-  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour109] #W ,#[fg=colour248] #W }}'
+  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour248] #W }}'
 const CURRENT_WINDOW_FMT = '#[fg=colour231,bg=colour238,bold] #W '
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).

@@ -234,7 +234,7 @@ const MONITOR_OPTS: [string, string][] = [
   ['visual-silence', 'off'],
 ]
 
-// Tmux conditional format: silence → green, activity → amber, default → grey.
+// Tmux conditional format: silence → green, activity → neutral grey, default → grey.
 const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour214] #W ,#[fg=colour244] #W }}'
+  '#{?window_silence_flag,#[fg=colour108]#[bold] #W ,#{?window_activity_flag,#[fg=colour247] #W ,#[fg=colour244] #W }}'
 const WINDOW_STATUS_CURRENT_FORMAT = '#[fg=colour231,bg=colour238,bold] #W '

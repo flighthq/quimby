@@ -3,8 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 const stopServer = vi.hoisted(() => vi.fn(async () => null as { pid: number; port: number } | null))
 const getServerInfo = vi.hoisted(() => vi.fn(async () => null))
 const startServer = vi.hoisted(() => vi.fn(async () => ({ port: 7749, stop: async () => {} })))
+const logger = vi.hoisted(() => ({
+  start: vi.fn(),
+  success: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
 
 vi.mock('@quimbyhq/server', () => ({ stopServer, getServerInfo, startServer }))
+vi.mock('@quimbyhq/utils', () => ({ logger }))
 
 let resolveWorkspaceImpl: () => Promise<{ repoRoot: string }>
 
@@ -17,6 +25,13 @@ describe('run', () => {
   it('is a function', async () => {
     const { default: cmd } = await import('./serve')
     expect(typeof cmd.run).toBe('function')
+  })
+
+  it('formats serve log lines with a local timestamp', async () => {
+    const { formatServeLogMessage } = await import('./serve')
+    expect(formatServeLogMessage('Polling every 5s', new Date(2026, 0, 2, 3, 4, 5))).toBe(
+      '[03:04:05] Polling every 5s',
+    )
   })
 
   it('throws when workspace is missing', async () => {
@@ -55,5 +70,29 @@ describe('run', () => {
     const { default: cmd } = await import('./serve')
     await expect(cmd.run!({ args: {} } as never)).resolves.toBeUndefined()
     expect(startServer).not.toHaveBeenCalled()
+  })
+
+  it('passes a timestamping reporter to the server', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 0, 2, 3, 4, 5))
+    try {
+      resolveWorkspaceImpl = async () => ({ repoRoot: '/fake/root' })
+      getServerInfo.mockResolvedValueOnce(null)
+      startServer.mockClear()
+      logger.info.mockClear()
+
+      const { default: cmd } = await import('./serve')
+      await cmd.run!({ args: {} } as never)
+
+      const calls = startServer.mock.calls as unknown as [
+        { reporter?: { info(message: string): void } },
+      ][]
+      const opts = calls.at(-1)?.[0]
+      opts?.reporter?.info('Polling every 5s')
+
+      expect(logger.info).toHaveBeenCalledWith('[03:04:05] Polling every 5s')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
