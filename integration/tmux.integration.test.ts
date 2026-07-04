@@ -54,7 +54,7 @@ beforeEach(async () => {
   socket = testTmuxSocket()
   markerDir = await mkdtemp(join(tmpdir(), 'qb-marker-'))
   marker = join(markerDir, 'marker')
-  await run(['add', 'worker', '-r', 'local', '-c', `sh ${STUB_ENTRYPOINT}`])
+  await run(['add', 'worker', '-r', 'local', '--cmd', `sh ${STUB_ENTRYPOINT}`])
 })
 
 afterEach(async () => {

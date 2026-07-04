@@ -24,9 +24,27 @@ jobs:
       - name: CI
         run: npm run ci
 
-      # End-to-end harness. Each suite self-skips when its dependency is absent, so this is
-      # safe on a bare runner: Suite A (git + built CLI) always runs; Suite B needs tmux;
-      # Suite C needs passwordless loopback sshd. To exercise B and C fully, provision those
-      # tools on the runner (e.g. `apt-get install -y tmux openssh-server` + a loopback key).
+      # Provision the end-to-end harness's dependencies so every suite actually runs instead of
+      # self-skipping: Suite A (git + built CLI) needs nothing extra, Suite B needs tmux, and
+      # Suite C needs passwordless loopback sshd + rsync. The final `ssh` sanity check fails the
+      # step (set -e) if loopback is broken, so a provisioning regression surfaces loudly rather
+      # than letting Suite C silently skip.
+      - name: Provision integration dependencies (tmux + loopback sshd)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y tmux openssh-server rsync
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          sudo mkdir -p /run/sshd
+          sudo systemctl start ssh || sudo service ssh start
+          ssh-keyscan -H localhost 127.0.0.1 >> ~/.ssh/known_hosts 2>/dev/null
+          # Pin the loopback user so `sshLoopbackHost()` never falls back to root (its default
+          # when $USER is unset), which has no authorized key.
+          echo "USER=$(id -un)" >> "$GITHUB_ENV"
+          ssh -o BatchMode=yes -o ConnectTimeout=5 localhost 'echo loopback-ok as $(id -un)'
+
       - name: Integration tests
         run: npm run test:integration

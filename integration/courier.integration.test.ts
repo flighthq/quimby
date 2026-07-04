@@ -27,17 +27,18 @@ async function run(args: string[]) {
 
 /** `quimby add` writes .gitignore; committing it gives the clean tree `merge` requires. */
 async function addAgentAndCommitIgnore(name: string) {
-  const res = await run(['add', name, '-r', 'local', '-c', 'true'])
+  const res = await run(['add', name, '-r', 'local', '--cmd', 'true'])
   expect(res.exitCode, res.output).toBe(0)
   await git(dir, 'add', '.gitignore')
   // -A picks up .gitignore only the first time; ignore the "nothing to commit" on later adds.
   await git(dir, 'commit', '-m', `ignore .quimby (${name})`).catch(() => {})
 }
 
-async function inboxParcels(agent: string): Promise<string[]> {
-  const inbox = `${await agentDir(dir, agent)}/inbox`
-  const entries = await readdir(inbox).catch(() => [] as string[])
-  return entries.filter((e) => e !== 'status' && !e.startsWith('.'))
+/** Delivered parcels awaiting processing in an agent's `handoff/in/received/` tray. */
+async function receivedParcels(agent: string): Promise<string[]> {
+  const received = `${await agentDir(dir, agent)}/handoff/in/received`
+  const entries = await readdir(received).catch(() => [] as string[])
+  return entries.filter((e) => !e.startsWith('.'))
 }
 
 beforeEach(async () => {
@@ -94,7 +95,7 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     expect(deep.output).toContain('halfway through the parser')
   })
 
-  it('status --to pushes a source agent status into the recipient inbox/status', async () => {
+  it('status --to pushes a source agent status into the recipient status mirror', async () => {
     await addAgentAndCommitIgnore('builder')
     await addAgentAndCommitIgnore('reviewer')
     await writeFile(`${await agentDir(dir, 'builder')}/status.md`, 'builder is halfway')
@@ -102,7 +103,7 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     const res = await run(['status', 'builder', '--to', 'reviewer'])
     expect(res.exitCode, res.output).toBe(0)
 
-    const statusFile = `${await agentDir(dir, 'reviewer')}/inbox/status/builder.md`
+    const statusFile = `${await agentDir(dir, 'reviewer')}/status/builder.md`
     expect(await exists(statusFile)).toBe(true)
     expect(await readFile(statusFile, 'utf-8')).toContain('builder is halfway')
   })
@@ -115,10 +116,10 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     const res = await run(['handoff', 'builder', 'reviewer', '-m', 'please review', '--no-nudge'])
     expect(res.exitCode, res.output).toBe(0)
 
-    const parcels = await inboxParcels('reviewer')
+    const parcels = await receivedParcels('reviewer')
     expect(parcels).toHaveLength(1)
     expect(parcels[0]).toMatch(/^builder-/)
-    const pdir = `${await agentDir(dir, 'reviewer')}/inbox/${parcels[0]}`
+    const pdir = `${await agentDir(dir, 'reviewer')}/handoff/in/received/${parcels[0]}`
     expect(await exists(`${pdir}/meta.yaml`)).toBe(true)
     expect(await readFile(`${pdir}/README.md`, 'utf-8')).toContain('please review')
     expect(await readFile(`${pdir}/squashed.diff`, 'utf-8')).toContain('feature.txt')
@@ -132,31 +133,31 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     const res = await run(['handoff', 'reviewer', '-m', 'look at my local tweak', '--no-nudge'])
     expect(res.exitCode, res.output).toBe(0)
 
-    const parcels = await inboxParcels('reviewer')
+    const parcels = await receivedParcels('reviewer')
     expect(parcels).toHaveLength(1)
     expect(parcels[0]).toMatch(/^host-/)
-    const pdir = `${await agentDir(dir, 'reviewer')}/inbox/${parcels[0]}`
+    const pdir = `${await agentDir(dir, 'reviewer')}/handoff/in/received/${parcels[0]}`
     expect(await readFile(`${pdir}/squashed.diff`, 'utf-8')).toContain('hostwork.txt')
   })
 
-  it('dispatch enacts an agent-authored outbox and moves the draft to .sent', async () => {
+  it('dispatch enacts an agent-authored outbox and moves the draft to out/sent', async () => {
     await addAgentAndCommitIgnore('reviewer')
     await addAgentAndCommitIgnore('builder')
-    // The reviewer authors a note addressed to builder in its outbox.
-    const reviewerOutbox = `${await agentDir(dir, 'reviewer')}/outbox/builder`
-    await mkdir(reviewerOutbox, { recursive: true })
-    await writeFile(`${reviewerOutbox}/README.md`, 'fix the null case in Y')
+    // The reviewer authors a note addressed to builder in its queued outbox tray.
+    const reviewerQueued = `${await agentDir(dir, 'reviewer')}/handoff/out/queued/builder`
+    await mkdir(reviewerQueued, { recursive: true })
+    await writeFile(`${reviewerQueued}/README.md`, 'fix the null case in Y')
 
     const res = await run(['dispatch', 'reviewer', '--no-nudge'])
     expect(res.exitCode, res.output).toBe(0)
 
-    // It lands in builder's inbox…
-    const parcels = await inboxParcels('builder')
+    // It lands in builder's in/received tray…
+    const parcels = await receivedParcels('builder')
     expect(parcels).toHaveLength(1)
     expect(parcels[0]).toMatch(/^reviewer-/)
-    // …and the draft is drained from the active outbox into the .sent ledger.
-    expect(await exists(`${reviewerOutbox}/README.md`)).toBe(false)
-    const sent = await readdir(`${await agentDir(dir, 'reviewer')}/outbox/.sent/builder`).catch(
+    // …and the draft is drained from the queued tray into the out/sent ledger.
+    expect(await exists(`${reviewerQueued}/README.md`)).toBe(false)
+    const sent = await readdir(`${await agentDir(dir, 'reviewer')}/handoff/out/sent/builder`).catch(
       () => [] as string[],
     )
     expect(sent.length).toBeGreaterThan(0)
@@ -246,7 +247,7 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     // Work is gone…
     expect((await run(['diff', 'builder'])).output).not.toContain('scratch.txt')
     // …but the delivered parcel is untouched.
-    expect(await inboxParcels('builder')).toHaveLength(1)
+    expect(await receivedParcels('builder')).toHaveLength(1)
   })
 
   it('rebuild --force resets the agent and clears its mailbox', async () => {
@@ -254,11 +255,11 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     await addAgentAndCommitIgnore('reviewer')
     await run(['handoff', 'reviewer', 'builder', '-m', 'a note', '--no-nudge'])
     await writeFile(`${await agentDir(dir, 'builder')}/status.md`, 'busy')
-    expect(await inboxParcels('builder')).toHaveLength(1)
+    expect(await receivedParcels('builder')).toHaveLength(1)
 
     const res = await run(['rebuild', 'builder', '--force'])
     expect(res.exitCode, res.output).toBe(0)
-    expect(await inboxParcels('builder')).toHaveLength(0)
+    expect(await receivedParcels('builder')).toHaveLength(0)
     expect(await readFile(`${await agentDir(dir, 'builder')}/status.md`, 'utf-8')).toBe('idle')
   })
 

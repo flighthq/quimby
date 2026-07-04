@@ -64,7 +64,7 @@ afterEach(async () => {
 
 describe.skipIf(!sshAvailable)('Suite C — SSH agent over loopback (real transport)', () => {
   it('initializes the remote layout and round-trips work back over transport', async () => {
-    const added = await run(['add', 'worker', '--host', host, '-c', `sh ${STUB_ENTRYPOINT}`])
+    const added = await run(['add', 'worker', '--host', host, '--cmd', `sh ${STUB_ENTRYPOINT}`])
     expect(added.exitCode, added.output).toBe(0)
     const state = await loadState(dir)
     const agent = await agentState(dir, 'worker')
@@ -98,8 +98,8 @@ describe.skipIf(!sshAvailable)('Suite C — SSH agent over loopback (real transp
     expect(merged.exitCode, merged.output).toBe(0)
     expect(await exists(join(dir, 'feature.txt'))).toBe(true)
 
-    // `remove` cleans the remote agent directory.
-    const removed = await run(['remove', 'worker'])
+    // `remove --force` cleans the remote agent directory (a bare `remove` only warns).
+    const removed = await run(['remove', 'worker', '--force'])
     expect(removed.exitCode, removed.output).toBe(0)
     expect(await sshPathExists(host, remoteAgentDir(state.id, agent.id, base))).toBe(false)
   })
