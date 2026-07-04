@@ -1161,6 +1161,14 @@ async function buildViewSession(
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename-format', '$ #{pane_current_command}']) // prettier-ignore
+    } else if (isServiceToken(wname)) {
+      // Label a service `$ <name>` — same host-side `$ ` prefix and shell styling as a plain
+      // `$ bash` tab, so the two read as one family (rather than a glued `$server` beside a
+      // spaced `$ bash`). Fixed name, so no automatic-rename onto the live command.
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'off'])
+      await execa('tmux', [...TMUX, 'rename-window', '-t', target, `$ ${serviceNameOf(wname)}`])
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
     } else {
       await styleAgentTab(TMUX, target)
     }

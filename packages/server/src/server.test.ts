@@ -152,4 +152,24 @@ describe('startServer', () => {
       }),
     ).rejects.toThrow(/already in use/)
   })
+
+  it('walks upward from a busy default port instead of landing on a random one', async () => {
+    const { createServer } = await import('node:net')
+    const blocker = createServer()
+    const heldDefault = await new Promise<boolean>((resolve) => {
+      blocker.once('error', () => resolve(false))
+      blocker.once('listening', () => resolve(true))
+      blocker.listen(7749, '127.0.0.1')
+    })
+    try {
+      handle = await startServer({ repoRoot: dir, pollInterval: 1_000_000, autoDispatch: false })
+      // With 7749 busy it should climb to a nearby port in the scan window, never a far-off
+      // OS-assigned one. (If the env already held 7749, the same near-the-default guarantee holds.)
+      void heldDefault
+      expect(handle.port).toBeGreaterThanOrEqual(7750)
+      expect(handle.port).toBeLessThanOrEqual(7749 + 16)
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()))
+    }
+  })
 })

@@ -1,4 +1,3 @@
-import { QuimbyError } from '@quimbyhq/errors'
 import type { QuimbyServerHandle } from '@quimbyhq/server'
 import { getServerInfo, startServer, stopServer } from '@quimbyhq/server'
 import { logger } from '@quimbyhq/utils'
@@ -75,9 +74,14 @@ export async function runServeCommand({
     return
   }
 
+  // Idempotent: a server already running for this workspace is a no-op, not an error — so a
+  // dashboard `$service` pane running `quimby serve` (or a stray double-invocation) never
+  // double-starts a poller. -it stacks a shell over the existing server without owning it.
   const existing = await getServerInfo(repoRoot)
   if (existing) {
-    throw new QuimbyError(`Server already running (pid ${existing.pid}, port ${existing.port})`)
+    logger.info(`quimby server already running (pid ${existing.pid}, port ${existing.port}).`)
+    if (args.interactive || args.tty) await runInteractiveShell(null)
+    return
   }
 
   const port = args.port ? parseInt(args.port, 10) : undefined
@@ -100,11 +104,16 @@ export async function runServeCommand({
   installSignalShutdown(handle)
 }
 
-async function runInteractiveShell(handle: Readonly<QuimbyServerHandle>): Promise<void> {
+// `handle` is null when a server was already running: we stack a shell over it but must not
+// stop it on exit, since this invocation doesn't own its lifecycle.
+async function runInteractiveShell(handle: Readonly<QuimbyServerHandle> | null): Promise<void> {
   const shell = process.env.SHELL || 'bash'
   logger.info(
-    `quimby server running on port ${handle.port} — run quimby commands normally; ` +
-      'type `exit` (or press Ctrl+C twice) to stop the server.',
+    handle
+      ? `quimby server running on port ${handle.port} — run quimby commands normally; ` +
+          'type `exit` (or press Ctrl+C twice) to stop the server.'
+      : 'Attached a shell over the running quimby server — run commands normally; ' +
+          'type `exit` to leave (the server keeps running).',
   )
 
   const child = execa(shell, ['-i'], { stdio: 'inherit', reject: false })
@@ -117,7 +126,11 @@ async function runInteractiveShell(handle: Readonly<QuimbyServerHandle>): Promis
       return
     }
     lastSigint = now
-    logger.info('Press Ctrl+C again (or type `exit`) to stop the quimby server.')
+    logger.info(
+      handle
+        ? 'Press Ctrl+C again (or type `exit`) to stop the quimby server.'
+        : 'Press Ctrl+C again (or type `exit`) to leave (the server keeps running).',
+    )
   }
   const onSigterm = () => child.kill('SIGTERM')
   process.on('SIGINT', onSigint)
@@ -127,9 +140,11 @@ async function runInteractiveShell(handle: Readonly<QuimbyServerHandle>): Promis
 
   process.off('SIGINT', onSigint)
   process.off('SIGTERM', onSigterm)
-  logger.info('Stopping quimby server...')
-  await handle.stop()
-  logger.success('quimby server stopped.')
+  if (handle) {
+    logger.info('Stopping quimby server...')
+    await handle.stop()
+    logger.success('quimby server stopped.')
+  }
   process.exit(0)
 }
 

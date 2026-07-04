@@ -177,9 +177,13 @@ async function removeServerInfo(repoRoot: string): Promise<void> {
 /**
  * Bind `server` to `preferredPort` on loopback and resolve with the port actually bound. When
  * the caller pinned a port (`explicit`), a clash is a hard error. Otherwise a busy default is
- * expected — another workspace's server holds it — so we retry on an OS-assigned free port
- * rather than fail. A non-`EADDRINUSE` error always propagates.
+ * expected — another workspace's server holds it — so we walk *upward* from the preferred port
+ * (7749 → 7750 → …) to the next free one, which keeps ports predictable and greppable rather
+ * than landing on a random high OS-assigned port; only if a whole window is busy do we fall
+ * back to an OS-assigned port. A non-`EADDRINUSE` error always propagates.
  */
+const PORT_SCAN_WINDOW = 16
+
 async function bindServer(
   server: Server,
   preferredPort: number,
@@ -195,7 +199,16 @@ async function bindServer(
         `Port ${preferredPort} is already in use. Choose another with -p, or stop what's using it.`,
       )
     }
-    reporter.warn(`Port ${preferredPort} is in use (another workspace?) — binding a free port.`)
+    for (let port = preferredPort + 1; port <= preferredPort + PORT_SCAN_WINDOW; port++) {
+      try {
+        const bound = await tryListen(server, port)
+        reporter.warn(`Port ${preferredPort} is in use (another workspace?) — using ${bound}.`)
+        return bound
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e
+      }
+    }
+    reporter.warn(`Ports ${preferredPort}–${preferredPort + PORT_SCAN_WINDOW} are busy — binding an OS-assigned port.`) // prettier-ignore
     return tryListen(server, 0)
   }
 }

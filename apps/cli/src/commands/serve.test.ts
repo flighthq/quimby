@@ -47,4 +47,13 @@ describe('run', () => {
     expect(stopServer).toHaveBeenCalledWith('/fake/root')
     expect(startServer).not.toHaveBeenCalled()
   })
+
+  it('is idempotent: a server already running is a no-op, not an error', async () => {
+    resolveWorkspaceImpl = async () => ({ repoRoot: '/fake/root' })
+    getServerInfo.mockResolvedValueOnce({ pid: 7, port: 7749 } as never)
+    startServer.mockClear()
+    const { default: cmd } = await import('./serve')
+    await expect(cmd.run!({ args: {} } as never)).resolves.toBeUndefined()
+    expect(startServer).not.toHaveBeenCalled()
+  })
 })
