@@ -222,7 +222,9 @@ describe('SSHTransport', () => {
       expect.arrayContaining([
         '-av',
         '--delete',
-        '--exclude=.quimby/',
+        // No trailing slash: the local `.quimby` is a symlink to durable storage,
+        // and a dir-only rule would ship it and clobber the remote `.quimby/` tree.
+        '--exclude=.quimby',
         '--exclude=node_modules/',
         '--exclude=dist/',
         '--exclude=.git/hooks/',

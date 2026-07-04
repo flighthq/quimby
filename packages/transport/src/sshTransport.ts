@@ -202,7 +202,11 @@ export class SSHTransport implements Transport {
         [
           '-av',
           '--delete',
-          '--exclude=.quimby/',
+          // No trailing slash: with durable workspace storage the local `.quimby`
+          // is a symlink, not a directory, and a trailing-slash rule matches
+          // directories only — leaving the symlink to be shipped and rsync to try
+          // replacing the remote's real `.quimby/` tree with it (delete cascade).
+          '--exclude=.quimby',
           '--exclude=node_modules/',
           '--exclude=dist/',
           '--exclude=.git/hooks/',
