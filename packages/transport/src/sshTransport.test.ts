@@ -146,19 +146,51 @@ describe('SSHTransport', () => {
     await new SSHTransport(LOC).rsyncFrom('/remote/src', '/local/dst')
     const [bin, args] = callsTo('rsync')[0] as [string, string[]]
     expect(bin).toBe('rsync')
+    expect(args).toContain('--protect-args')
     const eIdx = args.indexOf('-e')
     expect(eIdx).toBeGreaterThanOrEqual(0)
     // The -e value is a single shell string carrying the ControlPath and port.
     expect(args[eIdx + 1]).toContain('ssh ')
     expect(args[eIdx + 1]).toContain('/tmp/qb_user@box_2222')
     expect(args[eIdx + 1]).toContain('-p 2222')
-    expect(args).toEqual(expect.arrayContaining(["user@box:'/remote/src'/", '/local/dst/']))
+    expect(args).toEqual(expect.arrayContaining(['user@box:/remote/src/', '/local/dst/']))
+  })
+
+  it('rsyncFrom does not shell-quote absolute remote source paths', async () => {
+    await new SSHTransport(LOC).rsyncFrom('/tmp/quimby-handoff-abc', '/local/dst')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toEqual(expect.arrayContaining(['user@box:/tmp/quimby-handoff-abc/']))
+    expect(args).not.toEqual(expect.arrayContaining(["user@box:'/tmp/quimby-handoff-abc'/"]))
+  })
+
+  it('rsyncFrom preserves remote paths with spaces through protected args', async () => {
+    await new SSHTransport(LOC).rsyncFrom('/remote src', '/local/dst')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toContain('--protect-args')
+    expect(args).toEqual(expect.arrayContaining(['user@box:/remote src/']))
+  })
+
+  it('rsyncFrom maps tilde paths to home-relative protected args', async () => {
+    await new SSHTransport(LOC).rsyncFrom('~/.quimby/workspaces/proj', '/local/dst')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toContain('--protect-args')
+    expect(args).toEqual(expect.arrayContaining(['user@box:.quimby/workspaces/proj/']))
   })
 
   it('rsyncTo pushes local→remote with trailing-slash paths', async () => {
     await new SSHTransport(LOC).rsyncTo('/local/src', '/remote/dst')
     const [, args] = callsTo('rsync')[0] as [string, string[]]
-    expect(args).toEqual(expect.arrayContaining(['/local/src/', "user@box:'/remote/dst'/"]))
+    expect(args).toContain('--protect-args')
+    expect(args).toEqual(expect.arrayContaining(['/local/src/', 'user@box:/remote/dst/']))
+  })
+
+  it('rsyncTo maps tilde destinations to home-relative protected args', async () => {
+    await new SSHTransport(LOC).rsyncTo('/local/src', '~/.quimby/workspaces/proj')
+    const [, args] = callsTo('rsync')[0] as [string, string[]]
+    expect(args).toContain('--protect-args')
+    expect(args).toEqual(
+      expect.arrayContaining(['/local/src/', 'user@box:.quimby/workspaces/proj/']),
+    )
   })
 
   it('checkCapabilities probes each tool and throws when any are missing', async () => {
@@ -200,7 +232,8 @@ describe('SSHTransport', () => {
     )
     const excludeArg = args.find((a) => a.startsWith('--exclude-from='))
     expect(excludeArg).toBeDefined()
-    expect(args[args.length - 1]).toBe("user@box:'/remote/root'/")
+    expect(args).toContain('--protect-args')
+    expect(args[args.length - 1]).toBe('user@box:/remote/root/')
     // The temp exclude file is removed in the finally block.
     const excludeFile = excludeArg!.slice('--exclude-from='.length)
     expect(await exists(excludeFile)).toBe(false)

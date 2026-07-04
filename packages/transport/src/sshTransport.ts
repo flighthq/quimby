@@ -19,6 +19,19 @@ export function sp(path: string): string {
   return sq(path)
 }
 
+function rsyncRemoteSpec(host: string, remotePath: string): string {
+  const trimmed = remotePath.replace(/\/+$/, '')
+  const path =
+    trimmed === '' || trimmed === '/'
+      ? '/'
+      : trimmed === '~'
+        ? '.'
+        : trimmed.startsWith('~/')
+          ? trimmed.slice(2)
+          : trimmed
+  return `${host}:${path}/`
+}
+
 /**
  * Convert `git ls-files -z --others --ignored` output into an anchored,
  * NUL-separated rsync exclude list. Each path is prefixed with `/` so it
@@ -136,7 +149,14 @@ export class SSHTransport implements Transport {
   async rsyncFrom(remotePath: string, localPath: string): Promise<void> {
     await execa(
       'rsync',
-      ['-a', '-e', this.sshRsyncCmd, `${this.loc.host}:${sp(remotePath)}/`, `${localPath}/`],
+      [
+        '-a',
+        '--protect-args',
+        '-e',
+        this.sshRsyncCmd,
+        rsyncRemoteSpec(this.loc.host, remotePath),
+        `${localPath}/`,
+      ],
       {
         stdio: 'inherit',
       },
@@ -147,7 +167,14 @@ export class SSHTransport implements Transport {
   async rsyncTo(localPath: string, remotePath: string): Promise<void> {
     await execa(
       'rsync',
-      ['-a', '-e', this.sshRsyncCmd, `${localPath}/`, `${this.loc.host}:${sp(remotePath)}/`],
+      [
+        '-a',
+        '--protect-args',
+        '-e',
+        this.sshRsyncCmd,
+        `${localPath}/`,
+        rsyncRemoteSpec(this.loc.host, remotePath),
+      ],
       {
         stdio: 'inherit',
       },
@@ -181,10 +208,11 @@ export class SSHTransport implements Transport {
           '--exclude=.git/hooks/',
           '--exclude=flight/',
           ...(excludeFile ? [`--exclude-from=${excludeFile}`, '--from0'] : []),
+          '--protect-args',
           '-e',
           this.sshRsyncCmd,
           `${localRoot}/`,
-          `${this.loc.host}:${sp(remotePath)}/`,
+          rsyncRemoteSpec(this.loc.host, remotePath),
         ],
         { stdio: 'inherit' },
       )
