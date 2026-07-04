@@ -74,11 +74,16 @@ export async function runDoctorCommand({
   const { runtime, entrypoint, requiredTools } = selection
   const entrypointCommand = parseCommand(entrypoint).command
 
+  // The entrypoint (e.g. `claude`) is a host dependency only for the `local`
+  // runtime, where it runs directly on the host. A sandbox runtime (`sbx`,
+  // `openshell`) runs the entrypoint inside the sandbox — the host just needs
+  // the runtime CLI, which `requiredTools` already carries — so checking for
+  // the entrypoint on the host would wrongly report it missing.
   const required = [
     'git',
     ...(location ? ['rsync', 'tmux'] : []),
     ...requiredTools,
-    entrypointCommand,
+    ...(runtime === 'local' ? [entrypointCommand] : []),
   ]
 
   logger.start(`Checking ${location ? `remote host ${location.host}` : 'local host'} (${runtime})`)

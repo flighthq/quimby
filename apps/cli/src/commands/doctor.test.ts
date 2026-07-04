@@ -62,18 +62,20 @@ describe('doctor', () => {
     expect(probes).not.toContain('command -v tmux')
   })
 
-  it('checks remote transport, runtime, and entrypoint commands on the remote host', async () => {
+  it('checks remote transport and runtime CLI, but not a sandboxed entrypoint', async () => {
     transport.exec.mockClear()
     await cmd.run!({ args: { agent: 'remote' } } as never)
-    expect(transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual(
+    const probes = transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])
+    expect(probes).toEqual(
       expect.arrayContaining([
         'command -v git',
         'command -v rsync',
         'command -v tmux',
         'command -v sbx',
-        'command -v claude',
       ]),
     )
+    // The entrypoint runs inside the sbx sandbox, not on the host, so it is not probed.
+    expect(probes).not.toContain('command -v claude')
   })
 
   it('can check a private host alias without an agent', async () => {
@@ -84,12 +86,13 @@ describe('doctor', () => {
     )
   })
 
-  it('checks runtime profile provider dependencies', async () => {
+  it('checks runtime profile provider dependencies but not the sandboxed entrypoint', async () => {
     transport.exec.mockClear()
     await cmd.run!({ args: { hostAlias: 'gpu', runtimeProfile: 'ollama' } } as never)
-    expect(transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual(
-      expect.arrayContaining(['command -v openshell', 'command -v ollama', 'command -v codex']),
-    )
+    const probes = transport.exec.mock.calls.map((c) => (c as unknown as [string])[0])
+    expect(probes).toEqual(expect.arrayContaining(['command -v openshell', 'command -v ollama']))
+    // codex is the entrypoint, run inside the openshell runtime — not a host tool.
+    expect(probes).not.toContain('command -v codex')
   })
 
   it('fails when a dependency is missing', async () => {
