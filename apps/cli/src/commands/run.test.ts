@@ -237,18 +237,19 @@ describe('runRunCommand', () => {
     expect(h.calls.some((c) => c.includes('select-window'))).toBe(true)
   })
 
-  it('styles in-dashboard agent tabs with colored state dots (no partial circles)', async () => {
+  it('styles in-dashboard agent tabs with colored state accent bars (no dots or partial circles)', async () => {
     process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     const flat = h.calls.map((c) => c.join(' ')).join('\n')
-    // State is a small bullet-operator marker in different colours plus × for an exited pane.
-    expect(flat).toContain('#[fg=colour240]∙#[fg=colour244]') // idle: grey dot + dim title
+    // State is a slim one-eighth vertical accent bar in different colours plus × for an exited pane.
+    expect(flat).toContain('#[fg=colour240]▏#[fg=colour244]') // idle: grey bar + dim title
     expect(flat).toContain('×')
+    expect(flat).not.toContain('∙')
     expect(flat).not.toContain('●')
     expect(flat).not.toContain('○')
     expect(flat).not.toContain('◐')
-    // The selected format keeps the state dot too (grey comes from a session-level base style).
+    // The selected format keeps the state accent bar too (grey comes from a session-level base style).
     expect(flat).toContain('window-status-current-format #{?pane_dead')
     expect(flat).not.toContain('bg=colour24')
   })
