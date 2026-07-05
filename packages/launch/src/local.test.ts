@@ -16,6 +16,7 @@ vi.mock('@quimbyhq/runtimes', () => ({
   runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
   getRuntime: () => ({ runSpec, setup }),
   buildContext: (repoRoot: string) => ({ repoRoot }),
+  splitCommand: (input: string) => input.trim().split(/\s+/).filter(Boolean),
 }))
 vi.mock('@quimbyhq/template', () => ({
   renderTmuxConfig: () => 'tmux-conf',

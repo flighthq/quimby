@@ -1,5 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { runtimeCli, runtimeTypes } from '@quimbyhq/runtimes'
+import { runtimeCli, runtimeTypes, splitCommand } from '@quimbyhq/runtimes'
 import type {
   AgentDefaults,
   QuimbyConfig,
@@ -76,11 +76,18 @@ export function resolveRuntimeRequirements(opts: {
   entrypoint?: string
   profile?: Readonly<RuntimeProfileConfig>
 }): string[] {
-  return unique([
-    runtimeCli(opts.runtime),
-    ...providerTools(opts.profile),
-    ...(opts.profile?.requiredTools ?? []),
-  ])
+  // The entrypoint (e.g. `claude`) runs inside the sandbox for a non-`local` runtime, so it
+  // is not a host dependency even when a profile listed it in requiredTools — probing for it
+  // on the host (locally or over SSH) would wrongly report it missing. Filter it only out of
+  // the profile's *declared* tools; the runtime CLI and provider tools always stay, since the
+  // host genuinely needs them (and the entrypoint may legitimately share a name with them).
+  const entrypointCli = opts.entrypoint ? splitCommand(opts.entrypoint)[0] : undefined
+  const declared = opts.profile?.requiredTools ?? []
+  const hostDeclared =
+    opts.runtime !== 'local' && entrypointCli
+      ? declared.filter((tool) => tool !== entrypointCli)
+      : declared
+  return unique([runtimeCli(opts.runtime), ...providerTools(opts.profile), ...hostDeclared])
 }
 
 function resolveRuntime(value: string | undefined): RuntimeType {

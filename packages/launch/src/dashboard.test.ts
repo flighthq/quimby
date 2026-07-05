@@ -8,6 +8,7 @@ vi.mock('@quimbyhq/runtimes', () => ({
     runSpec: () => ({ command: 'claude', args: ['claude'], cwd: '/agent/dir', env: {} }),
   }),
   buildContext: (repoRoot: string) => ({ repoRoot }),
+  splitCommand: (input: string) => input.trim().split(/\s+/).filter(Boolean),
 }))
 vi.mock('./ssh', () => ({
   prepareSshLaunch: vi.fn(async () => ({

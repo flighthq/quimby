@@ -31,6 +31,7 @@ vi.mock('@quimbyhq/runtimes', () => ({
   getRuntime: () => ({
     runSpec: () => ({ command: 'sbx', args: ['run', 'claude'], cwd: '/agent/dir', env: {} }),
   }),
+  splitCommand: (input: string) => input.trim().split(/\s+/).filter(Boolean),
 }))
 vi.mock('@quimbyhq/template', () => ({
   renderAgentClaudeMd: () => 'claude-md',

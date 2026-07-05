@@ -77,6 +77,7 @@ vi.mock('@quimbyhq/runtimes', () => ({
     setup: async () => {},
     runSpec: () => ({ command: 'claude', args: ['claude'], cwd: '/fake/root', env: {} }),
   }),
+  splitCommand: (input: string) => input.trim().split(/\s+/).filter(Boolean),
 }))
 
 vi.mock('@quimbyhq/template', async (importOriginal) => ({

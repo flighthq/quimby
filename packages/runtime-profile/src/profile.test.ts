@@ -63,6 +63,38 @@ describe('resolveRuntimeRequirements', () => {
       }),
     ).toEqual(['openshell', 'ollama', 'git'])
   })
+
+  it('drops a sandboxed entrypoint listed in requiredTools, keeping the runtime CLI', () => {
+    // A profile that lists its own entrypoint as a required tool: `claude` runs inside the
+    // sbx sandbox, not on the host, so only `sbx` is a genuine host dependency.
+    expect(
+      resolveRuntimeRequirements({
+        runtime: 'sbx',
+        entrypoint: 'claude',
+        profile: { requiredTools: ['claude'] },
+      }),
+    ).toEqual(['sbx'])
+  })
+
+  it('keeps genuine host tools alongside a filtered sandboxed entrypoint', () => {
+    expect(
+      resolveRuntimeRequirements({
+        runtime: 'sbx',
+        entrypoint: 'claude --dangerously-skip-permissions',
+        profile: { requiredTools: ['claude', 'node'] },
+      }),
+    ).toEqual(['sbx', 'node'])
+  })
+
+  it('keeps the entrypoint for the local runtime, where it runs on the host', () => {
+    expect(
+      resolveRuntimeRequirements({
+        runtime: 'local',
+        entrypoint: 'claude',
+        profile: { requiredTools: ['claude'] },
+      }),
+    ).toEqual(['claude'])
+  })
 })
 
 describe('resolveRuntimeSelection', () => {
