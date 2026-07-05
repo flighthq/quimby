@@ -323,6 +323,20 @@ describe('runRunCommand', () => {
     const split = h.calls.find((c) => c.includes('split-window'))
     expect(split).toEqual(expect.arrayContaining(['-v', '-l', '10']))
     expect(split).not.toContain('20%')
+
+    const rootResizes = h.calls.filter(
+      (c) => c.includes('resize-pane') && c.includes('-y') && c.includes('10'),
+    )
+    expect(rootResizes.length).toBeGreaterThanOrEqual(1)
+
+    expect(
+      writeText.mock.calls.some(
+        ([path, text]) =>
+          String(path).endsWith('panel-resize.sh') && String(text).includes('pane_left'),
+      ),
+    ).toBe(true)
+    expect(h.calls.some((c) => c.includes('set-hook') && c.includes('client-resized'))).toBe(true)
+    expect(h.calls.some((c) => c.includes('set-hook') && c.includes('window-resized'))).toBe(true)
   })
 
   it('still rejects a panel layout from inside this project’s quimby tmux', async () => {

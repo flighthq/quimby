@@ -1247,6 +1247,8 @@ async function runPanelDashboard(expr: string): Promise<void> {
   // always invoked detached (`run-shell -b`) so it survives its own host pane dying.
   const teardownPath = join(getQuimbyDir(repoRoot), 'panel-teardown.sh')
   await writeText(teardownPath, PANEL_TEARDOWN_SH)
+  const resizePath = join(getQuimbyDir(repoRoot), 'panel-resize.sh')
+  await writeText(resizePath, PANEL_RESIZE_SH)
   const viewPrefix = dashboardViewPrefix(state.id)
   const dash = dashboardSessionName(state.id)
   // Two forms of the same teardown: `teardownCmd` is a bare tmux command (for a hook, which
@@ -1278,9 +1280,12 @@ async function runPanelDashboard(expr: string): Promise<void> {
   // its view, and on return fires the detached teardown so any exit collapses the group.
   const leafCmd = (node: Readonly<LayoutNode>): string =>
     `TMUX= tmux -L ${quimbyTmuxSocket} attach -t ${viewOf.get(node)}; ${teardownShell}`
-  await layoutInto(TMUX, layout, firstPane, repoRoot, leafCmd)
+  const resizeRules: PanelResizeRule[] = []
+  await layoutInto(TMUX, layout, firstPane, repoRoot, leafCmd, resizeRules)
+  const resizeCmd = panelResizeCommand(resizePath, resizeRules)
+  if (resizeRules.length) await runPanelResize(resizePath, resizeRules)
 
-  await stylePanelDashboard(TMUX, dash, teardownCmd)
+  await stylePanelDashboard(TMUX, dash, teardownCmd, resizeCmd)
   logger.success(`Panel dashboard "${dash}" — ${expr}`)
 
   try {
@@ -1313,15 +1318,25 @@ async function layoutInto(
   paneId: string,
   cwd: string,
   leafCmd: (n: Readonly<LayoutNode>) => string,
-): Promise<void> {
+  resizeRules: PanelResizeRule[],
+): Promise<PanelLayoutResult> {
   if (node.type === 'tabs') {
     await execa('tmux', [...TMUX, 'respawn-pane', '-k', '-t', paneId, 'sh', '-c', leafCmd(node)])
-    return
+    return { paneIds: [paneId] }
   }
   const dir = node.type === 'cols' ? '-h' : '-v'
   const children = node.children
   const weights = layoutWeights(children)
   let cur = paneId
+  const childResults: PanelLayoutResult[] = []
+  const splitResizes: {
+    denominator: number
+    dir: '-h' | '-v'
+    index: number
+    numerator: number
+    paneId: string
+    size: string
+  }[] = []
   for (let i = 0; i < children.length; i++) {
     if (i < children.length - 1) {
       const rest = weights.slice(i + 1).reduce((a, b) => a + b, 0)
@@ -1329,12 +1344,45 @@ async function layoutInto(
       const restSize = await splitRestSize(TMUX, cur, dir, rest / remaining)
       const { stdout } = await execa('tmux', [...TMUX, 'split-window', dir, '-d', '-t', cur, '-l', restSize, '-c', cwd, '-P', '-F', '#{pane_id}']) // prettier-ignore
       const restPane = stdout.trim()
-      await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
+      splitResizes.push({
+        denominator: Math.round(remaining * 1000),
+        dir,
+        index: i,
+        numerator: Math.round(rest * 1000),
+        paneId: restPane,
+        size: restSize,
+      })
+      await resizeSplitPane(TMUX, restPane, dir, restSize)
+      childResults[i] = await layoutInto(TMUX, children[i], cur, cwd, leafCmd, resizeRules)
+      await resizeSplitPane(TMUX, restPane, dir, restSize)
       cur = restPane
     } else {
-      await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
+      childResults[i] = await layoutInto(TMUX, children[i], cur, cwd, leafCmd, resizeRules)
     }
   }
+  for (const split of splitResizes) {
+    await resizeSplitPane(TMUX, split.paneId, split.dir, split.size)
+    const scopePaneIds = childResults.slice(split.index).flatMap((r) => r.paneIds)
+    const targetPaneIds = childResults.slice(split.index + 1).flatMap((r) => r.paneIds)
+    resizeRules.push({
+      denominator: split.denominator,
+      dir: split.dir,
+      numerator: split.numerator,
+      scopePaneIds,
+      targetPaneId: targetPaneIds[0] ?? split.paneId,
+    })
+  }
+  return { paneIds: childResults.flatMap((r) => r.paneIds) }
+}
+
+type PanelLayoutResult = { paneIds: string[] }
+
+type PanelResizeRule = {
+  denominator: number
+  dir: '-h' | '-v'
+  numerator: number
+  scopePaneIds: string[]
+  targetPaneId: string
 }
 
 async function splitRestSize(
@@ -1359,6 +1407,49 @@ async function splitRestSize(
   const axis = dir === '-h' ? size.width : size.height
   const clamped = Math.min(Math.max(1, axis - 1), Math.max(1, Math.round(axis * fraction)))
   return String(clamped)
+}
+
+async function resizeSplitPane(
+  TMUX: string[],
+  paneId: string,
+  dir: '-h' | '-v',
+  size: string,
+): Promise<void> {
+  if (size.endsWith('%')) return
+  await execa('tmux', [
+    ...TMUX,
+    'resize-pane',
+    '-t',
+    paneId,
+    dir === '-h' ? '-x' : '-y',
+    size,
+  ]).catch(() => {})
+}
+
+function panelResizeCommand(resizePath: string, rules: readonly PanelResizeRule[]): string {
+  const args = rules.map(encodePanelResizeRule).map(sq).join(' ')
+  return `run-shell -b "sh ${sq(resizePath)} ${sq(quimbyTmuxSocket)} ${args}"`
+}
+
+function encodePanelResizeRule(rule: Readonly<PanelResizeRule>): string {
+  const axis = rule.dir === '-h' ? 'x' : 'y'
+  return [
+    rule.targetPaneId,
+    axis,
+    String(rule.numerator),
+    String(rule.denominator),
+    rule.scopePaneIds.join(','),
+  ].join('|')
+}
+
+async function runPanelResize(
+  resizePath: string,
+  rules: readonly PanelResizeRule[],
+): Promise<void> {
+  if (!rules.length) return
+  await execa('sh', [resizePath, quimbyTmuxSocket, ...rules.map(encodePanelResizeRule)]).catch(
+    () => {},
+  )
 }
 
 // Build one ephemeral tab-group ("view") session: link each local agent's window in, add SSH
@@ -1460,6 +1551,7 @@ async function stylePanelDashboard(
   TMUX: string[],
   dash: string,
   teardownCmd: string,
+  resizeCmd: string,
 ): Promise<void> {
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
   await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
@@ -1505,6 +1597,14 @@ async function stylePanelDashboard(
   // Detaching the wrapper (e.g. C-b d in a pane collapses inward to here) sweeps the group.
   // run-shell -b so the sweep outlives the wrapper it is about to kill.
   await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'client-detached', teardownCmd])
+  if (resizeCmd) {
+    await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'client-resized', resizeCmd]).catch(
+      () => {},
+    )
+    await execa('tmux', [...TMUX, 'set-hook', '-t', dash, 'window-resized', resizeCmd]).catch(
+      () => {},
+    )
+  }
 }
 
 // Bubble-up teardown, args: <socket> <view-prefix> <wrapper-session>. Kills every ephemeral
@@ -1517,5 +1617,43 @@ tmux -L "$sock" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read
   esac
 done
 tmux -L "$sock" kill-session -t "$dash" 2>/dev/null || true
+exit 0
+`
+
+const PANEL_RESIZE_SH = `sock="$1"; shift
+for rule in "$@"; do
+  target="\${rule%%|*}"; rest="\${rule#*|}"
+  axis="\${rest%%|*}"; rest="\${rest#*|}"
+  num="\${rest%%|*}"; rest="\${rest#*|}"
+  den="\${rest%%|*}"; scopes="\${rest#*|}"
+
+  min_left=; min_top=; max_right=; max_bottom=
+  old_ifs="$IFS"; IFS=,
+  set -- $scopes
+  IFS="$old_ifs"
+  for pane in "$@"; do
+    geom="$(tmux -L "$sock" display-message -p -t "$pane" '#{pane_left} #{pane_top} #{pane_width} #{pane_height}' 2>/dev/null || true)"
+    set -- $geom
+    [ "$#" -eq 4 ] || continue
+    left="$1"; top="$2"; width="$3"; height="$4"
+    right=$((left + width)); bottom=$((top + height))
+    if [ -z "$min_left" ] || [ "$left" -lt "$min_left" ]; then min_left="$left"; fi
+    if [ -z "$min_top" ] || [ "$top" -lt "$min_top" ]; then min_top="$top"; fi
+    if [ -z "$max_right" ] || [ "$right" -gt "$max_right" ]; then max_right="$right"; fi
+    if [ -z "$max_bottom" ] || [ "$bottom" -gt "$max_bottom" ]; then max_bottom="$bottom"; fi
+  done
+  [ -n "$min_left" ] || continue
+
+  if [ "$axis" = x ]; then
+    total=$((max_right - min_left)); flag=-x
+  else
+    total=$((max_bottom - min_top)); flag=-y
+  fi
+  [ "$total" -gt 1 ] || continue
+  size=$(((total * num + den / 2) / den))
+  [ "$size" -lt 1 ] && size=1
+  [ "$size" -lt "$total" ] || size=$((total - 1))
+  tmux -L "$sock" resize-pane -t "$target" "$flag" "$size" 2>/dev/null || true
+done
 exit 0
 `
