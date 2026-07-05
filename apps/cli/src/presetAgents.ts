@@ -1,5 +1,6 @@
 import { addAgent } from '@quimbyhq/agent'
-import type { QuimbyConfig } from '@quimbyhq/types'
+import { QuimbyError } from '@quimbyhq/errors'
+import type { ConfiguredAgent, QuimbyConfig } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   loadState,
@@ -8,16 +9,21 @@ import {
   resolveConfiguredAgent,
   resolveHostAlias,
   resolvePreset,
+  resolvePresetLayout,
 } from '@quimbyhq/workspace'
+
+import { collectLayoutAgents, isServiceToken, parseLayout } from './layout'
+
+type PresetAgentConfig = ConfiguredAgent | string | undefined
 
 export async function createMissingPresetAgents(
   repoRoot: string,
   config: Readonly<QuimbyConfig>,
   presetName: string,
 ): Promise<void> {
-  const preset = resolvePreset(config, presetName)
+  const agents = resolvePresetAgentEntries(config, presetName)
 
-  for (const [name, rawAgent] of Object.entries(preset.agents ?? {})) {
+  for (const [name, rawAgent] of agents) {
     const state = await loadState(repoRoot)
     if (state.agents[name]) {
       logger.info(`Agent "${name}" already exists`)
@@ -50,4 +56,30 @@ export async function createMissingPresetAgents(
     })
     logger.success(`Agent "${name}" created${configured.role ? ` (${configured.role})` : ''}`)
   }
+}
+
+function resolvePresetAgentEntries(
+  config: Readonly<QuimbyConfig>,
+  presetName: string,
+): [string, PresetAgentConfig][] {
+  const preset = resolvePreset(config, presetName)
+  const explicit = preset.agents ?? {}
+  const entries = new Map<string, PresetAgentConfig>(Object.entries(explicit))
+  if (!preset.layout) return [...entries.entries()]
+
+  for (const name of collectLayoutAgents(parseLayout(resolvePresetLayout(config, presetName)))) {
+    if (isHostLayoutToken(name) || isServiceToken(name) || entries.has(name)) continue
+    if (config.roles?.[name]) entries.set(name, { role: name })
+    else if (config.defaults) entries.set(name, undefined)
+    else {
+      throw new QuimbyError(
+        `Preset "${presetName}" layout references agent "${name}", but it is not configured under \`presets.${presetName}.agents\` and no role named "${name}" exists.`,
+      )
+    }
+  }
+  return [...entries.entries()]
+}
+
+function isHostLayoutToken(name: string): boolean {
+  return name === 'host' || name === '$'
 }

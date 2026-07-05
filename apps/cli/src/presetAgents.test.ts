@@ -24,9 +24,14 @@ const config = vi.hoisted(() => ({
         tmux: true,
       },
       reviewer: { runtime: 'local', entrypoint: 'codex' },
+      review3: { runtime: 'local', entrypoint: 'codex' },
     },
     hosts: {
       gpu: { host: 'me@gpu' },
+    },
+    layouts: {
+      expanded: 'builder review3 | host $server',
+      typo: 'missing',
     },
     presets: {
       loop: {
@@ -35,7 +40,17 @@ const config = vi.hoisted(() => ({
           reviewer: 'reviewer',
         },
       },
+      expanded: {
+        layout: 'expanded',
+        agents: {
+          builder: { role: 'builder', hostAlias: 'gpu' },
+        },
+      },
+      typo: {
+        layout: 'typo',
+      },
     },
+    services: { server: 'quimby serve' },
   },
 }))
 const logger = vi.hoisted(() => ({
@@ -89,5 +104,37 @@ describe('createMissingPresetAgents', () => {
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(logger.info).toHaveBeenCalledWith('Agent "builder" already exists')
+  })
+
+  it('creates missing layout-only agents from same-named roles', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await createMissingPresetAgents('/repo', config.value, 'expanded')
+
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'builder', {
+      role: 'builder',
+      defaults: { runtimeProfile: 'sbxClaude', runtime: 'sbx', entrypoint: 'claude' },
+      location: { type: 'ssh', alias: 'gpu' },
+      syncRef: 'origin/main',
+      tmux: true,
+      check: 'npm run ci',
+      verifyByDefault: true,
+    })
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'review3', {
+      role: 'review3',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws clearly when a layout-only agent cannot be inferred', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await expect(createMissingPresetAgents('/repo', config.value, 'typo')).rejects.toThrow(
+      'layout references agent "missing"',
+    )
+    expect(addAgent).not.toHaveBeenCalled()
   })
 })

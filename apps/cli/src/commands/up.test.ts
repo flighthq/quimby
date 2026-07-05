@@ -23,12 +23,22 @@ const config = vi.hoisted(() => ({
         check: { command: 'npm run ci' },
         tmux: true,
       },
+      c: { runtime: 'local', entrypoint: 'codex' },
       reviewer: { runtime: 'local', entrypoint: 'codex' },
     },
     hosts: {
       gpu: { host: 'me@gpu' },
     },
+    layouts: {
+      inferred: 'reviewer | c',
+    },
     presets: {
+      inferred: {
+        layout: 'inferred',
+        agents: {
+          reviewer: 'reviewer',
+        },
+      },
       loop: {
         agents: {
           builder: { role: 'builder', hostAlias: 'gpu' },
@@ -91,6 +101,24 @@ describe('runUpCommand', () => {
       role: 'reviewer',
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
+  })
+
+  it('creates missing layout-only agents from the default preset with no arguments', async () => {
+    state.value.agents = {}
+    config.value.default = 'inferred'
+    addAgent.mockClear()
+
+    await cmd.run!({ args: {} } as never)
+
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', {
+      role: 'reviewer',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'c', {
+      role: 'c',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledTimes(2)
   })
 
   it('creates missing agents from preset roles', async () => {

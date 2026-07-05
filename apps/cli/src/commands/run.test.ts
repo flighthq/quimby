@@ -38,9 +38,16 @@ const config = vi.hoisted(() => ({
     default: 'loop',
     roles: {
       builder: { runtime: 'local', entrypoint: 'codex' },
+      c: { runtime: 'local', entrypoint: 'codex' },
     },
-    layouts: { review: 'a | b', tabs: 'a b', weighted: 'a:80 / b:20' },
+    layouts: {
+      inferred: 'a | c',
+      review: 'a | b',
+      tabs: 'a b',
+      weighted: 'a:80 / b:20',
+    },
     presets: {
+      inferred: { layout: 'inferred', agents: { a: 'builder' } },
       loop: { layout: 'review', agents: { a: 'builder', b: 'builder' } },
       solo: { layout: { expr: 'a' }, agents: { a: 'builder' } },
       tabbed: { layout: 'tabs', agents: { a: 'builder', b: 'builder' } },
@@ -335,6 +342,25 @@ describe('runRunCommand', () => {
     })
     expect(addAgent).toHaveBeenCalledWith('/fake/root', 'b', {
       role: 'builder',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('creates missing layout-only preset agents before running the default layout', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents = {}
+    config.value.default = 'inferred'
+    addAgent.mockClear()
+
+    await cmd.run!({ args: {} } as never)
+
+    expect(addAgent).toHaveBeenCalledWith('/fake/root', 'a', {
+      role: 'builder',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledWith('/fake/root', 'c', {
+      role: 'c',
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
