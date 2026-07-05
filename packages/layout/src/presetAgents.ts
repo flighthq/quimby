@@ -32,8 +32,6 @@ export async function createMissingPresetAgents(
     const configured = resolveConfiguredAgent(config, rawAgent)
     const role = resolveAgentRoleConfig(config, configured)
     const check = normalizeCheck(role.check)
-    // Assert the alias is declared, then store the reference (resolved to a concrete
-    // host at launch) rather than a flattened address, keeping the address out of state.
     if (configured.hostAlias) resolveHostAlias(config, configured.hostAlias)
     const location =
       configured.location ??
@@ -58,7 +56,7 @@ export async function createMissingPresetAgents(
   }
 }
 
-function resolvePresetAgentEntries(
+export function resolvePresetAgentEntries(
   config: Readonly<QuimbyConfig>,
   presetName: string,
 ): [string, PresetAgentConfig][] {
@@ -80,6 +78,6 @@ function resolvePresetAgentEntries(
   return [...entries.entries()]
 }
 
-function isHostLayoutToken(name: string): boolean {
+export function isHostLayoutToken(name: string): boolean {
   return name === 'host' || name === '$'
 }

@@ -32,6 +32,7 @@
     "@quimbyhq/errors": "*",
     "@quimbyhq/git": "*",
     "@quimbyhq/handoff": "*",
+    "@quimbyhq/layout": "*",
     "@quimbyhq/launch": "*",
     "@quimbyhq/paths": "*",
     "@quimbyhq/reporter": "*",

@@ -55,12 +55,6 @@ describe('isServiceToken', () => {
   })
 })
 
-describe('serviceNameOf', () => {
-  it('strips the leading `$`', () => {
-    expect(serviceNameOf('$server')).toBe('server')
-  })
-})
-
 describe('layoutWeights', () => {
   it('splits evenly when no sibling is weighted', () => {
     expect(layoutWeights([tabs('a'), tabs('b')])).toEqual([50, 50])
@@ -244,5 +238,11 @@ describe('parseLayout', () => {
 
   it('throws on a non-positive weight', () => {
     expect(() => parseLayout('a:0 | b')).toThrow(/positive/i)
+  })
+})
+
+describe('serviceNameOf', () => {
+  it('strips the leading `$`', () => {
+    expect(serviceNameOf('$server')).toBe('server')
   })
 })

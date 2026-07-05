@@ -1,55 +1,23 @@
-import type { QuimbyConfig, QuimbyState } from '@quimbyhq/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const state = vi.hoisted(() => ({
-  value: {
-    id: 'project-id',
-    sourceRepo: '/repo',
-    sourceRef: 'main',
-    snapshot: 'abc123',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    agents: {
-      builder: {
-        id: 'agent-builder',
-        name: 'builder',
-        seedCommit: 'seed-builder',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        location: { type: 'local' },
-        defaults: {},
-      },
-    },
-  } satisfies QuimbyState,
-}))
-
-const config = vi.hoisted(() => ({
-  value: {
-    default: 'loop',
-    layouts: {
-      review: 'builder',
-    },
-    presets: {
-      loop: {
-        layout: 'review',
-        agents: { builder: 'builder' },
-      },
-    },
-  } satisfies QuimbyConfig,
-}))
-
-const createMissingPresetAgents = vi.hoisted(() => vi.fn(async () => {}))
+const resolveLayoutPlan = vi.hoisted(() =>
+  vi.fn(async () => ({
+    version: 1,
+    cwd: '/repo',
+    source: { default: true, expr: 'builder', name: 'loop' },
+    root: { type: 'tabs', terminals: [] },
+  })),
+)
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
-  loadQuimbyConfig: vi.fn(async () => config.value),
-  resolveWorkspace: vi.fn(async () => ({ state: state.value, repoRoot: '/repo' })),
+  resolveWorkspace: vi.fn(async () => ({ state: { agents: {} }, repoRoot: '/repo' })),
 }))
 
-vi.mock('../presetAgents', () => ({
-  createMissingPresetAgents,
-}))
+vi.mock('@quimbyhq/layout', () => ({ resolveLayoutPlan }))
 
 afterEach(() => {
-  createMissingPresetAgents.mockClear()
+  resolveLayoutPlan.mockClear()
   vi.restoreAllMocks()
 })
 
@@ -60,7 +28,13 @@ describe('runLayoutCommand', () => {
 
     await command.run!({ args: { default: true, json: true } } as never)
 
-    expect(createMissingPresetAgents).toHaveBeenCalledWith('/repo', config.value, 'loop')
+    expect(resolveLayoutPlan).toHaveBeenCalledWith({
+      repoRoot: '/repo',
+      name: undefined,
+      useDefault: true,
+      commandMode: 'cli',
+      createMissingPresetAgents: true,
+    })
     const plan = JSON.parse(log.mock.calls[0][0] as string) as {
       source: { name: string }
       root: { type: string }

@@ -1,9 +1,7 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { loadQuimbyConfig, resolveWorkspace } from '@quimbyhq/workspace'
+import { resolveLayoutPlan } from '@quimbyhq/layout'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-
-import { buildResolvedLayoutPlan } from '../layoutPlan'
-import { createMissingPresetAgents } from '../presetAgents'
 
 export default defineCommand({
   meta: {
@@ -46,29 +44,14 @@ export async function runLayoutCommand({
     throw new QuimbyError('Pass either a layout/preset name or --default, not both.')
   }
 
-  const { state, repoRoot } = await resolveWorkspace()
-  const config = await loadQuimbyConfig(repoRoot)
-  const targetName = args.default ? config.default : args.name
-  const materializesPreset = Boolean(targetName && config.presets?.[targetName]?.layout)
+  const { repoRoot } = await resolveWorkspace()
+  const plan = await resolveLayoutPlan({
+    repoRoot,
+    name: args.name,
+    useDefault: args.default,
+    commandMode: 'cli',
+    createMissingPresetAgents: true,
+  })
 
-  // Match `quimby run --layout <preset>`: resolving a preset may materialize missing agents
-  // before the terminal renderer later runs `quimby run <agent>`.
-  if (targetName && materializesPreset) {
-    await createMissingPresetAgents(repoRoot, config, targetName)
-  }
-  const refreshed = materializesPreset ? await resolveWorkspace() : { state, repoRoot }
-
-  console.log(
-    JSON.stringify(
-      buildResolvedLayoutPlan({
-        name: args.name,
-        useDefault: args.default,
-        state: refreshed.state,
-        repoRoot: refreshed.repoRoot,
-        config,
-      }),
-      null,
-      2,
-    ),
-  )
+  console.log(JSON.stringify(plan, null, 2))
 }

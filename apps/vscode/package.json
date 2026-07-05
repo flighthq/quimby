@@ -10,29 +10,57 @@
     "vscode": "^1.95.0"
   },
   "activationEvents": [
+    "workspaceContains:quimby.yaml",
+    "onCommand:quimby.home",
     "onCommand:quimby.openLayout",
-    "onCommand:quimby.connectWorkspace"
+    "onCommand:quimby.restoreLastLayout",
+    "onCommand:quimby.closeLayout"
   ],
   "contributes": {
     "commands": [
+      {
+        "command": "quimby.home",
+        "title": "Quimby: Home"
+      },
       {
         "command": "quimby.openLayout",
         "title": "Quimby: Open Layout"
       },
       {
-        "command": "quimby.connectWorkspace",
-        "title": "Quimby: Connect Workspace"
+        "command": "quimby.restoreLastLayout",
+        "title": "Quimby: Restore Last Layout"
+      },
+      {
+        "command": "quimby.closeLayout",
+        "title": "Quimby: Close Layout"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Quimby",
+      "properties": {
+        "quimby.restoreLastLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore the last Quimby layout when a workspace opens."
+        }
+      }
+    }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "eslint src",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "@quimbyhq/git": "*",
+    "@quimbyhq/layout": "*",
+    "@quimbyhq/server": "*",
+    "@quimbyhq/types": "*"
+  },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "tsup": "*",
     "typescript": "*"
   }
 }

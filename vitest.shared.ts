@@ -21,6 +21,7 @@ const PACKAGES = [
   'workspace',
   'agent',
   'handoff',
+  'layout',
   'launch',
   'server',
 ]

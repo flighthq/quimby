@@ -1,7 +1,26 @@
 import type { QuimbyConfig, QuimbyState } from '@quimbyhq/types'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { buildResolvedLayoutPlan } from './layoutPlan'
+import { buildResolvedLayoutPlan } from './plan'
+
+vi.mock('@quimbyhq/launch', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  prepareLocalTmuxLaunch: vi.fn(async () => ({
+    sessionName: 'qb-agent-builder',
+    tmuxConf: '/repo/.quimby/tmux.conf',
+    cwd: '/repo/.quimby/agents/agent-builder',
+    rootCwd: '/repo',
+    envArgs: [],
+    shellCmd: 'claude',
+    windowName: 'builder',
+    runtimeLabel: ' (local)',
+  })),
+}))
+
+vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  saveState: vi.fn(async () => {}),
+}))
 
 const repoRoot = '/repo'
 
@@ -58,12 +77,12 @@ const config: QuimbyConfig = {
 }
 
 describe('buildResolvedLayoutPlan', () => {
-  it('resolves a named layout to a renderer-neutral plan', () => {
-    const plan = buildResolvedLayoutPlan({
+  it('resolves a named layout to a renderer-neutral plan', async () => {
+    const plan = await buildResolvedLayoutPlan({
       name: 'weighted',
       repoRoot,
       config,
-      state,
+      state: structuredClone(state),
     })
 
     expect(plan.source).toEqual({ default: false, expr: 'builder:70 / test:30', name: 'weighted' })
@@ -88,12 +107,12 @@ describe('buildResolvedLayoutPlan', () => {
     })
   })
 
-  it('resolves the default preset layout', () => {
-    const plan = buildResolvedLayoutPlan({
+  it('resolves the default preset layout', async () => {
+    const plan = await buildResolvedLayoutPlan({
       useDefault: true,
       repoRoot,
       config,
-      state,
+      state: structuredClone(state),
     })
 
     expect(plan.source).toEqual({
@@ -103,12 +122,12 @@ describe('buildResolvedLayoutPlan', () => {
     })
   })
 
-  it('renders host and service tokens as terminal leaves', () => {
-    const plan = buildResolvedLayoutPlan({
+  it('renders host and service tokens as terminal leaves', async () => {
+    const plan = await buildResolvedLayoutPlan({
       name: 'cockpit',
       repoRoot,
       config,
-      state,
+      state: structuredClone(state),
     })
 
     expect(plan.root).toMatchObject({
@@ -143,12 +162,12 @@ describe('buildResolvedLayoutPlan', () => {
     })
   })
 
-  it('preserves tab groups inside split structure', () => {
-    const plan = buildResolvedLayoutPlan({
+  it('preserves tab groups inside split structure', async () => {
+    const plan = await buildResolvedLayoutPlan({
       name: 'cockpit',
       repoRoot,
       config,
-      state,
+      state: structuredClone(state),
     })
 
     expect(plan.root.type).toBe('cols')
@@ -159,23 +178,46 @@ describe('buildResolvedLayoutPlan', () => {
     })
   })
 
-  it('validates referenced services and agents', () => {
-    expect(() =>
+  it('generates direct retained-session commands for VS Code without a global quimby binary', async () => {
+    const plan = await buildResolvedLayoutPlan({
+      name: 'review',
+      repoRoot,
+      config,
+      state: structuredClone(state),
+      commandMode: 'direct',
+    })
+
+    if (plan.root.type !== 'tabs') throw new Error('expected tabs')
+    expect(plan.root.terminals[0]).toMatchObject({
+      kind: 'agent',
+      command: {
+        argv: expect.arrayContaining(['tmux', 'new-session', '-A', '-s', 'qb-agent-builder']),
+      },
+    })
+    expect(plan.root.terminals[0].command.argv.slice(0, 3)).not.toEqual([
+      'quimby',
+      'run',
+      'builder',
+    ])
+  })
+
+  it('validates referenced services and agents', async () => {
+    await expect(
       buildResolvedLayoutPlan({
         name: 'missing-service',
         repoRoot,
         config: { ...config, layouts: { 'missing-service': '$unknown' } },
-        state,
+        state: structuredClone(state),
       }),
-    ).toThrow(/service "unknown"/i)
+    ).rejects.toThrow(/service "unknown"/i)
 
-    expect(() =>
+    await expect(
       buildResolvedLayoutPlan({
         name: 'missing-agent',
         repoRoot,
         config: { ...config, layouts: { 'missing-agent': 'absent' } },
-        state,
+        state: structuredClone(state),
       }),
-    ).toThrow(/agent "absent" not found/i)
+    ).rejects.toThrow(/agent "absent" not found/i)
   })
 })
