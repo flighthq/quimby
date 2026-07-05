@@ -122,7 +122,9 @@ describe('runStartCommand', () => {
     const { default: cmd } = await import('./start')
     await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
-    expect((nudgeAgentSession.mock.calls[0][0] as { text: string }).text).toContain('status.md')
+    expect((nudgeAgentSession.mock.calls[0][0] as { text: string }).text).toContain(
+      './agent.sh status',
+    )
   })
 
   it('does not nudge to resume when status.md is empty/absent', async () => {

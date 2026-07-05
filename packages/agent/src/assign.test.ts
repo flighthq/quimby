@@ -91,7 +91,7 @@ describe('assignAgentTask', () => {
     )
     const written = await readAssignment()
     expect(written).toContain('do the thing')
-    expect(written).toContain('quimby-attest')
+    expect(written).toContain('./agent.sh attest')
   })
 
   it('writes assignment.md, reports success, and returns the nudge text', async () => {
@@ -110,7 +110,7 @@ describe('assignAgentTask', () => {
 
     expect(await readAssignment()).toBe('do the thing')
     expect(events).toContainEqual({ level: 'success', message: 'Assignment set for "alice"' })
-    expect(result.nudgeText).toBe("Here's your assignment: @assignment.md")
+    expect(result.nudgeText).toBe("Here's your assignment: run `./agent.sh assignment`.")
     expect(result.syncFailed).toBe(false)
   })
 
@@ -238,6 +238,6 @@ describe('assignAgentTask', () => {
       level: 'success',
       message: 'Rebased 3 commit(s) onto abcdef12',
     })
-    expect(result.nudgeText).toBe("Here's your assignment: @assignment.md")
+    expect(result.nudgeText).toBe("Here's your assignment: run `./agent.sh assignment`.")
   })
 })

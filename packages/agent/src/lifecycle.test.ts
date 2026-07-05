@@ -95,10 +95,14 @@ describe('addAgent', () => {
     expect(await exists(join(agentDir, 'CLAUDE.md'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
     expect(await exists(join(agentDir, 'status.md'))).toBe(true)
-    // The agent-side mailbox tool is scaffolded too; the .sh must be executable to run directly.
-    expect(await exists(join(agentDir, 'quimby-agent.sh'))).toBe(true)
-    expect(await exists(join(agentDir, 'quimby-agent.cmd'))).toBe(true)
-    expect((await stat(join(agentDir, 'quimby-agent.sh'))).mode & 0o100).toBeTruthy()
+    // The agent-side coordination tool is scaffolded too; the .sh must be executable to run directly.
+    expect(await exists(join(agentDir, 'agent.sh'))).toBe(true)
+    expect(await exists(join(agentDir, 'agent.cmd'))).toBe(true)
+    expect((await stat(join(agentDir, 'agent.sh'))).mode & 0o100).toBeTruthy()
+    // The old quimby-agent.* names are removed on scaffold (not shimmed), so a regenerated agent
+    // shows only the current tool.
+    expect(await exists(join(agentDir, 'quimby-agent.sh'))).toBe(false)
+    expect(await exists(join(agentDir, 'quimby-agent.cmd'))).toBe(false)
   })
 
   it('honors an explicit syncRef', async () => {

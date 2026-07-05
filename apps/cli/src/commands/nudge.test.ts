@@ -48,6 +48,6 @@ describe('runNudgeCommand', () => {
     await cmd.run!({ args: { agent: 'builder', all: false, verify: true } } as never)
     const { text } = nudgeAgentSession.mock.calls[0][0]
     expect(text).toContain('npm run ci')
-    expect(text).toContain('quimby-attest')
+    expect(text).toContain('./agent.sh attest')
   })
 })

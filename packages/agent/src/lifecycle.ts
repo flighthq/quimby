@@ -11,6 +11,8 @@ import {
 } from '@quimbyhq/paths'
 import {
   AGENT_SCRIPT_CMD_FILENAME,
+  AGENT_SCRIPT_LEGACY_CMD_FILENAME,
+  AGENT_SCRIPT_LEGACY_SH_FILENAME,
   AGENT_SCRIPT_SH_FILENAME,
   renderAgentAgentsMd,
   renderAgentClaudeMd,
@@ -259,10 +261,16 @@ export async function writeRemoteAgentInstructions(
   await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd(opts))
   // The agent-side mailbox tool (see the local twin). The remote floor is POSIX, so the .sh is
   // what actually runs there; the .cmd is written too for parity. chmod +x so it runs directly.
+  // Regenerated on every launch, so renames of this tool reach an existing agent with no rebuild —
+  // which is why the old quimby-agent.* names are removed here rather than shimmed, keeping the
+  // agent dir showing exactly the current tool.
   const shPath = `${rAgentDir}/${AGENT_SCRIPT_SH_FILENAME}`
   await transport.writeFile(shPath, renderAgentScript())
   await transport.exec(`chmod +x ${sp(shPath)}`)
   await transport.writeFile(`${rAgentDir}/${AGENT_SCRIPT_CMD_FILENAME}`, renderAgentScriptCmd())
+  await transport.exec(
+    `rm -f ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_SH_FILENAME}`)} ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_CMD_FILENAME}`)}`,
+  )
 }
 
 /**
@@ -366,13 +374,17 @@ export async function writeAgentInstructions(
 ): Promise<void> {
   await writeText(join(agentDir, 'CLAUDE.md'), renderAgentClaudeMd(opts))
   await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd(opts))
-  // The agent-side mailbox tool: quimby-owned and regenerated like the instruction files, so a
-  // newer tool reaches an existing agent on its next launch. The .sh is canonical (POSIX floor);
-  // the .cmd twin is the Windows fallback. The .sh must be executable to run as `./quimby-agent.sh`.
+  // The agent-side coordination tool: quimby-owned and regenerated like the instruction files, so
+  // a newer tool reaches an existing agent on its next launch. The .sh is canonical (POSIX floor);
+  // the .cmd twin is the Windows fallback. The old quimby-agent.* names are removed on each launch
+  // (not shimmed), so a renamed tool propagates without a rebuild and the dir shows only the current
+  // tool.
   const shPath = join(agentDir, AGENT_SCRIPT_SH_FILENAME)
   await writeText(shPath, renderAgentScript())
   await chmod(shPath, 0o755)
   await writeText(join(agentDir, AGENT_SCRIPT_CMD_FILENAME), renderAgentScriptCmd())
+  await rm(join(agentDir, AGENT_SCRIPT_LEGACY_SH_FILENAME), { force: true })
+  await rm(join(agentDir, AGENT_SCRIPT_LEGACY_CMD_FILENAME), { force: true })
 }
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {

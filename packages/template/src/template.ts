@@ -95,10 +95,9 @@ export function renderTmuxConfig(): string {
 export function renderVerifyRequest(check?: string): string {
   const cmd = check ? `\`${check}\`` : "your project's tests/build"
   return (
-    `Commit your work first, then run your verification (${cmd}) and append a \`quimby-attest\` ` +
-    `fenced block to the end of status.md with: command, result (pass|fail), summary, and atCommit ` +
-    `(the short hash of that commit). Committing first is what makes atCommit match the tree that ` +
-    `gets carried. See "Verify" in your agent instructions for the exact format.`
+    `Commit your work first, then run your verification (${cmd}) and record it with ` +
+    `\`./agent.sh attest --command "..." --result pass|fail --summary "..."\`. Committing first ` +
+    `is what makes atCommit match the tree that gets carried.`
   )
 }
 
@@ -110,8 +109,8 @@ export function renderVerifyRequest(check?: string): string {
 export function renderResumeRequest(): string {
   return (
     'continue\n\n' +
-    'A previous session wrote @status.md. Read it first, then check @assignment.md and ' +
-    '@handoff/in/received/ before continuing.'
+    'A previous session left status. Run `./agent.sh status`, then `./agent.sh assignment` and ' +
+    '`./agent.sh inbox` before continuing.'
   )
 }
 

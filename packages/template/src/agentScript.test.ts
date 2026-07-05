@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { renderAgentScript, renderAgentScriptCmd } from './agentScript'
 
-// The producer/consumer contract: quimby-agent.sh is the *producer* of these formats and the host
+// The producer/consumer contract: agent.sh is the *producer* of these formats and the host
 // is the *parser*. These regexes are copied verbatim from the host's canonical parsers so this test
 // pins the shell output to what the host actually reads:
 //   - attest block: `packages/agent/src/attestation.ts` (ATTEST_BLOCK + field regex)
@@ -63,13 +63,13 @@ function makeAgentWorkspace(): string {
   writeFileSync(join(repo, 'f.txt'), 'x')
   execFileSync('git', ['add', '.'], { cwd: repo, env: gitEnv })
   execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: repo, env: gitEnv })
-  const shPath = join(root, 'quimby-agent.sh')
+  const shPath = join(root, 'agent.sh')
   writeFileSync(shPath, renderAgentScript(), { mode: 0o755 })
   return root
 }
 
 function runSh(root: string, args: string[], cwd = root): string {
-  return execFileSync('sh', [join(root, 'quimby-agent.sh'), ...args], { cwd, encoding: 'utf-8' })
+  return execFileSync('sh', [join(root, 'agent.sh'), ...args], { cwd, encoding: 'utf-8' })
 }
 
 afterEach(() => {
@@ -89,6 +89,15 @@ describe('renderAgentScript', () => {
     expect(sh).toContain('set -eu')
     expect(sh).not.toContain('[[') // no bash [[ ]]
     expect(sh).not.toContain('${') // guards replace parameter defaults, so nothing interpolates
+  })
+
+  it('documents agent.sh as the canonical command surface', () => {
+    const sh = renderAgentScript()
+    expect(sh).toContain('agent.sh — your Quimby coordination tool')
+    expect(sh).toContain('assignment set -m')
+    expect(sh).toContain('status append -m')
+    expect(sh).toContain('inbox [list]')
+    expect(sh).not.toContain('run: quimby-agent.sh help')
   })
 
   it('emits the exact mailbox layout the host scans, and never crosses the boundary', () => {
@@ -134,6 +143,24 @@ describe('renderAgentScript', () => {
       ).toContain('hi')
     },
   )
+
+  it.runIf(posix)('assignment show and set work from the repo directory', () => {
+    const root = makeAgentWorkspace()
+    runSh(root, ['assignment', 'set', '-m', 'build the thing'], join(root, 'repo'))
+    expect(runSh(root, ['assignment'], join(root, 'repo'))).toContain('build the thing')
+    expect(readFileSync(join(root, 'assignment.md'), 'utf-8')).toBe('build the thing\n')
+  })
+
+  it.runIf(posix)('status show, set, append, and done update the journal', () => {
+    const root = makeAgentWorkspace()
+    runSh(root, ['status', 'set', '-m', 'working'])
+    runSh(root, ['status', 'append', '-m', 'blocked'])
+    runSh(root, ['status', 'done', '-m', 'done: shipped'])
+    const status = runSh(root, ['status'])
+    expect(status).toContain('working')
+    expect(status).toContain('blocked')
+    expect(status).toContain('done: shipped')
+  })
 
   it.runIf(posix)(
     'attest appends a block the host attestation-parser accepts, with atCommit from HEAD',
@@ -187,10 +214,13 @@ describe('renderAgentScriptCmd', () => {
   it('is a batch script that mirrors the sh verbs and uses CRLF line endings', () => {
     const cmd = renderAgentScriptCmd()
     expect(cmd.startsWith('@echo off\r\n')).toBe(true)
+    expect(cmd).toContain(':assignment')
+    expect(cmd).toContain(':status')
     expect(cmd).toContain(':handoff')
     expect(cmd).toContain(':attest')
     expect(cmd).toContain(':inbox')
     expect(cmd).toContain(':peers')
+    expect(cmd).toContain('--file')
     expect(cmd).toContain('```quimby-attest')
   })
 })

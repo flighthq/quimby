@@ -51,7 +51,7 @@ describe('runAssignCommand', () => {
     assignAgentTask.mockResolvedValueOnce({
       behind: 0,
       syncFailed: false,
-      nudgeText: "Here's your assignment: @assignment.md",
+      nudgeText: "Here's your assignment: run `./agent.sh assignment`.",
     } as never)
     const { default: cmd } = await import('./assign')
     await cmd.run!({
@@ -60,7 +60,7 @@ describe('runAssignCommand', () => {
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
     expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
       displayName: 'builder',
-      text: "Here's your assignment: @assignment.md",
+      text: "Here's your assignment: run `./agent.sh assignment`.",
       clear: false,
     })
   })

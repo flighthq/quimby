@@ -129,4 +129,4 @@ export async function assignAgentTask(
   }
 }
 
-const ASSIGNMENT_NUDGE_TEXT = "Here's your assignment: @assignment.md"
+const ASSIGNMENT_NUDGE_TEXT = "Here's your assignment: run `./agent.sh assignment`."

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
-import { renderAgentClaudeMd } from '@quimbyhq/template'
 import type { AgentState } from '@quimbyhq/types'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -121,9 +120,9 @@ describe('parseAttestation', () => {
     expect(parseAttestation(text)?.result).toBe('pass')
   })
 
-  it('parses the exact quimby-attest example shown in the generated CLAUDE.md (copy-paste-correct)', () => {
-    // Guards the happy path: an agent mirroring the shown format must not read as "unverified".
-    const parsed = parseAttestation(renderAgentClaudeMd({ agentName: 'a', agentId: 'id' }))
+  it('parses the quimby-attest block shape produced by agent.sh', () => {
+    // Guards the happy path: the agent-side producer's block shape must not read as "not run".
+    const parsed = parseAttestation(BLOCK)
     expect(parsed?.result).toBe('pass')
     expect(parsed?.command).toBe('npm run ci')
   })

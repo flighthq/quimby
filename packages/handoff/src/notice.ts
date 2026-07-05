@@ -5,5 +5,5 @@
  * recipients identically.
  */
 export function inboxNoticeText(parcelName: string, note?: string): string {
-  return `@handoff/in/received/${parcelName}/\n\n${note || 'please review'}`
+  return `Run \`./agent.sh inbox show ${parcelName}\`.\n\n${note || 'please review'}`
 }
