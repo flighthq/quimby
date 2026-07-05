@@ -17,7 +17,14 @@ const state = vi.hoisted(() => ({
       b: { id: 'id-b', name: 'b', location: { type: 'local' }, defaults: {} },
     } as Record<
       string,
-      { id: string; name: string; location: { type: 'local' }; defaults: object }
+      {
+        id: string
+        name: string
+        location: { type: 'local' }
+        defaults: object
+        launchedWith?: string
+        role?: string
+      }
     >,
   },
 }))
@@ -409,5 +416,18 @@ describe('runRunCommand', () => {
       .map((c) => c[c.indexOf('-s') + 1])
     expect(created).not.toContain(tmuxSessionName('id-a'))
     expect(created).toContain(tmuxSessionName('id-b'))
+  })
+
+  it('opens a dashboard prompt for a running agent whose launch config drifted', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents.a.role = 'builder'
+    state.value.agents.a.defaults = { runtime: 'local', entrypoint: 'claude' }
+    state.value.agents.a.launchedWith = 'local claude'
+    h.sessions.add(tmuxSessionName('id-a'))
+    await cmd.run!({ args: { agent: 'a', _: ['a', 'b'] } } as never)
+    const prompt = h.calls.find((c) => c.includes('new-window') && c[c.indexOf('-n') + 1] === 'a')
+    expect(prompt?.join('\n')).toContain('Choice [r/a/q]')
+    expect(prompt?.join('\n')).toContain('current config:')
+    expect(h.calls.some((c) => c.includes('link-window') && c.includes(`${tmuxSessionName('id-a')}:a`))).toBe(false) // prettier-ignore
   })
 })

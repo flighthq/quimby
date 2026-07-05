@@ -11,6 +11,8 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
 
 import {
   currentLaunchFingerprint,
+  hasLaunchDrifted,
+  launchDrift,
   recordLaunchFingerprint,
   warnIfLaunchDrifted,
 } from './launchDrift'
@@ -60,6 +62,35 @@ describe('currentLaunchFingerprint', () => {
   })
 })
 
+describe('hasLaunchDrifted', () => {
+  it('returns true when the recorded launch differs from current config', () => {
+    expect(
+      hasLaunchDrifted(
+        agent({ launchedWith: 'local claude', defaults: { runtime: 'sbx', entrypoint: 'codex' } }),
+        noConfig,
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('launchDrift', () => {
+  it('detects stale stored defaults when a role now resolves to a different profile', () => {
+    const config = {
+      roles: { review2: { runtimeProfile: 'sbx-codex' } },
+      runtimeProfiles: { 'sbx-codex': { runtime: 'sbx', entrypoint: 'codex' } },
+    } as QuimbyConfig
+    const drift = launchDrift(
+      agent({
+        name: 'review2',
+        role: 'review2',
+        defaults: { runtimeProfile: 'sbx-claude', runtime: 'sbx', entrypoint: 'claude' },
+      }),
+      config,
+    )
+    expect(drift).toEqual({ actual: 'sbx claude', desired: 'sbx codex' })
+  })
+})
+
 describe('recordLaunchFingerprint', () => {
   it('records the resolved fingerprint and persists when it was previously unset', async () => {
     const state = {
@@ -91,6 +122,17 @@ describe('recordLaunchFingerprint', () => {
     await recordLaunchFingerprint('/repo', state, 'builder', noConfig)
     expect(state.agents.builder.launchedWith).toBe('sbx codex')
     expect(saveState).toHaveBeenCalledOnce()
+  })
+
+  it('records one-shot launch overrides instead of the saved defaults', async () => {
+    const state = {
+      agents: { builder: agent({ defaults: { runtime: 'local', entrypoint: 'claude' } }) },
+    } as unknown as QuimbyState
+    await recordLaunchFingerprint('/repo', state, 'builder', noConfig, {
+      runtime: 'sbx',
+      cmd: 'codex',
+    })
+    expect(state.agents.builder.launchedWith).toBe('sbx codex')
   })
 })
 

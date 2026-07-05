@@ -1,3 +1,4 @@
+import { confirm, isCancel } from '@clack/prompts'
 import {
   configureRemoteAgentIdentity,
   renderRemoteMailboxMigration,
@@ -27,10 +28,10 @@ import {
   tmuxSessionName,
 } from '@quimbyhq/paths'
 import { getRuntime, runtimeTypes } from '@quimbyhq/runtimes'
-import { getAgentSessionState } from '@quimbyhq/session'
+import { getAgentSessionState, killAgentSession } from '@quimbyhq/session'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
-import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
+import type { AgentState, QuimbyConfig, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
 import { logger, writeText } from '@quimbyhq/utils'
 import {
@@ -46,7 +47,7 @@ import { execa } from 'execa'
 import { join } from 'pathe'
 
 import { ensureAgentConnections } from '../hostAlias'
-import { recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
+import { launchDrift, recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
 import type { LayoutNode } from '../layout'
 import {
   collectLayoutAgents,
@@ -213,13 +214,23 @@ export async function runRunCommand({
   // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
   await ensureAgentConnections(repoRoot, state, [args.agent])
 
-  // `run` attaches-or-creates: record the launch command when it will create a fresh session,
-  // or warn if reattaching to a session whose config has since drifted.
+  // `run` attaches-or-creates: ask before replacing a live session whose config has since
+  // drifted, then record the launch command before attach/create.
   const runConfig = await loadQuimbyConfig(repoRoot)
-  if ((await getAgentSessionState(agent)) === 'stopped') {
-    await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig)
-  } else {
-    warnIfLaunchDrifted(agent, runConfig)
+  const launchOpts = {
+    cmd: args.cmd,
+    runtime: args.runtime,
+    runtimeProfile: args.runtimeProfile,
+  }
+  const existing = await getAgentSessionState(agent)
+  let shouldRecordLaunch = existing === 'stopped'
+  if (existing !== 'stopped' && launchDrift(agent, runConfig, launchOpts)) {
+    warnIfLaunchDrifted(agent, runConfig, launchOpts)
+    if (await confirmRestartForLaunchDrift(args.agent)) {
+      await killAgentSession(agent)
+      logger.info(`Restarting "${args.agent}" with current config.`)
+      shouldRecordLaunch = true
+    }
   }
 
   // ── SSH agent ──────────────────────────────────────────────────────────────
@@ -256,6 +267,9 @@ export async function runRunCommand({
     logger.success(
       `Attaching to tmux session "${launch.sessionName}" on ${launch.host}${launch.runtimeLabel}`,
     )
+    if (shouldRecordLaunch) {
+      await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig, launchOpts)
+    }
     // CWD is the agent dir (parent of repo/) so the agent sees assignment.md, handoff/,
     // etc. tmux -A attaches to an existing session or creates a new one; bash -l is a
     // login shell so PATH includes user-installed tools like claude / sbx.
@@ -292,6 +306,9 @@ export async function runRunCommand({
     runtime: args.runtime,
     runtimeProfile: args.runtimeProfile,
   })
+  if (shouldRecordLaunch) {
+    await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig, launchOpts)
+  }
 
   // Enroll into tmux so `nudge`/`list` recognize the now-persistent session on later calls.
   if (!agent.tmux) {
@@ -469,8 +486,49 @@ type DashboardTab =
   | { name: string; kind: 'link'; srcSession: string }
   | { name: string; kind: 'window'; cwd: string; cmd: string[]; env?: [string, string][] }
 
+type LaunchDrift = NonNullable<ReturnType<typeof launchDrift>>
+
+function dashboardLaunchDriftPromptCommand(name: string, drift: LaunchDrift): string[] {
+  const script = [
+    `agent=${sq(name)}`,
+    `actual=${sq(drift.actual)}`,
+    `desired=${sq(drift.desired)}`,
+    `socket=${sq(quimbyTmuxSocket)}`,
+    `window_id="$(tmux -L "$socket" display-message -p '#{window_id}' 2>/dev/null || true)"`,
+    `rename_prompt_window() { [ -n "$window_id" ] && tmux -L "$socket" rename-window -t "$window_id" "$agent prompt" 2>/dev/null || true; }`,
+    `close_prompt_window() { status=$?; [ -n "$window_id" ] && tmux -L "$socket" kill-window -t "$window_id" 2>/dev/null || true; exit "$status"; }`,
+    `printf '\\nquimby: "%s" is running stale launch config\\n\\n' "$agent"`,
+    `printf 'running:        %s\\n' "$actual"`,
+    `printf 'current config: %s\\n\\n' "$desired"`,
+    `printf 'r) restart with current config, then open the agent tab\\n'`,
+    `printf 'a) attach the existing session without restarting\\n'`,
+    `printf 'q) leave this prompt open\\n\\n'`,
+    `while true; do`,
+    `  printf 'Choice [r/a/q]: '`,
+    `  IFS= read -r choice || exit 0`,
+    `  case "$choice" in`,
+    `    r|R) rename_prompt_window; quimby restart "$agent" && quimby run "$agent"; close_prompt_window ;;`,
+    `    a|A) rename_prompt_window; QUIMBY_ALLOW_STALE_LAUNCH=1 quimby run "$agent"; close_prompt_window ;;`,
+    `    q|Q|'') exit 0 ;;`,
+    `    *) printf 'Enter r, a, or q.\\n' ;;`,
+    `  esac`,
+    `done`,
+  ].join('\n')
+  return ['bash', '-l', '-c', script]
+}
+
+async function runningLaunchDrift(
+  agent: Readonly<AgentState>,
+  config: Readonly<QuimbyConfig>,
+): Promise<LaunchDrift | null> {
+  if (process.env.QUIMBY_ALLOW_STALE_LAUNCH) return null
+  const state = await getAgentSessionState(agent)
+  return state === 'stopped' ? null : launchDrift(agent, config)
+}
+
 async function runDashboard(names: string[], includeHost: boolean): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
+  const config = await loadQuimbyConfig(repoRoot)
 
   for (const name of names) {
     if (!state.agents[name]) {
@@ -494,11 +552,21 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
   let enrolled = false
   for (const name of names) {
     const agent = state.agents[name]
+    const drift = await runningLaunchDrift(agent, config)
+    if (drift) {
+      tabs.push({
+        name,
+        kind: 'window',
+        cwd: repoRoot,
+        cmd: dashboardLaunchDriftPromptCommand(name, drift),
+      })
+      continue
+    }
     if (isSSH(agent.location)) {
       const w = await buildSSHWindow(name, agent, state, repoRoot)
       tabs.push({ name: w.name, kind: 'window', cwd: w.cwd, cmd: w.cmd, env: w.env })
     } else {
-      const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+      const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
       // Enroll the agent into tmux so `nudge`/`list` recognize its now-persistent session.
       if (!agent.tmux) {
         state.agents[name].tmux = true
@@ -630,6 +698,16 @@ async function currentTmuxPaneSizeArgs(): Promise<string[]> {
   return []
 }
 
+async function confirmRestartForLaunchDrift(name: string): Promise<boolean> {
+  if (!process.stdout.isTTY) return false
+  const answer = await confirm({
+    message: `Restart "${name}" with current config now?`,
+    initialValue: false,
+  })
+  if (isCancel(answer)) return false
+  return answer === true
+}
+
 function parsePaneSize(raw: string): { width: string; height: string } | null {
   const [width, height] = raw.trim().split(/\s+/, 2)
   if (!width || !height) return null
@@ -669,6 +747,7 @@ async function reviveIfDead(tmux: string[], session: string): Promise<void> {
 // links the agent's canonical session, which those flags don't reshape once it exists.
 async function attachWithinCurrentSession(names: string[]): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
+  const config = await loadQuimbyConfig(repoRoot)
   for (const name of names) {
     if (!state.agents[name]) {
       throw new QuimbyError(`Agent "${name}" not found`)
@@ -701,12 +780,15 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
       // tab lands on a running agent (SSH tabs are ssh-attach windows, revived on reconnect).
       if (!isSSH(agent.location)) await reviveIfDead(TMUX, tmuxSessionName(agent.id))
     } else {
-      if (isSSH(agent.location)) {
+      const drift = await runningLaunchDrift(agent, config)
+      if (drift) {
+        await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
+      } else if (isSSH(agent.location)) {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
       } else {
-        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
         if (!agent.tmux) {
           state.agents[name].tmux = true
           enrolled = true
@@ -729,7 +811,12 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
 // an already-running session is reused, so a re-run never restarts the agent. Returns the
 // session name to link from.
 async function ensureLocalAgentSession(
-  opts: Readonly<{ state: QuimbyState; repoRoot: string; agent: Readonly<AgentState> }>,
+  opts: Readonly<{
+    state: QuimbyState
+    repoRoot: string
+    agent: Readonly<AgentState>
+    config: Readonly<QuimbyConfig>
+  }>,
   tmux: string[],
 ): Promise<string> {
   const launch = await prepareLocalTmuxLaunch(opts)
@@ -760,6 +847,7 @@ async function ensureLocalAgentSession(
       '-c',
       launch.shellCmd,
     ])
+    await recordLaunchFingerprint(opts.repoRoot, opts.state, opts.agent.name, opts.config)
   }
   await applyTmuxRootBehavior(tmux, launch.sessionName, launch.rootCwd)
   return launch.sessionName
@@ -1110,7 +1198,18 @@ async function runPanelDashboard(expr: string): Promise<void> {
   for (let i = 0; i < leaves.length; i++) {
     const view = dashboardViewSessionName(state.id, i)
     viewOf.set(leaves[i], view)
-    if (await buildViewSession(TMUX, tmuxConf, view, leaves[i].names, state, repoRoot, services)) {
+    if (
+      await buildViewSession(
+        TMUX,
+        tmuxConf,
+        view,
+        leaves[i].names,
+        state,
+        repoRoot,
+        config,
+        services,
+      )
+    ) {
       enrolled = true
     }
   }
@@ -1224,6 +1323,7 @@ async function buildViewSession(
   names: readonly string[],
   state: QuimbyState,
   repoRoot: string,
+  config: Readonly<QuimbyConfig>,
   services: Readonly<Record<string, string>> = {},
 ): Promise<boolean> {
   await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
@@ -1247,12 +1347,15 @@ async function buildViewSession(
       await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', HOST_TAB_NAME, '-c', repoRoot, 'bash', '-l']) // prettier-ignore
     } else {
       const agent = state.agents[name]
-      if (isSSH(agent.location)) {
+      const drift = await runningLaunchDrift(agent, config)
+      if (drift) {
+        await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
+      } else if (isSSH(agent.location)) {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
       } else {
-        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent }, TMUX)
+        const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
         if (!agent.tmux) {
           state.agents[name].tmux = true
           enrolled = true

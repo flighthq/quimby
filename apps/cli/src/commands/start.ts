@@ -103,6 +103,11 @@ export async function runStartCommand({
   }
 
   const config = await loadQuimbyConfig(repoRoot)
+  const launchOpts = {
+    cmd: args.cmd,
+    runtime: args.runtime,
+    runtimeProfile: args.runtimeProfile,
+  }
 
   // Headless launch means "already up" is a no-op, not a second session — a detached
   // start and a live `run` share the same UUID-keyed session.
@@ -112,7 +117,7 @@ export async function runStartCommand({
       `"${args.agent}" is already ${existing} (tmux session "${tmuxSessionName(agent.id)}") — ` +
         `nudge or assign it, or \`quimby run ${args.agent}\` to attach.`,
     )
-    warnIfLaunchDrifted(agent, config)
+    warnIfLaunchDrifted(agent, config, launchOpts)
     return
   }
 
@@ -161,7 +166,7 @@ export async function runStartCommand({
       .exec(`${remoteRootBehaviorShell(launch.sessionName, launch.rootCwd)}true`)
       .catch(() => {})
 
-    await recordLaunchFingerprint(repoRoot, state, args.agent, config)
+    await recordLaunchFingerprint(repoRoot, state, args.agent, config, launchOpts)
     await resumeFromPredecessor(state, repoRoot, agent, args.agent)
     reportStarted(args.agent, launch.sessionName, launch.host, launch.runtimeLabel)
     return
@@ -188,7 +193,7 @@ export async function runStartCommand({
   await execa('tmux', localNewSessionArgs(launch, { detached: true }))
   await applyLocalRootBehavior(launch.sessionName, launch.rootCwd)
 
-  await recordLaunchFingerprint(repoRoot, state, args.agent, config)
+  await recordLaunchFingerprint(repoRoot, state, args.agent, config, launchOpts)
   await resumeFromPredecessor(state, repoRoot, state.agents[args.agent], args.agent)
   reportStarted(args.agent, launch.sessionName, undefined, launch.runtimeLabel)
 }
