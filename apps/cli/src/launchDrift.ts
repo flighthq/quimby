@@ -83,6 +83,14 @@ function storedDefaultsLaunchFingerprint(
   agent: Readonly<AgentState>,
   config: Readonly<QuimbyConfig>,
 ): string {
+  if (
+    agent.defaults?.runtimeProfile &&
+    !agent.defaults.runtime &&
+    !agent.defaults.entrypoint &&
+    !config.runtimeProfiles?.[agent.defaults.runtimeProfile]
+  ) {
+    return `missing runtime profile ${agent.defaults.runtimeProfile}`
+  }
   const storedAgent = {
     ...agent,
     // Avoid the same-named-role fallback used for desired launch resolution; this branch models

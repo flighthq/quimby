@@ -104,6 +104,37 @@ describe('launchDrift', () => {
     )
     expect(drift).toEqual({ actual: 'sbx claude', desired: 'sbx codex' })
   })
+
+  it('treats a missing stored profile as stale state instead of throwing', () => {
+    const config = {
+      defaults: { runtimeProfile: 'claude-sbx' },
+      roles: { review: {} },
+      runtimeProfiles: {
+        'claude-sbx': { runtime: 'sbx', entrypoint: 'claude' },
+        'codex-sbx': { runtime: 'sbx', entrypoint: 'codex' },
+      },
+      presets: {
+        default: {
+          agents: {
+            review2: { role: 'review', runtimeProfile: 'codex-sbx' },
+          },
+        },
+      },
+      default: 'default',
+    } as QuimbyConfig
+    const drift = launchDrift(
+      agent({
+        name: 'review2',
+        role: 'review2',
+        defaults: { runtimeProfile: 'sbx-codex' },
+      }),
+      config,
+    )
+    expect(drift).toEqual({
+      actual: 'missing runtime profile sbx-codex',
+      desired: 'sbx codex',
+    })
+  })
 })
 
 describe('recordLaunchFingerprint', () => {

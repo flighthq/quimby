@@ -2,8 +2,14 @@ import {
   resolveRuntimeSelection as resolveProfileRuntimeSelection,
   type RuntimeSelection as ProfileRuntimeSelection,
 } from '@quimbyhq/runtime-profile'
-import type { AgentDefaults, AgentState, QuimbyConfig, RuntimeType } from '@quimbyhq/types'
-import { resolveAgentRoleConfig } from '@quimbyhq/workspace'
+import type {
+  AgentDefaults,
+  AgentState,
+  ConfiguredAgent,
+  QuimbyConfig,
+  RuntimeType,
+} from '@quimbyhq/types'
+import { resolveAgentRoleConfig, resolveConfiguredAgent } from '@quimbyhq/workspace'
 
 export interface RuntimeSelection extends ProfileRuntimeSelection {
   runtime: RuntimeType
@@ -43,28 +49,72 @@ export function launchFingerprint(
 }
 
 /**
- * The launch defaults for an agent, role-fresh: an agent that records a `role` resolves its
- * runtime profile/entrypoint from current config through that role (so edits/renames
- * propagate). Older state may lack `role` even though the project now has a same-named role,
- * so use `roles.<agentName>` as config intent before falling back to stored flattened defaults.
- * A deleted role degrades to last-known config, not a failure.
+ * The launch defaults for an agent, config-fresh: an agent named in a preset resolves from that
+ * tracked per-agent entry, an agent that records a `role` resolves through the current role, and
+ * older state may still pick up a same-named role. Tracked defaults participate through those
+ * preset/role resolutions. This lets edits/renames propagate and keeps tracked launch intent
+ * ahead of stale stored defaults. A deleted role degrades to last-known config, not a failure.
  */
 export function resolveAgentLaunchDefaults(
   agent: Readonly<AgentState>,
   config: Readonly<QuimbyConfig> | undefined,
 ): AgentDefaults | undefined {
+  const presetAgent = resolvePresetAgentLaunchDefaults(config, agent.name)
+  if (presetAgent) return presetAgent
+
   const roleName = agent.role ?? agent.name
   if (config?.roles?.[roleName]) {
     try {
-      const role = resolveAgentRoleConfig(config, { role: roleName })
-      return {
-        ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
-        ...(role.runtime ? { runtime: role.runtime } : {}),
-        ...(role.entrypoint ? { entrypoint: role.entrypoint } : {}),
-      }
+      return launchDefaultsFromRole(resolveAgentRoleConfig(config, { role: roleName }))
     } catch {
       // Role no longer in config — fall through to the agent's stored defaults.
     }
   }
   return agent.defaults
+}
+
+function resolvePresetAgentLaunchDefaults(
+  config: Readonly<QuimbyConfig> | undefined,
+  name: string,
+): AgentDefaults | undefined {
+  const raw = findPresetAgent(config, name)
+  if (!raw.found) return undefined
+  try {
+    return launchDefaultsFromRole(
+      resolveAgentRoleConfig(config!, resolveConfiguredAgent(config!, raw.agent)),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+function findPresetAgent(
+  config: Readonly<QuimbyConfig> | undefined,
+  name: string,
+): { found: false } | { found: true; agent: ConfiguredAgent | string | undefined } {
+  if (!config?.presets) return { found: false }
+  const presetNames = [
+    ...(config.default ? [config.default] : []),
+    ...Object.keys(config.presets).filter((preset) => preset !== config.default),
+  ]
+  for (const presetName of presetNames) {
+    const agents = config.presets[presetName]?.agents
+    if (agents && Object.prototype.hasOwnProperty.call(agents, name)) {
+      return { found: true, agent: agents[name] }
+    }
+  }
+  return { found: false }
+}
+
+function launchDefaultsFromRole(role: {
+  runtimeProfile?: string
+  runtime?: string
+  entrypoint?: string
+}): AgentDefaults | undefined {
+  if (!role.runtimeProfile && !role.runtime && !role.entrypoint) return undefined
+  return {
+    ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
+    ...(role.runtime ? { runtime: role.runtime } : {}),
+    ...(role.entrypoint ? { entrypoint: role.entrypoint } : {}),
+  }
 }

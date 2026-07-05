@@ -19,6 +19,28 @@ const roleConfig = {
   runtimeProfiles: { 'sbx-codex': { runtime: 'sbx', entrypoint: 'codex' } },
 }
 
+const trackedProjectConfig = {
+  defaults: { runtimeProfile: 'claude-sbx' },
+  roles: {
+    review: {},
+    builder: {},
+  },
+  runtimeProfiles: {
+    'claude-sbx': { runtime: 'sbx', entrypoint: 'claude' },
+    'codex-sbx': { runtime: 'sbx', entrypoint: 'codex' },
+  },
+  presets: {
+    default: {
+      agents: {
+        review: { role: 'review' },
+        review2: { role: 'review', runtimeProfile: 'codex-sbx' },
+        builder3: { role: 'builder', runtimeProfile: 'codex-sbx' },
+      },
+    },
+  },
+  default: 'default',
+}
+
 describe('launchFingerprint', () => {
   it('is stable for the same resolved command and differs when it changes', () => {
     expect(launchFingerprint({ runtime: 'sbx', entrypoint: 'codex' })).toBe('sbx codex')
@@ -49,6 +71,34 @@ describe('resolveAgentLaunchDefaults', () => {
       ),
     ).toEqual({
       runtime: 'sbx',
+    })
+  })
+
+  it('prefers tracked preset-agent config over stale stored profile names', () => {
+    expect(
+      resolveAgentLaunchDefaults(
+        {
+          ...agent({ runtimeProfile: 'sbx-codex' }, 'review2'),
+          name: 'review2',
+        } as AgentState,
+        trackedProjectConfig,
+      ),
+    ).toEqual({
+      runtimeProfile: 'codex-sbx',
+    })
+  })
+
+  it('uses tracked defaults through a preset role before stale stored defaults', () => {
+    expect(
+      resolveAgentLaunchDefaults(
+        {
+          ...agent({ runtimeProfile: 'sbx-claude' }, 'review'),
+          name: 'review',
+        } as AgentState,
+        trackedProjectConfig,
+      ),
+    ).toEqual({
+      runtimeProfile: 'claude-sbx',
     })
   })
 })
@@ -121,6 +171,17 @@ describe('resolveRuntimeSelection', () => {
     const sel = resolveRuntimeSelection({
       agent: agent({ runtimeProfile: 'sbx-claude', runtime: 'sbx', entrypoint: 'claude' }),
       config: roleConfig,
+    })
+    expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'codex' })
+  })
+
+  it('resolves a stale existing agent from tracked preset-agent config', () => {
+    const sel = resolveRuntimeSelection({
+      agent: {
+        ...agent({ runtimeProfile: 'sbx-codex' }, 'review2'),
+        name: 'review2',
+      } as AgentState,
+      config: trackedProjectConfig,
     })
     expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'codex' })
   })
