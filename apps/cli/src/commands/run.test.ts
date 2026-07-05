@@ -428,6 +428,10 @@ describe('runRunCommand', () => {
     const prompt = h.calls.find((c) => c.includes('new-window') && c[c.indexOf('-n') + 1] === 'a')
     expect(prompt?.join('\n')).toContain('Choice [r/a/q]')
     expect(prompt?.join('\n')).toContain('current config:')
+    expect(prompt?.join('\n')).toContain('#{pane_id}')
+    expect(prompt?.join('\n')).toContain('kill-pane')
+    expect(prompt?.join('\n')).not.toContain('rename-window')
+    expect(prompt?.join('\n')).not.toContain('$agent prompt')
     expect(h.calls.some((c) => c.includes('link-window') && c.includes(`${tmuxSessionName('id-a')}:a`))).toBe(false) // prettier-ignore
   })
 })

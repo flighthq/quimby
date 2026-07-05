@@ -484,7 +484,14 @@ interface WindowSpec {
 // attach, or the host shell).
 type DashboardTab =
   | { name: string; kind: 'link'; srcSession: string }
-  | { name: string; kind: 'window'; cwd: string; cmd: string[]; env?: [string, string][] }
+  | {
+      name: string
+      kind: 'window'
+      cwd: string
+      cmd: string[]
+      env?: [string, string][]
+      prompt?: boolean
+    }
 
 type LaunchDrift = NonNullable<ReturnType<typeof launchDrift>>
 
@@ -494,22 +501,21 @@ function dashboardLaunchDriftPromptCommand(name: string, drift: LaunchDrift): st
     `actual=${sq(drift.actual)}`,
     `desired=${sq(drift.desired)}`,
     `socket=${sq(quimbyTmuxSocket)}`,
-    `window_id="$(tmux -L "$socket" display-message -p '#{window_id}' 2>/dev/null || true)"`,
-    `rename_prompt_window() { [ -n "$window_id" ] && tmux -L "$socket" rename-window -t "$window_id" "$agent prompt" 2>/dev/null || true; }`,
-    `close_prompt_window() { status=$?; [ -n "$window_id" ] && tmux -L "$socket" kill-window -t "$window_id" 2>/dev/null || true; exit "$status"; }`,
+    `pane_id="$(tmux -L "$socket" display-message -p '#{pane_id}' 2>/dev/null || true)"`,
+    `close_prompt_pane() { status=$?; [ -n "$pane_id" ] && tmux -L "$socket" kill-pane -t "$pane_id" 2>/dev/null || true; exit "$status"; }`,
     `printf '\\nquimby: "%s" is running stale launch config\\n\\n' "$agent"`,
     `printf 'running:        %s\\n' "$actual"`,
     `printf 'current config: %s\\n\\n' "$desired"`,
     `printf 'r) restart with current config, then open the agent tab\\n'`,
     `printf 'a) attach the existing session without restarting\\n'`,
-    `printf 'q) leave this prompt open\\n\\n'`,
+    `printf 'q) keep this prompt open\\n\\n'`,
     `while true; do`,
     `  printf 'Choice [r/a/q]: '`,
     `  IFS= read -r choice || exit 0`,
     `  case "$choice" in`,
-    `    r|R) rename_prompt_window; quimby restart "$agent" && quimby run "$agent"; close_prompt_window ;;`,
-    `    a|A) rename_prompt_window; QUIMBY_ALLOW_STALE_LAUNCH=1 quimby run "$agent"; close_prompt_window ;;`,
-    `    q|Q|'') exit 0 ;;`,
+    `    r|R) if quimby restart "$agent"; then quimby run "$agent"; close_prompt_pane; fi ;;`,
+    `    a|A) QUIMBY_ALLOW_STALE_LAUNCH=1 quimby run "$agent"; close_prompt_pane ;;`,
+    `    q|Q|'') printf 'Prompt left open.\\n' ;;`,
     `    *) printf 'Enter r, a, or q.\\n' ;;`,
     `  esac`,
     `done`,
@@ -559,6 +565,7 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
         kind: 'window',
         cwd: repoRoot,
         cmd: dashboardLaunchDriftPromptCommand(name, drift),
+        prompt: true,
       })
       continue
     }
@@ -783,10 +790,12 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
       const drift = await runningLaunchDrift(agent, config)
       if (drift) {
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
+        await stylePromptTab(TMUX, `${session}:${name}`)
       } else if (isSSH(agent.location)) {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
+        await styleAgentTab(TMUX, `${session}:${name}`)
       } else {
         const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
         if (!agent.tmux) {
@@ -794,8 +803,8 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
           enrolled = true
         }
         await execa('tmux', [...TMUX, 'link-window', '-a', '-s', `${srcSession}:${name}`, '-t', `${session}:`]) // prettier-ignore
+        await styleAgentTab(TMUX, `${session}:${name}`)
       }
-      await styleAgentTab(TMUX, `${session}:${name}`)
     }
     selected = name
   }
@@ -1009,6 +1018,12 @@ async function styleAgentTab(TMUX: string[], target: string): Promise<void> {
   await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'on']).catch(() => {}) // prettier-ignore
 }
 
+async function stylePromptTab(TMUX: string[], target: string): Promise<void> {
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'off']).catch(() => {}) // prettier-ignore
+}
+
 async function styleDashboard(
   TMUX: string[],
   session: string,
@@ -1045,6 +1060,9 @@ async function styleDashboard(
   // this per-window override only affects the host tab so its title tracks the running command
   // with a leading "$ " marker baked into the title itself (e.g. "$ bash", "$ quimby").
   const hostIdx = tabs.findIndex((t) => t.name === HOST_TAB_NAME)
+  const promptIdx = new Set(
+    tabs.flatMap((tab, idx) => (tab.kind === 'window' && tab.prompt ? [idx] : [])),
+  )
   if (hostIdx !== -1) {
     const target = `${session}:${hostIdx}`
     await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
@@ -1108,6 +1126,8 @@ async function styleDashboard(
     if (Number(idx) === hostIdx) {
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+    } else if (promptIdx.has(Number(idx))) {
+      await stylePromptTab(TMUX, target)
     } else {
       await styleAgentTab(TMUX, target)
     }
@@ -1336,6 +1356,7 @@ async function buildViewSession(
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'automatic-rename', 'off'])
 
   let enrolled = false
+  const promptNames = new Set<string>()
   for (const name of names) {
     if (isServiceToken(name)) {
       // A service is a dashboard-local pane running its host command via a login shell (so
@@ -1352,6 +1373,7 @@ async function buildViewSession(
       const drift = await runningLaunchDrift(agent, config)
       if (drift) {
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
+        promptNames.add(name)
       } else if (isSSH(agent.location)) {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
@@ -1390,6 +1412,8 @@ async function buildViewSession(
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename-format', '$ #{pane_current_command}']) // prettier-ignore
+    } else if (promptNames.has(wname)) {
+      await stylePromptTab(TMUX, target)
     } else {
       // Agents and services both land here — a service is now just a bare-named window, so it
       // gets the same state-dot styling as an agent tab.
