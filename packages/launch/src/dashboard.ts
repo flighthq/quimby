@@ -245,11 +245,12 @@ const MONITOR_OPTS: [string, string][] = [
   ['window-status-bell-style', 'none'],
 ]
 
-// Unselected tab: `<bar><title> `, a slim one-eighth vertical accent bar leading the title (no
+// Unselected tab: `<bar><title>`, a quarter-width vertical accent bar leading the title (no
 // space between), its COLOUR the only signal — green = quiet after activity, teal = active, grey = idle.
 const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▏#[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]▏#[fg=colour244]#W ,#[fg=colour240]▏#[fg=colour244]#W }}'
+  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}'
 // Selected tab: the same state accent bar as unselected, on the whole-tab grey that
-// window-status-current-style paints — only the title brightens (colour231) vs the dim unselected.
+// window-status-current-style paints. The final space stays selected so the highlight fills
+// through the tab's trailing cell.
 const WINDOW_STATUS_CURRENT_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▏#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▏#[fg=colour231]#W ,#[fg=colour240]▏#[fg=colour231]#W }}'
+  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W ,#[fg=colour240]▎#[fg=colour231]#W }}'

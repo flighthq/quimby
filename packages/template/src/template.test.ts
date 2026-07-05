@@ -123,6 +123,20 @@ describe('renderTmuxConfig', () => {
     expect(conf).toContain('status-style')
   })
 
+  it('carries the tab separator bar inside each tab, not standalone after "quimby"', () => {
+    const conf = renderTmuxConfig()
+    // status-left holds no bar of its own — the bar you see before the first tab
+    // belongs to that tab, so there is never a doubled bar between "quimby" and the tabs.
+    expect(conf).toContain('set -g status-left "#[fg=colour109,bold] quimby #[default]"')
+    expect(conf).not.toContain('quimby #[fg=colour240]│')
+    // The bar is the leading glyph of every tab (bar, space, name, space); the styles wrap
+    // the whole format, so a selected tab's background covers the bar and both spaces.
+    expect(conf).toContain('set -g window-status-format "│ #W "')
+    expect(conf).toContain('set -g window-status-current-format "│ #W "')
+    // Empty separator so tabs butt directly together with no gap between them.
+    expect(conf).toContain('set -g window-status-separator ""')
+  })
+
   it('pipes selections to the OS clipboard and binds drag/Ctrl+C to copy, right-click to paste', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('set-clipboard on')
