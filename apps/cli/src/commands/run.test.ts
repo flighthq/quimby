@@ -242,8 +242,10 @@ describe('runRunCommand', () => {
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)
     const flat = h.calls.map((c) => c.join(' ')).join('\n')
-    // State is a slim one-eighth vertical accent bar in different colours plus × for an exited pane.
-    expect(flat).toContain('#[fg=colour240]▏#[fg=colour244]') // idle: grey bar + dim title
+    // State is a quarter-width vertical accent bar in different colours plus × for an exited pane.
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244]') // idle: grey bar + dim title
+    expect(flat).not.toContain('#W ')
+    expect(flat).not.toContain('▏')
     expect(flat).toContain('×')
     expect(flat).not.toContain('∙')
     expect(flat).not.toContain('●')

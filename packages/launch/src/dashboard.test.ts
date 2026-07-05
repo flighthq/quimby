@@ -79,8 +79,10 @@ describe('buildDashboardPlan', () => {
     expect(flat).toContain('set-option -t dash monitor-silence 30')
     expect(flat).toContain('set-option -t dash activity-action none')
     expect(flat).toContain('set-option -t dash silence-action none')
-    // State is a slim one-eighth vertical accent bar in different colours — no dots/circles.
-    expect(flat).toContain('#[fg=colour240]▏#[fg=colour244]') // idle: grey bar + dim title
+    // State is a quarter-width vertical accent bar in different colours — no dots/circles.
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244]') // idle: grey bar + dim title
+    expect(flat).not.toContain('#W ')
+    expect(flat).not.toContain('▏')
     expect(flat).not.toContain('∙')
     expect(flat).not.toContain('●')
     expect(flat).not.toContain('○')

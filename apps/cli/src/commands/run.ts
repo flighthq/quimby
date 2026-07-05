@@ -452,7 +452,7 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump.
 //
-// EVERY tab — agent, host shell, or service — is ` <bar><title> `: a slim one-eighth vertical
+// EVERY tab — agent, host shell, or service — is `<bar><title>`: a quarter-width vertical
 // accent bar leads the title (no space between them), and its COLOUR is the whole signal (grey =
 // idle, teal = recently active, green = quiet after activity, red × = exited pane). The marker is
 // always shown — including for a host/service window (ordinary tmux windows with activity
@@ -465,9 +465,9 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
 //
 // No comma-escaping is needed: every style block is single-valued.
 const UNSELECTED_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W ,#{?window_silence_flag,#[fg=colour108]▏#[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]▏#[fg=colour244]#W ,#[fg=colour240]▏#[fg=colour244]#W }}}'
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}}'
 const SELECTED_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W ,#{?window_silence_flag,#[fg=colour108]▏#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▏#[fg=colour231]#W ,#[fg=colour240]▏#[fg=colour231]#W }}}'
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W,#[fg=colour240]▎#[fg=colour231]#W}}}'
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
 const PANEL_STATUS_RIGHT =
