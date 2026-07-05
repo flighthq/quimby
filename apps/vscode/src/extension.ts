@@ -34,7 +34,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       runCommand(() => openLayoutCommand(context)),
     ),
     vscode.commands.registerCommand('quimby.restoreLastLayout', () =>
-      runCommand(() => restoreLastLayout(context)),
+      runCommand(async () => {
+        await restoreLastLayout(context)
+      }),
     ),
     vscode.commands.registerCommand('quimby.closeLayout', () => closeLayout()),
     { dispose: () => void stopOwnedServer() },
@@ -50,8 +52,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   await startEmbeddedServer(repoRoot)
-  if (shouldRestoreLastLayout()) await runCommand(() => restoreLastLayout(context, { quiet: true }))
-  else await showHome(context)
+  if (shouldRestoreLastLayout()) {
+    await runCommand(async () => {
+      const restored = await restoreLastLayout(context, { quiet: true })
+      if (!restored) await showHome(context)
+    })
+  } else {
+    await showHome(context)
+  }
 }
 
 export async function deactivate(): Promise<void> {
@@ -105,14 +113,15 @@ async function openLayoutCommand(context: vscode.ExtensionContext): Promise<void
 async function restoreLastLayout(
   context: vscode.ExtensionContext,
   opts: { quiet?: boolean } = {},
-): Promise<void> {
+): Promise<boolean> {
   const last = context.workspaceState.get<StoredLayout>(LAST_LAYOUT_KEY)
   if (!last) {
     if (!opts.quiet)
       await vscode.window.showInformationMessage('No Quimby layout has been opened yet.')
-    return
+    return false
   }
   await openLayout(context, last)
+  return true
 }
 
 async function openLayout(context: vscode.ExtensionContext, target: StoredLayout): Promise<void> {
