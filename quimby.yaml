@@ -4,36 +4,25 @@ hosts:
     host: remote
 
 runtimeProfiles:
-  sbx-claude:
+  claude-sbx:
     runtime: sbx
     entrypoint: claude
     requiredTools:
       - claude
-  sbx-codex:
+  codex-sbx:
     runtime: sbx
     entrypoint: codex
     requiredTools:
       - codex
 
+defaults:
+  runtimeProfile: claude-sbx
+  tmux: true
+
 roles:
-  review:
-    runtimeProfile: sbx-claude
-    tmux: true
-  review2:
-    runtimeProfile: sbx-codex
-    tmux: true
-  builder:
-    runtimeProfile: sbx-claude
-    tmux: true
-  builder2:
-    runtimeProfile: sbx-claude
-    tmux: true
-  builder3:
-    runtimeProfile: sbx-codex
-    tmux: true
-  integration:
-    runtimeProfile: sbx-claude
-    tmux: true
+  review: {}
+  builder: {}
+  integration: {}
 
 services:
   server: quimby serve
@@ -52,16 +41,18 @@ presets:
         role: review
         hostAlias: remote
       review2:
-        role: review2
+        role: review
+        runtimeProfile: codex-sbx
         hostAlias: remote
       builder:
         role: builder
         hostAlias: remote
       builder2:
-        role: builder2
+        role: builder
         hostAlias: remote
       builder3:
-        role: builder3
+        role: builder
+        runtimeProfile: codex-sbx
         hostAlias: remote
       integration:
         role: integration
