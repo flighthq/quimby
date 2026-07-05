@@ -180,6 +180,14 @@ describe('prepareSshLaunch', () => {
     )
   })
 
+  it('keeps a failing agent command readable instead of closing the pane immediately', async () => {
+    mockedGetSSH.mockReturnValue(fakeSSHTransport(false))
+    const launch = await prepareSshLaunch(optsFrom(makeState()))
+    expect(launch.shellCmd).toContain('__code=$?')
+    expect(launch.shellCmd).toContain('agent exited with code')
+    expect(launch.shellCmd).toContain('read -r _')
+  })
+
   it('reports sync and init progress to the reporter on first launch', async () => {
     mockedGetSSH.mockReturnValue(fakeSSHTransport(false))
     const { reporter, events } = collectingReporter()

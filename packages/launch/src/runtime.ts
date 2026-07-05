@@ -45,16 +45,18 @@ export function launchFingerprint(
 /**
  * The launch defaults for an agent, role-fresh: an agent that records a `role` resolves its
  * runtime profile/entrypoint from current config through that role (so edits/renames
- * propagate), falling back to the stored flattened defaults when there is no role, no config,
- * or the role no longer resolves (a deleted role degrades to last-known config, not a failure).
+ * propagate). Older state may lack `role` even though the project now has a same-named role,
+ * so use `roles.<agentName>` as config intent before falling back to stored flattened defaults.
+ * A deleted role degrades to last-known config, not a failure.
  */
 export function resolveAgentLaunchDefaults(
   agent: Readonly<AgentState>,
   config: Readonly<QuimbyConfig> | undefined,
 ): AgentDefaults | undefined {
-  if (agent.role && config) {
+  const roleName = agent.role ?? agent.name
+  if (config?.roles?.[roleName]) {
     try {
-      const role = resolveAgentRoleConfig(config, { role: agent.role })
+      const role = resolveAgentRoleConfig(config, { role: roleName })
       return {
         ...(role.runtimeProfile ? { runtimeProfile: role.runtimeProfile } : {}),
         ...(role.runtime ? { runtime: role.runtime } : {}),

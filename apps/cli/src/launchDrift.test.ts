@@ -89,6 +89,21 @@ describe('launchDrift', () => {
     )
     expect(drift).toEqual({ actual: 'sbx claude', desired: 'sbx codex' })
   })
+
+  it('detects stale stored defaults through a same-named role when no role is stored', () => {
+    const config = {
+      roles: { review2: { runtimeProfile: 'sbx-codex' } },
+      runtimeProfiles: { 'sbx-codex': { runtime: 'sbx', entrypoint: 'codex' } },
+    } as QuimbyConfig
+    const drift = launchDrift(
+      agent({
+        name: 'review2',
+        defaults: { runtimeProfile: 'sbx-claude', runtime: 'sbx', entrypoint: 'claude' },
+      }),
+      config,
+    )
+    expect(drift).toEqual({ actual: 'sbx claude', desired: 'sbx codex' })
+  })
 })
 
 describe('recordLaunchFingerprint', () => {

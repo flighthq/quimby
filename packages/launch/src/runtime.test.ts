@@ -32,11 +32,22 @@ describe('launchFingerprint', () => {
 })
 
 describe('resolveAgentLaunchDefaults', () => {
-  it('prefers role-resolved defaults, falling back to stored defaults without a role', () => {
+  it('prefers role-resolved defaults, including a same-named role for older state without `role`', () => {
     expect(resolveAgentLaunchDefaults(agent({ runtime: 'sbx' }, 'builder'), roleConfig)).toEqual({
       runtimeProfile: 'sbx-codex',
     })
     expect(resolveAgentLaunchDefaults(agent({ runtime: 'sbx' }), roleConfig)).toEqual({
+      runtimeProfile: 'sbx-codex',
+    })
+  })
+
+  it('falls back to stored defaults without a matching role', () => {
+    expect(
+      resolveAgentLaunchDefaults(
+        { ...agent({ runtime: 'sbx' }), name: 'review2' } as AgentState,
+        roleConfig,
+      ),
+    ).toEqual({
       runtime: 'sbx',
     })
   })
@@ -101,6 +112,14 @@ describe('resolveRuntimeSelection', () => {
     // current profile — so the launch tracks config, not the frozen name.
     const sel = resolveRuntimeSelection({
       agent: agent({ runtimeProfile: 'sbx-codex-OLD' }, 'builder'),
+      config: roleConfig,
+    })
+    expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'codex' })
+  })
+
+  it('resolves a same-named role for older agents missing a stored role reference', () => {
+    const sel = resolveRuntimeSelection({
+      agent: agent({ runtimeProfile: 'sbx-claude', runtime: 'sbx', entrypoint: 'claude' }),
       config: roleConfig,
     })
     expect(sel).toMatchObject({ runtime: 'sbx', entrypoint: 'codex' })

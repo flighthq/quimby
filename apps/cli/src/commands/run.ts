@@ -938,7 +938,9 @@ async function buildSSHWindow(
   const launchCmd = [envPrefix, [spec.command, ...spec.args].map(sq).join(' ')]
     .filter(Boolean)
     .join(' ')
-  const remoteShellCmd = `${tmuxSetQuimbyRootShell(rRoot)}${launchCmd}`
+  const remoteShellCmd =
+    `${tmuxSetQuimbyRootShell(rRoot)}${launchCmd}; ` +
+    `__code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
 
   // Write the remote tmux config (for the nested remote session).
   const rTmuxConf = remoteTmuxConfigPath(state.id, loc.base)

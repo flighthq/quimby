@@ -147,6 +147,15 @@ describe('renderTmuxConfig', () => {
     )
   })
 
+  it('binds lowercase and uppercase prefix+r to restart a dead pane', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('bind r respawn-window -k')
+    expect(conf).toContain('bind R respawn-window -k')
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.indexOf('bind r respawn-window -k'),
+    )
+  })
+
   it('suppresses tmux alert sounds and visual popups after the user config is sourced', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('bell-action none')

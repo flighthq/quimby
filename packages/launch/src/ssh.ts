@@ -154,7 +154,9 @@ export async function prepareSshLaunch(
     .join(' ')
   // Refresh the window label on every (re)attach so it tracks renames.
   const rootCmd = tmuxSetQuimbyRootShell(rRoot)
-  const shellCmd = `${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}`
+  const shellCmd =
+    `${rootCmd}tmux rename-window ${sq(agent.name)} 2>/dev/null; ${launchCmd}; ` +
+    `__code=$?; [ "$__code" -eq 0 ] || { printf '\\n[quimby] agent exited with code %s — press Enter to close\\n' "$__code"; read -r _; }`
 
   // Quimby runs its own tmux server (-L) with its own config (-f); written fresh each
   // launch since tmux reads -f only at server start.

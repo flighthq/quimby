@@ -83,11 +83,17 @@ function storedDefaultsLaunchFingerprint(
   agent: Readonly<AgentState>,
   config: Readonly<QuimbyConfig>,
 ): string {
+  const storedAgent = {
+    ...agent,
+    // Avoid the same-named-role fallback used for desired launch resolution; this branch models
+    // what older state would have launched from its persisted defaults.
+    name: `__stored_defaults__${agent.name}`,
+    role: undefined,
+  }
   if (agent.defaults?.runtime || agent.defaults?.entrypoint) {
     return currentLaunchFingerprint(
       {
-        ...agent,
-        role: undefined,
+        ...storedAgent,
         defaults: {
           ...(agent.defaults.runtime ? { runtime: agent.defaults.runtime } : {}),
           ...(agent.defaults.entrypoint ? { entrypoint: agent.defaults.entrypoint } : {}),
@@ -96,5 +102,5 @@ function storedDefaultsLaunchFingerprint(
       config,
     )
   }
-  return currentLaunchFingerprint({ ...agent, role: undefined }, config)
+  return currentLaunchFingerprint(storedAgent, config)
 }
