@@ -80,11 +80,13 @@ describe('buildDashboardPlan', () => {
     expect(flat).toContain('set-option -t dash activity-action none')
     expect(flat).toContain('set-option -t dash silence-action none')
     // State is a quarter-width vertical accent bar in different colours — no dots/circles.
-    // Each tab is `<bar> <title`; tmux contributes the one inter-tab cell in the live strip.
-    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244] #W') // idle: grey bar + title-leading space
-    expect(flat).toContain('#[fg=colour240]▎#[fg=colour231] #W')
-    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour244] #W ')
-    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour231] #W ')
+    // Each tab is `<bar> <title>`, and the empty tmux separator prevents a second inter-tab gap.
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244] #W ')
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour231] #W ')
+    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour244]  #W ')
+    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour231]  #W ')
+    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour244] #W  ')
+    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour231] #W  ')
     // Never flush: the bar must not touch the title (there is always one space between them).
     expect(flat).not.toContain('▎#[fg=colour244]#W')
     expect(flat).not.toContain('▎#[fg=colour231]#W')

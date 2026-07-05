@@ -43,15 +43,11 @@ describe('dashboard tmux constants', () => {
   })
 
   it('renders tab status formats as fixed cellular strings', () => {
-    expect(DASHBOARD_WINDOW_STATUS_FORMAT).toContain('▎#[fg=colour244] #W')
-    expect(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT).toContain('▎#[fg=colour231] #W')
-    expect(DASHBOARD_WINDOW_STATUS_FORMAT).not.toContain('#W ')
-    expect(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT).not.toContain('#W ')
+    expectTabCell(DASHBOARD_WINDOW_STATUS_FORMAT, 'colour244')
+    expectTabCell(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT, 'colour231')
     expect(DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD).toContain('pane_dead')
-    expect(DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD).toContain('▎#[fg=colour244] #W')
-    expect(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT_WITH_DEAD).toContain('▎#[fg=colour231] #W')
-    expect(DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD).not.toContain('#W ')
-    expect(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT_WITH_DEAD).not.toContain('#W ')
+    expectTabCell(DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD, 'colour244')
+    expectTabCell(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT_WITH_DEAD, 'colour231')
     expect(DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD).not.toContain('▎#[fg=colour244]#W')
     expect(DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT_WITH_DEAD).not.toContain('▎#[fg=colour231]#W')
     expect(DASHBOARD_WINDOW_STATUS_CURRENT_STYLE).toBe('fg=colour231,bg=colour238,bold')
@@ -63,6 +59,13 @@ describe('dashboard tmux constants', () => {
     expect(DASHBOARD_STATUS_LEFT).not.toContain('│')
   })
 })
+
+function expectTabCell(format: string, titleColour: string): void {
+  const titleCell = `#[fg=${titleColour}] #W `
+  expect(format).toContain(`▎${titleCell}`)
+  expect(format).not.toContain(`#[fg=${titleColour}]  #W `)
+  expect(format).not.toContain(`#[fg=${titleColour}] #W  `)
+}
 
 describe('renderDashboardActivityCommands', () => {
   it('renders global activity hooks and session action suppression', () => {
