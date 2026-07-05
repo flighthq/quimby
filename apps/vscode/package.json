@@ -6,33 +6,36 @@
   "private": true,
   "type": "commonjs",
   "main": "./dist/extension.js",
+  "categories": [
+    "Other"
+  ],
   "engines": {
     "vscode": "^1.95.0"
   },
   "activationEvents": [
-    "workspaceContains:quimby.yaml",
-    "onCommand:quimby.home",
-    "onCommand:quimby.openLayout",
-    "onCommand:quimby.restoreLastLayout",
-    "onCommand:quimby.closeLayout"
+    "workspaceContains:quimby.yaml"
   ],
   "contributes": {
     "commands": [
       {
         "command": "quimby.home",
-        "title": "Quimby: Home"
+        "title": "Home",
+        "category": "Quimby"
       },
       {
         "command": "quimby.openLayout",
-        "title": "Quimby: Open Layout"
+        "title": "Open Layout",
+        "category": "Quimby"
       },
       {
         "command": "quimby.restoreLastLayout",
-        "title": "Quimby: Restore Last Layout"
+        "title": "Restore Last Layout",
+        "category": "Quimby"
       },
       {
         "command": "quimby.closeLayout",
-        "title": "Quimby: Close Layout"
+        "title": "Close Layout",
+        "category": "Quimby"
       }
     ],
     "configuration": {
@@ -47,7 +50,8 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "eslint src",
     "clean": "rm -rf dist"
@@ -60,7 +64,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "tsup": "*",
+    "@types/vscode": "^1.95.0",
+    "esbuild": "*",
     "typescript": "*"
   }
 }

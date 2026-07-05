@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "prebuild": "npm run context:build",
-    "build": "tsc -b tsconfig.build.json && npm run build -w quimby",
+    "build": "tsc -b tsconfig.build.json && npm run build -w quimby && npm run build -w quimby-vscode",
     "prebuild:libs": "npm run context:build",
     "build:libs": "tsc -b tsconfig.build.json",
     "pretypecheck": "npm run context:build",
@@ -17,7 +17,7 @@
     "pretest": "npm run context:build",
     "test": "vitest run",
     "test:integration": "npm run build && vitest run --config vitest.integration.config.ts",
-    "clean": "tsc -b tsconfig.build.json --clean && rm -rf apps/cli/dist",
+    "clean": "tsc -b tsconfig.build.json --clean && rm -rf apps/cli/dist apps/vscode/dist",
     "lint": "eslint . --cache --max-warnings=0",
     "lint:fix": "eslint . --fix --max-warnings=0",
     "format": "prettier . --write",
