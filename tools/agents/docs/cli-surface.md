@@ -41,14 +41,14 @@ quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start 
 
 ## Planned (not yet implemented)
 
-### Machine-readable layout plans
+### Shared layout plans
 
 ```
 quimby layout <name-or-preset> --json
 quimby layout --default --json
 ```
 
-Resolve a saved layout or preset through the same config semantics as `quimby run --layout`, but print a renderer-neutral JSON plan instead of opening tmux. This is primarily for external renderers such as a Visual Studio Code extension that wants to open side-by-side named terminals from `quimby.yaml`.
+Resolve a saved layout or preset through the same config semantics as `quimby run --layout`, but print a renderer-neutral JSON plan instead of opening tmux. This is useful for inspection and external tools. The VS Code extension should prefer the same underlying package API directly rather than depending on a global `quimby` executable.
 
 The JSON plan should include the resolved layout tree (`cols`, `rows`, `tabs`, and terminal leaves), terminal display names, working directories, commands to run, service/host leaves, and any layout weights as hints. Quimby remains the canonical parser and resolver for config layering, presets, host/service tokens, layout grammar, and agent validation; consumers render the plan and do not duplicate those rules.
 
