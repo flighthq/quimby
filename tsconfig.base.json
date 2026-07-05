@@ -49,6 +49,8 @@
       "@quimbyhq/handoff/*": ["./packages/handoff/src/*"],
       "@quimbyhq/launch": ["./packages/launch/src/index.ts"],
       "@quimbyhq/launch/*": ["./packages/launch/src/*"],
+      "@quimbyhq/layout": ["./packages/layout/src/index.ts"],
+      "@quimbyhq/layout/*": ["./packages/layout/src/*"],
       "@quimbyhq/server": ["./packages/server/src/index.ts"],
       "@quimbyhq/server/*": ["./packages/server/src/*"]
     }

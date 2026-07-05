@@ -23,6 +23,16 @@ import {
   resolveRuntimeSelection,
   tmuxSetQuimbyRootShell,
 } from '@quimbyhq/launch'
+import type { LayoutNode } from '@quimbyhq/layout'
+import {
+  collectLayoutAgents,
+  createMissingPresetAgents,
+  isLayoutExpr,
+  isServiceToken,
+  layoutWeights,
+  parseLayout,
+  serviceNameOf,
+} from '@quimbyhq/layout'
 import {
   dashboardSessionName,
   dashboardViewPrefix,
@@ -57,16 +67,6 @@ import { join } from 'pathe'
 
 import { ensureAgentConnections } from '../hostAlias'
 import { launchDrift, recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
-import type { LayoutNode } from '../layout'
-import {
-  collectLayoutAgents,
-  isLayoutExpr,
-  isServiceToken,
-  layoutWeights,
-  parseLayout,
-  serviceNameOf,
-} from '../layout'
-import { createMissingPresetAgents } from '../presetAgents'
 import { withRemoteProbeTimeout } from '../remoteProbe'
 
 export default defineCommand({

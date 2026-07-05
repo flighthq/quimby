@@ -283,22 +283,29 @@ The shared plan API should resolve the same inputs as `quimby run --layout`: tra
 
 ```json
 {
-  "name": "review",
+  "version": 1,
+  "cwd": "/repo",
+  "source": { "name": "review", "expr": "reviewer | builder / $server:30" },
   "root": {
     "type": "cols",
     "children": [
       {
         "type": "tabs",
-        "tabs": [
-          { "name": "builder", "command": ["quimby", "run", "builder"], "cwd": "/repo" },
-          { "name": "reviewer", "command": ["quimby", "run", "reviewer"], "cwd": "/repo" }
+        "terminals": [
+          {
+            "kind": "agent",
+            "name": "reviewer",
+            "command": { "argv": ["tmux", "..."] },
+            "cwd": "/repo"
+          }
         ]
       },
       {
-        "type": "terminal",
-        "name": "host",
-        "command": ["bash", "-l"],
-        "cwd": "/repo"
+        "type": "rows",
+        "children": [
+          { "type": "tabs", "terminals": [{ "kind": "agent", "name": "builder" }] },
+          { "type": "tabs", "weight": 30, "terminals": [{ "kind": "service", "name": "$server" }] }
+        ]
       }
     ]
   }

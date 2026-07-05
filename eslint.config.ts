@@ -86,5 +86,12 @@ export default [
     },
   },
 
+  {
+    files: ['apps/vscode/src/**/*.ts'],
+    rules: {
+      'import/no-unresolved': ['error', { ignore: ['^vscode$'] }],
+    },
+  },
+
   prettierConfig,
 ]

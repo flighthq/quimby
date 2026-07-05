@@ -23,6 +23,7 @@ quimby set <agent> [-r <rt>] [--cmd <cmd>] [--role <role>] [-H <host>] [--port <
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SSH host aliases (no arg lists all with bound/unbound status; --set binds to ignored local config, --global to user config; a bare `host <alias>` prints it or prompts to bind when unbound)
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
+quimby layout <name-or-preset> --json | --default --json   Resolve a saved layout or default preset into renderer-neutral JSON for external viewports such as the VS Code extension
 quimby list                                           Show agents (with each agent's live session state: running / attached / stopped)
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, received/queued counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, received/queued, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s status mirror
 quimby log <agent> [-f]                              Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged; -f/--follow streams the durable transcript (session.log) as it grows

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../agent" },
+    { "path": "../errors" },
+    { "path": "../launch" },
+    { "path": "../paths" },
+    { "path": "../transport" },
+    { "path": "../types" },
+    { "path": "../workspace" }
+  ],
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

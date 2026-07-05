@@ -1,9 +1,8 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
+import { createMissingPresetAgents } from '@quimbyhq/layout'
 import { ensureWorkspace, loadQuimbyConfig } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
-
-import { createMissingPresetAgents } from '../presetAgents'
 
 export default defineCommand({
   meta: {

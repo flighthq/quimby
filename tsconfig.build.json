@@ -17,6 +17,7 @@
     { "path": "./packages/agent" },
     { "path": "./packages/handoff" },
     { "path": "./packages/launch" },
+    { "path": "./packages/layout" },
     { "path": "./packages/server" }
   ]
 }
