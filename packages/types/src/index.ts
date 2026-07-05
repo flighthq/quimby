@@ -5,6 +5,12 @@ export type { AgentDefaults } from './AgentState'
 export type { AgentState } from './AgentState'
 export type { CommitMeta } from './CommitMeta'
 export type { HandoffMeta } from './HandoffMeta'
+export type {
+  LayoutPlan,
+  LayoutPlanCommand,
+  LayoutPlanNode,
+  LayoutPlanTerminal,
+} from './LayoutPlan'
 export type { LocalLocation } from './LocalLocation'
 export type {
   AgentRoleConfig,
