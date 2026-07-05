@@ -7,7 +7,9 @@ import { bestEffortExec, requireRuntimeCli } from './probe'
 
 // sbx is path-sensitive: it keys a sandbox off its working directory and persists
 // that absolute path behind the --name, so the name must track the path rather than
-// pin one. We derive it from a hash of the agent's location (plus the stable IDs).
+// pin one. It also records the command a named sandbox runs; attempting to reuse a
+// `claude` sandbox as `codex` fails. We therefore derive the name from the agent's
+// location plus the base entrypoint command.
 // Because agent directories are keyed by UUID, the path is stable across a rename —
 // so the hash, and thus the sandbox, survives a rename — while a genuine relocation
 // (the .quimby tree moving) changes the path, flips the hash, and lets a fresh
@@ -16,9 +18,10 @@ import { bestEffortExec, requireRuntimeCli } from './probe'
 // The friendly agent name is deliberately NOT in the sandbox name: it changes on
 // rename, which would break reuse. The agentId prefix is a stable, greppable handle
 // for `sbx ls`; the name→agent mapping for humans lives in `quimby list`.
-function sandboxName(ctx: RuntimeContext): string {
+function sandboxName(ctx: RuntimeContext, entrypoint = ''): string {
+  const command = entrypoint ? parseCommand(entrypoint).command : ''
   const hash = createHash('sha256')
-    .update(`${ctx.projectId}\0${ctx.agentId}\0${ctx.agentDir}`)
+    .update(`${ctx.projectId}\0${ctx.agentId}\0${ctx.agentDir}\0${command}`)
     .digest('hex')
     .slice(0, 12)
   return `qb-${ctx.agentId.slice(0, 8)}-${hash}`
@@ -36,7 +39,7 @@ export const sbx: RuntimeAdapter = {
   runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
     return {
       command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx), entrypoint],
+      args: ['run', '--name', sandboxName(ctx, entrypoint), entrypoint],
       cwd: ctx.agentDir,
     }
   },
@@ -45,7 +48,7 @@ export const sbx: RuntimeAdapter = {
     const parsed = parseCommand(entrypoint)
     return {
       command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx), parsed.command, '--', ...parsed.args],
+      args: ['run', '--name', sandboxName(ctx, entrypoint), parsed.command, '--', ...parsed.args],
       cwd: ctx.agentDir,
     }
   },

@@ -54,6 +54,14 @@ describe('sbx', () => {
     expect(moved.args[moved.args.indexOf('--name') + 1]).not.toBe(baseName)
   })
 
+  it('runSpec sandbox name changes when the base entrypoint command changes', () => {
+    const claude = sbx.runSpec(ctx, 'claude')
+    const codex = sbx.runSpec(ctx, 'codex')
+    expect(codex.args[codex.args.indexOf('--name') + 1]).not.toBe(
+      claude.args[claude.args.indexOf('--name') + 1],
+    )
+  })
+
   it('runSpec and execSpec name the same sandbox for one agent', () => {
     const run = sbx.runSpec(ctx, 'claude')
     const exec = sbx.execSpec(ctx, 'claude --print')
@@ -90,8 +98,8 @@ describe('sbx', () => {
     execa.mockClear()
     const spec = sbx.teardownSpec(ctx)
     expect(spec?.command).toBe('sbx')
-    // The rm targets the exact sandbox name runSpec launches, so a teardown hits the right box.
-    expect(spec?.args).toEqual(['rm', sbx.runSpec(ctx, 'claude').args[2]])
+    // With no launch command available, teardown targets the legacy commandless sandbox name.
+    expect(spec?.args).toEqual(['rm', expect.stringContaining(ctx.agentId.slice(0, 8))])
     expect(execa).not.toHaveBeenCalled()
   })
 })
