@@ -8,13 +8,10 @@ import type { AgentState, QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { loadQuimbyConfig } from '@quimbyhq/workspace'
 
+import { renderDashboardAttachCommand, renderDashboardPlanCommands } from './dashboardTmux'
 import { resolveRuntimeSelection } from './runtime'
 import { prepareSshLaunch } from './ssh'
-import {
-  QUIMBY_ROOT_TMUX_FORMAT,
-  QUIMBY_ROOT_TMUX_OPTION,
-  quimbyRootNewWindowBindingArgs,
-} from './tmux'
+import { QUIMBY_ROOT_TMUX_FORMAT } from './tmux'
 
 /** The reserved name that adds a plain login-shell window (the user's command line). */
 export const HOST_WINDOW = 'host'
@@ -79,83 +76,10 @@ export function buildDashboardPlan(
   tmuxConf: string,
   windows: readonly WindowSpec[],
 ): DashboardPlan {
-  const tmux = ['-L', quimbyTmuxSocket]
-  const commands: string[][] = []
-
-  const first = windows[0]
-  commands.push([
-    ...tmux,
-    '-f',
-    tmuxConf,
-    'new-session',
-    '-d',
-    '-s',
-    session,
-    '-n',
-    first.name,
-    '-c',
-    first.cwd,
-    ...envArgs(first),
-    ...first.cmd,
-  ])
-  commands.push([...tmux, ...quimbyRootNewWindowBindingArgs()])
-  commands.push([
-    ...tmux,
-    'set-option',
-    '-t',
-    session,
-    QUIMBY_ROOT_TMUX_OPTION,
-    first.rootCwd ?? first.cwd,
-  ])
-
-  for (const w of windows.slice(1)) {
-    commands.push([
-      ...tmux,
-      'new-window',
-      '-t',
-      session,
-      '-n',
-      w.name,
-      '-c',
-      w.cwd,
-      ...envArgs(w),
-      ...w.cmd,
-    ])
+  return {
+    commands: renderDashboardPlanCommands(session, tmuxConf, windows),
+    attach: renderDashboardAttachCommand(session),
   }
-
-  // Monitoring: light up tabs when an agent finishes (silence) or resumes (activity),
-  // set as session defaults so every window inherits them.
-  for (const [opt, val] of MONITOR_OPTS) {
-    commands.push([...tmux, 'set-option', '-t', session, opt, val])
-  }
-  commands.push([
-    ...tmux,
-    'set-option',
-    '-t',
-    session,
-    'window-status-format',
-    WINDOW_STATUS_FORMAT,
-  ])
-  commands.push([
-    ...tmux,
-    'set-option',
-    '-t',
-    session,
-    'window-status-current-format',
-    WINDOW_STATUS_CURRENT_FORMAT,
-  ])
-  // Selected tab is a solid grey block: this base style paints the whole tab and the current
-  // format prints just the title over it.
-  commands.push([...tmux, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
-  // Set the tab-bar chrome explicitly (not just via the bundled tmux.conf, which tmux only
-  // re-reads on server start): the "quimby" label carries no separator bar of its own, so the
-  // only vertical accents are the per-tab bars, and an empty window separator butts tabs
-  // directly together with no gap between them.
-  commands.push([...tmux, 'set-option', '-t', session, 'status-left', '#[fg=colour109,bold] quimby #[default]']) // prettier-ignore
-  commands.push([...tmux, 'set-option', '-t', session, 'window-status-separator', ''])
-  commands.push([...tmux, 'select-window', '-t', `${session}:0`])
-
-  return { commands, attach: [...tmux, 'attach', '-t', session] }
 }
 
 async function buildLocalWindow(
@@ -231,34 +155,3 @@ async function buildSshWindow(
     cmd: ['ssh', '-t', ...sshFlags, launch.host, remoteTmuxArgs],
   }
 }
-
-function envArgs(window: Readonly<WindowSpec>): string[] {
-  return (window.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-}
-
-const MONITOR_OPTS: [string, string][] = [
-  ['monitor-activity', 'on'],
-  ['monitor-silence', '30'],
-  ['bell-action', 'none'],
-  ['activity-action', 'none'],
-  ['silence-action', 'none'],
-  ['visual-bell', 'off'],
-  ['visual-activity', 'off'],
-  ['visual-silence', 'off'],
-  // Neutralize tmux's default `reverse` alert styles: we signal activity/silence through the
-  // icon foreground in the format, so the alert must not invert the tab background on its own.
-  ['window-status-activity-style', 'none'],
-  ['window-status-bell-style', 'none'],
-]
-
-// Unselected tab: `<bar> <title> ` — a quarter-width vertical accent bar, one space, the title,
-// one space. The bar COLOUR is the only state signal — green = quiet after activity, teal =
-// active, grey = idle. The one space each side is fixed, so a tab never changes width.
-const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244] #W ,#[fg=colour240]▎#[fg=colour244] #W }}'
-// Selected tab: the same `<bar> <title> ` shape as unselected, over the whole-tab grey that
-// window-status-current-style paints — so the background sits behind the leading space, the
-// title, and the trailing space. Same width as unselected (no select-time jitter), and with the
-// empty window separator the highlighted trailing space butts directly against the next tab.
-const WINDOW_STATUS_CURRENT_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231] #W ,#[fg=colour240]▎#[fg=colour231] #W }}'

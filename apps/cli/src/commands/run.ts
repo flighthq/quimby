@@ -11,6 +11,14 @@ import {
   QUIMBY_ROOT_TMUX_FORMAT,
   QUIMBY_ROOT_TMUX_OPTION,
   quimbyRootNewWindowBindingArgs,
+  renderDashboardActivityCommands,
+  renderDashboardIndexCommands,
+  renderDashboardKeyBindingCommands,
+  renderDashboardStatusRightCommands,
+  renderDashboardWindowTabStatusCommands,
+  renderPanelDashboardActivityCommands,
+  renderPanelDashboardChromeCommands,
+  renderPanelDashboardKeyBindingCommands,
   resolveRuntimeSelection,
   tmuxSetQuimbyRootShell,
 } from '@quimbyhq/launch'
@@ -449,28 +457,6 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
     `fi; `
   )
 }
-
-// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump.
-//
-// EVERY tab — agent, host shell, or service — leads with a quarter-width vertical accent bar
-// (no space between it and the title), and its COLOUR is the whole signal (grey = idle, teal =
-// recently active, green = quiet after activity, red × = exited pane). The marker is always shown
-// — including for a host/service window (ordinary tmux windows with activity flags), and including
-// when the tab is SELECTED. A host shell prefixes its "$ <command>" into the TITLE (not the bar);
-// a service tab's title is just its plain name (e.g. "server").
-//
-// The two formats differ only in the title colour and selected padding: UNSELECTED is tight,
-// while SELECTED includes a final space so window-status-current-style paints that last cell.
-//
-// No comma-escaping is needed: every style block is single-valued.
-const UNSELECTED_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}}'
-const SELECTED_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W ,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W ,#[fg=colour240]▎#[fg=colour231]#W }}}'
-// The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
-// "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
-const PANEL_STATUS_RIGHT =
-  '#[fg=colour240]alt+←→ tabs · shift+alt+←→ panes · alt+z zoom · ^b d close  #[fg=colour245]%H:%M '
 
 interface WindowSpec {
   name: string
@@ -1017,14 +1003,18 @@ async function buildSSHWindow(
 // session at once (the "disappearing tab"). A dead tab is revived in place with the dashboard's
 // restart key (respawn-window).
 async function styleAgentTab(TMUX: string[], target: string): Promise<void> {
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+  await applyTmuxCommands(renderDashboardWindowTabStatusCommands(target))
   await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'on']).catch(() => {}) // prettier-ignore
 }
 
+async function applyTmuxCommands(commands: readonly (readonly string[])[]): Promise<void> {
+  for (const command of commands) {
+    await execa('tmux', [...command])
+  }
+}
+
 async function stylePromptTab(TMUX: string[], target: string): Promise<void> {
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+  await applyTmuxCommands(renderDashboardWindowTabStatusCommands(target))
   await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'off']).catch(() => {}) // prettier-ignore
 }
 
@@ -1043,16 +1033,7 @@ async function styleDashboard(
     }
   }
 
-  // Number the tabs from 0 so `Ctrl-b 0/1/…` lines up with what you see; the placeholder
-  // left a gap at index 0, so renumber once the real tabs are in. base-index/renumber are
-  // session options — isolated to the dashboard, never touching an agent's own session.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
-  // The selected tab is a solid grey block: this base style paints the whole tab (bold white on
-  // grey), and SELECTED_WINDOW_FMT just prints the padded title over it. Set explicitly here so
-  // the dashboard doesn't depend on the bundled config's default leaking through.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
-  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
+  await applyTmuxCommands(renderDashboardIndexCommands(session))
   // The dashboard is ephemeral — destroy it when the user detaches. A hook is used
   // instead of `destroy-unattached` because the session is created detached (`-d`) and
   // `destroy-unattached` would fire immediately (zero clients = already unattached).
@@ -1080,38 +1061,7 @@ async function styleDashboard(
     ])
   }
 
-  // ── Activity / silence highlights ───────────────────────────────────────────
-  // Light a tab when its agent goes quiet (silence → settled) or resumes (activity).
-  // Silence starts disabled; hooks arm it per-window on activity and disarm after it
-  // fires once — one green flash per activity burst, no re-triggering on idle windows.
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'bell-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'activity-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'silence-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
-  // Neutralize tmux's default `reverse` alert styles: activity/silence is signalled through the
-  // icon foreground in the tab format, so the alert must not invert the tab background on its own.
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-activity-style', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-bell-style', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
-  await execa('tmux', [
-    ...TMUX,
-    'set-hook',
-    '-g',
-    'alert-activity',
-    'set-window-option monitor-silence 30',
-  ])
-  await execa('tmux', [
-    ...TMUX,
-    'set-hook',
-    '-g',
-    'alert-silence',
-    'set-window-option monitor-silence 0',
-  ])
+  await applyTmuxCommands(renderDashboardActivityCommands(session))
 
   // ── Tab bar formatting ──────────────────────────────────────────────────────
   // Dead → red, activity → amber, silence → green, idle → grey (lighter for the host tab).
@@ -1128,8 +1078,7 @@ async function styleDashboard(
   for (const idx of winIdx.split('\n').filter(Boolean)) {
     const target = `${session}:${idx}`
     if (Number(idx) === hostIdx) {
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+      await applyTmuxCommands(renderDashboardWindowTabStatusCommands(target))
     } else if (promptIdx.has(Number(idx))) {
       await stylePromptTab(TMUX, target)
     } else {
@@ -1137,32 +1086,8 @@ async function styleDashboard(
     }
   }
 
-  // ── Status bar hint + keybindings ───────────────────────────────────────────
-  // Session-scoped status-right with a shortcut hint; replaces the default date/time.
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status-right-length', '80'])
-  await execa('tmux', [
-    ...TMUX,
-    'set-option',
-    '-t',
-    session,
-    'status-right',
-    '#[fg=colour240]alt+←→ tabs · ^b r restart · ^b d exit  #[fg=colour245]%H:%M ',
-  ])
-  // Alt+arrow and Alt+number tab switching (no prefix key). These are server-global
-  // but harmless on single-window agent sessions — set here so they are clearly
-  // dashboard-only intent and only present while a dashboard has been created.
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'previous-window'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'next-window'])
-  for (let i = 1; i <= 9; i++) {
-    await execa('tmux', [...TMUX, 'bind', '-n', `M-${i}`, 'select-window', '-t', `:${i - 1}`])
-  }
-  // Restart a stopped (or running) agent in its tab: respawn-window re-runs the tab's original
-  // command in place, reviving a dead pane. Bound under the prefix (not a bare key) so it can't
-  // fire by accident and kill a live agent.
-  await execa('tmux', [...TMUX, 'bind', 'r', 'respawn-window', '-k']).catch(() => {})
-  // Banner shown inside a dead agent pane so the exit reads as a status, not a freeze
-  // (tmux ≥ 3.4; a no-op on older tmux, hence the catch).
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'remain-on-exit-format', '[quimby] #{window_name} exited (status #{pane_dead_status}) — <prefix> r restarts it']).catch(() => {}) // prettier-ignore
+  await applyTmuxCommands(renderDashboardStatusRightCommands(session))
+  await applyTmuxCommands(renderDashboardKeyBindingCommands())
 
   // Select the first tab.
   await execa('tmux', [...TMUX, 'select-window', '-t', `${session}:0`])
@@ -1508,11 +1433,7 @@ async function buildViewSession(
   }
   await execa('tmux', [...TMUX, 'kill-window', '-t', `${session}:${DASH_PLACEHOLDER}`]).catch(() => {}) // prettier-ignore
 
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
-  // Selected tab = solid grey block; SELECTED_WINDOW_FMT prints the title over it (see styleDashboard).
-  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
-  await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session]).catch(() => {})
+  await applyTmuxCommands(renderDashboardIndexCommands(session))
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
   // The per-pane strip keeps its "quimby" branding and normal background (both inherited from
@@ -1526,8 +1447,7 @@ async function buildViewSession(
     const wname = line.slice(line.indexOf(' ') + 1)
     const target = `${session}:${idx}`
     if (wname === HOST_TAB_NAME) {
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
+      await applyTmuxCommands(renderDashboardWindowTabStatusCommands(target))
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename-format', '$ #{pane_current_command}']) // prettier-ignore
     } else if (promptNames.has(wname)) {
@@ -1552,46 +1472,9 @@ async function stylePanelDashboard(
   teardownCmd: string,
   resizeCmd: string,
 ): Promise<void> {
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'prefix', 'None'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'mouse', 'on'])
-  // The whole-dashboard bar carries only the hint + clock — no branding. Its background is a
-  // hair darker than the per-pane strips (colour234 vs the tabs' colour235) so it reads as a
-  // distinct-but-receding band rather than matching or floating. Its window is all panes with
-  // no tabs of its own, so status-left and the window list are blanked.
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status', 'on'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-style', 'bg=colour234,fg=colour245']) // prettier-ignore
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-left', ''])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right-length', '80'])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'status-right', PANEL_STATUS_RIGHT])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'window-status-format', ''])
-  await execa('tmux', [...TMUX, 'set-option', '-t', dash, 'window-status-current-format', ''])
-  // Alt+Arrow switches TABS within the focused pane; Shift+Alt+Arrow moves between PANES.
-  // The wrapper intercepts every root key before the inner view sees it, so tab nav can't be
-  // a plain inner bind — instead the wrapper forwards the inner view's prefix + prev/next into
-  // the focused pane (send-keys C-b p/n). Pane nav is a normal wrapper bind. Mouse does both.
-  // This keeps Alt+Arrow = tabs, matching the flat dashboard.
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Left', 'send-keys', 'C-b', 'p'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-Right', 'send-keys', 'C-b', 'n'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Left', 'select-pane', '-L'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Right', 'select-pane', '-R'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Up', 'select-pane', '-U'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-S-Down', 'select-pane', '-D'])
-  await execa('tmux', [...TMUX, 'bind', '-n', 'M-z', 'resize-pane', '-Z']).catch(() => {})
-
-  // Highlight a pane's tab strip when its agent goes quiet/active (global, mirrors the flat
-  // dashboard). The strips live on the inner view sessions; these hooks drive them.
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-activity', 'on'])
-  await execa('tmux', [...TMUX, 'set-window-option', '-g', 'monitor-silence', '0'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'bell-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'activity-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'silence-action', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-activity-style', 'none'])
-  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-bell-style', 'none'])
-  await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-activity', 'set-window-option monitor-silence 30']) // prettier-ignore
-  await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-silence', 'set-window-option monitor-silence 0']) // prettier-ignore
+  await applyTmuxCommands(renderPanelDashboardChromeCommands(dash))
+  await applyTmuxCommands(renderPanelDashboardKeyBindingCommands())
+  await applyTmuxCommands(renderPanelDashboardActivityCommands())
 
   // Detaching the wrapper (e.g. C-b d in a pane collapses inward to here) sweeps the group.
   // run-shell -b so the sweep outlives the wrapper it is about to kill.

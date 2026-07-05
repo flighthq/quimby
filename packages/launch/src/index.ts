@@ -1,4 +1,5 @@
 export * from './dashboard'
+export * from './dashboardTmux'
 export * from './local'
 export * from './runtime'
 export * from './ssh'
