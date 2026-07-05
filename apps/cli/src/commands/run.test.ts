@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   sessions: new Set<string>(),
   dead: false,
   currentSession: 'qb-dash-proj-id',
+  paneSize: '120 40',
 }))
 const state = vi.hoisted(() => ({
   value: {
@@ -38,16 +39,18 @@ const config = vi.hoisted(() => ({
     roles: {
       builder: { runtime: 'local', entrypoint: 'codex' },
     },
-    layouts: { review: 'a | b', tabs: 'a b' },
+    layouts: { review: 'a | b', tabs: 'a b', weighted: 'a:80 / b:20' },
     presets: {
       loop: { layout: 'review', agents: { a: 'builder', b: 'builder' } },
       solo: { layout: { expr: 'a' }, agents: { a: 'builder' } },
       tabbed: { layout: 'tabs', agents: { a: 'builder', b: 'builder' } },
+      weighted: { layout: 'weighted', agents: { a: 'builder', b: 'builder' } },
     },
     services: { server: 'quimby serve' },
   },
 }))
 const saveDefaultPreset = vi.hoisted(() => vi.fn(async () => '/fake/root/.quimby/local.yaml'))
+const writeText = vi.hoisted(() => vi.fn(async (_path: string, _text: string) => {}))
 
 vi.mock('@quimbyhq/agent', () => ({ addAgent }))
 
@@ -71,6 +74,8 @@ vi.mock('execa', () => ({
         // reviveIfDead asks for #{pane_dead}; the within-dashboard jump asks for the session name.
         const fmt = args[args.length - 1]
         if (fmt === '#{pane_dead}') return { stdout: h.dead ? '1' : '', stderr: '', exitCode: 0 }
+        if (fmt === '#{pane_width} #{pane_height}')
+          return { stdout: h.paneSize, stderr: '', exitCode: 0 }
         return { stdout: h.currentSession, stderr: '', exitCode: 0 }
       }
       if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
@@ -97,7 +102,7 @@ vi.mock('@quimbyhq/template', async (importOriginal) => ({
 
 vi.mock('@quimbyhq/utils', async (importOriginal) => ({
   ...((await importOriginal()) as object),
-  writeText: vi.fn(async () => {}),
+  writeText,
 }))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
@@ -132,6 +137,8 @@ afterEach(() => {
   h.sessions.clear()
   h.dead = false
   h.currentSession = 'qb-dash-proj-id'
+  h.paneSize = '120 40'
+  writeText.mockClear()
   if (savedTmux === undefined) delete process.env.TMUX
   else process.env.TMUX = savedTmux
 })
@@ -259,6 +266,21 @@ describe('runRunCommand', () => {
     expect(h.opts[attachIndex]?.env?.TMUX).toBe('')
   })
 
+  it('seeds a nested preset panel dashboard with the current pane size before splitting', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
+    h.currentSession = 'qb-dash-other'
+    h.paneSize = '132 50'
+    const { default: cmd } = await import('./run')
+
+    await cmd.run!({ args: { layout: 'weighted' } } as never)
+
+    const wrapper = h.calls.find((c) => c.includes('new-session') && c.includes('qb-dash-proj-id'))
+    expect(wrapper).toEqual(expect.arrayContaining(['-x', '132', '-y', '50']))
+
+    const split = h.calls.find((c) => c.includes('split-window'))
+    expect(split).toEqual(expect.arrayContaining(['-v', '-l', '20%']))
+  })
+
   it('still rejects a panel layout from inside this project’s quimby tmux', async () => {
     process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
     h.currentSession = 'qb-dash-proj-id'
@@ -281,6 +303,18 @@ describe('runRunCommand', () => {
     )
     expect(attachIndex).toBeGreaterThanOrEqual(0)
     expect(h.opts[attachIndex]?.env?.TMUX).toBe('')
+  })
+
+  it('writes panel teardown to succeed when the view group is already gone', async () => {
+    const { default: cmd } = await import('./run')
+
+    await cmd.run!({ args: { layout: 'loop' } } as never)
+
+    const teardown = writeText.mock.calls.find(([path]) =>
+      String(path).endsWith('panel-teardown.sh'),
+    )?.[1]
+    expect(teardown).toContain('exit 0')
+    expect(teardown).not.toContain('grep "^$prefix"')
   })
 
   it('opens the configured default preset when run with no target', async () => {

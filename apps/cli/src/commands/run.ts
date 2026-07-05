@@ -609,6 +609,35 @@ function tmuxAttachOptions(): { stdio: 'inherit'; env?: NodeJS.ProcessEnv } {
   return insideQuimbyTmux() ? { stdio: 'inherit', env: { TMUX: '' } } : { stdio: 'inherit' }
 }
 
+async function currentTmuxPaneSizeArgs(): Promise<string[]> {
+  if (insideQuimbyTmux()) {
+    const size = await execa('tmux', [
+      '-L',
+      quimbyTmuxSocket,
+      'display-message',
+      '-p',
+      '#{pane_width} #{pane_height}',
+    ]).then(
+      (r) => parsePaneSize(r.stdout),
+      () => null,
+    )
+    if (size) return ['-x', size.width, '-y', size.height]
+  }
+
+  const width = process.stdout.columns
+  const height = process.stdout.rows
+  if (width && height) return ['-x', String(width), '-y', String(height)]
+  return []
+}
+
+function parsePaneSize(raw: string): { width: string; height: string } | null {
+  const [width, height] = raw.trim().split(/\s+/, 2)
+  if (!width || !height) return null
+  if (!/^\d+$/.test(width) || !/^\d+$/.test(height)) return null
+  if (Number(width) <= 0 || Number(height) <= 0) return null
+  return { width, height }
+}
+
 // Respawn an agent whose session is alive but whose process has exited (a dead pane held open
 // by remain-on-exit). respawn-window -k replays the exact command quimby launched the pane
 // with, so reviving stays inside quimby's launch path — the user never reconstructs it. The
@@ -1101,8 +1130,20 @@ async function runPanelDashboard(expr: string): Promise<void> {
   const teardownShell = `tmux -L ${quimbyTmuxSocket} ${teardownCmd}`
 
   // Rebuild the wrapper from scratch (it owns no durable state; the views/agents are separate).
+  const sizeArgs = await currentTmuxPaneSizeArgs()
   await execa('tmux', [...TMUX, 'kill-session', '-t', dash]).catch(() => {})
-  await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', dash, '-c', repoRoot])
+  await execa('tmux', [
+    ...TMUX,
+    '-f',
+    tmuxConf,
+    'new-session',
+    '-d',
+    ...sizeArgs,
+    '-s',
+    dash,
+    '-c',
+    repoRoot,
+  ])
   await applyTmuxRootBehavior(TMUX, dash, repoRoot)
   const { stdout: firstPaneOut } = await execa('tmux', [...TMUX, 'list-panes', '-t', dash, '-F', '#{pane_id}']) // prettier-ignore
   const firstPane = firstPaneOut.split('\n').filter(Boolean)[0]
@@ -1313,8 +1354,11 @@ async function stylePanelDashboard(
 // view (matched by prefix) first, then the wrapper LAST so the sweep is never aborted by its
 // own host dying. Agents live under a different namespace, so they are never matched.
 const PANEL_TEARDOWN_SH = `sock="$1"; prefix="$2"; dash="$3"
-for s in $(tmux -L "$sock" list-sessions -F '#{session_name}' 2>/dev/null | grep "^$prefix"); do
-  tmux -L "$sock" kill-session -t "$s" 2>/dev/null
+tmux -L "$sock" list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r s; do
+  case "$s" in
+    "$prefix"*) tmux -L "$sock" kill-session -t "$s" 2>/dev/null || true ;;
+  esac
 done
-tmux -L "$sock" kill-session -t "$dash" 2>/dev/null
+tmux -L "$sock" kill-session -t "$dash" 2>/dev/null || true
+exit 0
 `
