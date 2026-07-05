@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -64,6 +64,37 @@ function mergeArgs(overrides: Record<string, unknown>) {
     },
   } as never
 }
+
+describe('editCommitMessage', () => {
+  it('edits the commit message through a COMMIT_EDITMSG path for gitcommit syntax', async () => {
+    const repo = join(tmpdir(), `quimby-merge-editor-${crypto.randomUUID()}`)
+    tmpDirs.push(repo)
+    await mkdir(repo, { recursive: true })
+    await execa('git', ['init', '-b', 'main'], { cwd: repo })
+
+    const editor = join(repo, 'editor.sh')
+    const seen = join(repo, 'seen.txt')
+    await writeFile(
+      editor,
+      [
+        '#!/bin/sh',
+        'echo "$(basename "$2")" > "$1"',
+        'echo "$(dirname "$2")" >> "$1"',
+        'printf "Edited subject\\n\\n# ignored\\n" > "$2"',
+        '',
+      ].join('\n'),
+    )
+    await chmod(editor, 0o755)
+    await git(repo, 'config', 'core.editor', `${editor} ${seen}`)
+
+    const { editCommitMessage } = await import('./merge')
+    await expect(editCommitMessage(repo, 'Original subject')).resolves.toBe('Edited subject')
+
+    const [basename, tempDir] = (await readFile(seen, 'utf8')).trim().split('\n')
+    expect(basename).toBe('COMMIT_EDITMSG')
+    expect(await exists(tempDir!)).toBe(false)
+  })
+})
 
 describe('runMergeCommand', () => {
   it('is a function', async () => {

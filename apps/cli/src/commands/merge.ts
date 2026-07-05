@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
 import {
@@ -255,9 +255,10 @@ function isInteractive(): boolean {
  * prefilled message and return the edited text with comment lines stripped, git-commit
  * style. An empty result signals an abort.
  */
-async function editCommitMessage(repoRoot: string, prefill: string): Promise<string> {
+export async function editCommitMessage(repoRoot: string, prefill: string): Promise<string> {
   const editor = (await execa('git', ['var', 'GIT_EDITOR'], { cwd: repoRoot })).stdout.trim()
-  const file = join(tmpdir(), `quimby-merge-msg-${crypto.randomUUID()}.txt`)
+  const dir = await mkdtemp(join(tmpdir(), 'quimby-merge-msg-'))
+  const file = join(dir, 'COMMIT_EDITMSG')
   await writeFile(
     file,
     `${prefill}\n\n` +
@@ -274,7 +275,7 @@ async function editCommitMessage(repoRoot: string, prefill: string): Promise<str
       .join('\n')
       .trim()
   } finally {
-    await rm(file, { force: true })
+    await rm(dir, { recursive: true, force: true })
   }
 }
 
