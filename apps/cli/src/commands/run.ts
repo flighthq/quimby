@@ -155,11 +155,6 @@ export async function runRunCommand({
   // each a tabbed view over the retained agent sessions. Purely additive: bare `run a b`
   // (no operators) stays the flat tabbed dashboard below.
   if (isLayoutExpr(args.agent)) {
-    if (insideQuimbyTmux()) {
-      throw new QuimbyError(
-        'Run a panel layout from outside a quimby session — it builds its own dashboard.',
-      )
-    }
     if (args.cmd || args.runtime || args.runtimeProfile) {
       throw new QuimbyError(
         '--cmd/--runtime/--runtime-profile apply to a single agent; omit them for a panel layout',
@@ -179,9 +174,15 @@ export async function runRunCommand({
   // would steal this client from the dashboard and fire its client-detached self-destruct
   // hook, tearing down every tab. Add/select the requested agents as tabs in the current
   // session instead — no attach, no teardown.
-  if (names.length > 0 && insideQuimbyTmux()) {
-    await attachWithinCurrentSession(names)
-    return
+  if (names.length > 0) {
+    const currentSession = await currentQuimbyTmuxSessionName()
+    if (currentSession) {
+      const { state } = await resolveWorkspace()
+      if (isProjectTmuxSession(currentSession, state)) {
+        await attachWithinCurrentSession(names)
+        return
+      }
+    }
   }
 
   if (names.length > 1) {
@@ -338,7 +339,7 @@ export async function runRunCommand({
         '-c',
         launch.shellCmd,
       ],
-      { stdio: 'inherit' },
+      tmuxAttachOptions(),
     )
   } catch (err) {
     const e = err as { exitCode?: number }
@@ -349,7 +350,7 @@ export async function runRunCommand({
 }
 
 async function runNamedLayout(name: string, includeHost: boolean): Promise<void> {
-  const { repoRoot } = await resolveWorkspace()
+  const { state, repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
   const namedPreset = config.presets?.[name]
   if (namedPreset?.layout) {
@@ -364,11 +365,6 @@ async function runNamedLayout(name: string, includeHost: boolean): Promise<void>
     throw new QuimbyError(`Layout or preset "${name}" not found in quimby config`)
   }
   if (isLayoutExpr(expr)) {
-    if (insideQuimbyTmux()) {
-      throw new QuimbyError(
-        'Run a panel layout from outside a quimby session — it builds its own dashboard.',
-      )
-    }
     await runPanelDashboard(expr)
     return
   }
@@ -376,6 +372,11 @@ async function runNamedLayout(name: string, includeHost: boolean): Promise<void>
     .split(/\s+/)
     .filter(Boolean)
     .filter((n) => n !== HOST_WINDOW)
+  const currentSession = await currentQuimbyTmuxSessionName()
+  if (currentSession && isProjectTmuxSession(currentSession, state)) {
+    await attachWithinCurrentSession(names)
+    return
+  }
   await runDashboard(names, includeHost)
 }
 
@@ -567,7 +568,7 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
   logger.success(`Dashboard "${session}" — ${names.join(', ')}`)
 
   try {
-    await execa('tmux', [...TMUX, 'attach', '-t', session], { stdio: 'inherit' })
+    await execa('tmux', [...TMUX, 'attach', '-t', session], tmuxAttachOptions())
   } catch (err) {
     const e = err as { exitCode?: number }
     if (e.exitCode !== undefined && e.exitCode !== 0) {
@@ -584,6 +585,28 @@ function insideQuimbyTmux(): boolean {
   if (!tmux) return false
   const socketPath = tmux.split(',')[0]
   return socketPath.slice(socketPath.lastIndexOf('/') + 1) === quimbyTmuxSocket
+}
+
+async function currentQuimbyTmuxSessionName(): Promise<string | null> {
+  if (!insideQuimbyTmux()) return null
+  return execa('tmux', ['-L', quimbyTmuxSocket, 'display-message', '-p', '#{session_name}']).then(
+    (r) => r.stdout.trim() || null,
+    () => null,
+  )
+}
+
+function isProjectTmuxSession(session: string, state: Readonly<QuimbyState>): boolean {
+  if (
+    session === dashboardSessionName(state.id) ||
+    session.startsWith(dashboardViewPrefix(state.id))
+  ) {
+    return true
+  }
+  return Object.values(state.agents).some((agent) => session === tmuxSessionName(agent.id))
+}
+
+function tmuxAttachOptions(): { stdio: 'inherit'; env?: NodeJS.ProcessEnv } {
+  return insideQuimbyTmux() ? { stdio: 'inherit', env: { TMUX: '' } } : { stdio: 'inherit' }
 }
 
 // Respawn an agent whose session is alive but whose process has exited (a dead pane held open
@@ -1015,6 +1038,13 @@ async function runPanelDashboard(expr: string): Promise<void> {
   const layout = parseLayout(expr) // throws QuimbyError on malformed input
   const { state, repoRoot } = await resolveWorkspace()
 
+  const currentSession = await currentQuimbyTmuxSessionName()
+  if (currentSession && isProjectTmuxSession(currentSession, state)) {
+    throw new QuimbyError(
+      'Run a panel layout from outside this project’s quimby session — it builds its own dashboard.',
+    )
+  }
+
   const config = await loadQuimbyConfig(repoRoot)
   const services = config.services ?? {}
   const layoutAgents = collectLayoutAgents(layout)
@@ -1087,7 +1117,7 @@ async function runPanelDashboard(expr: string): Promise<void> {
   logger.success(`Panel dashboard "${dash}" — ${expr}`)
 
   try {
-    await execa('tmux', [...TMUX, 'attach', '-t', dash], { stdio: 'inherit' })
+    await execa('tmux', [...TMUX, 'attach', '-t', dash], tmuxAttachOptions())
   } catch (err) {
     const e = err as { exitCode?: number }
     if (e.exitCode !== undefined && e.exitCode !== 0) process.exit(e.exitCode)

@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   calls: [] as string[][],
+  opts: [] as { env?: Record<string, string | undefined> }[],
   sessions: new Set<string>(),
   dead: false,
+  currentSession: 'qb-dash-proj-id',
 }))
 const state = vi.hoisted(() => ({
   value: {
@@ -36,10 +38,11 @@ const config = vi.hoisted(() => ({
     roles: {
       builder: { runtime: 'local', entrypoint: 'codex' },
     },
-    layouts: { review: 'a | b' },
+    layouts: { review: 'a | b', tabs: 'a b' },
     presets: {
       loop: { layout: 'review', agents: { a: 'builder', b: 'builder' } },
       solo: { layout: { expr: 'a' }, agents: { a: 'builder' } },
+      tabbed: { layout: 'tabs', agents: { a: 'builder', b: 'builder' } },
     },
     services: { server: 'quimby serve' },
   },
@@ -49,24 +52,31 @@ const saveDefaultPreset = vi.hoisted(() => vi.fn(async () => '/fake/root/.quimby
 vi.mock('@quimbyhq/agent', () => ({ addAgent }))
 
 vi.mock('execa', () => ({
-  execa: vi.fn(async (_cmd: string, args: string[] = []) => {
-    h.calls.push(args)
-    const after = (flag: string) => args[args.indexOf(flag) + 1]
-    if (args.includes('has-session')) {
-      if (h.sessions.has(after('-t'))) return { stdout: '', stderr: '', exitCode: 0 }
-      throw new Error('no session')
-    }
-    if (args.includes('new-session')) h.sessions.add(after('-s'))
-    if (args.includes('kill-session')) h.sessions.delete(after('-t'))
-    if (args.includes('display-message')) {
-      // reviveIfDead asks for #{pane_dead}; the within-dashboard jump asks for the session name.
-      const fmt = args[args.length - 1]
-      if (fmt === '#{pane_dead}') return { stdout: h.dead ? '1' : '', stderr: '', exitCode: 0 }
-      return { stdout: 'qb-dash-proj-id', stderr: '', exitCode: 0 }
-    }
-    if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
-    return { stdout: '', stderr: '', exitCode: 0 }
-  }),
+  execa: vi.fn(
+    async (
+      _cmd: string,
+      args: string[] = [],
+      opts?: { env?: Record<string, string | undefined> },
+    ) => {
+      h.calls.push(args)
+      h.opts.push(opts ?? {})
+      const after = (flag: string) => args[args.indexOf(flag) + 1]
+      if (args.includes('has-session')) {
+        if (h.sessions.has(after('-t'))) return { stdout: '', stderr: '', exitCode: 0 }
+        throw new Error('no session')
+      }
+      if (args.includes('new-session')) h.sessions.add(after('-s'))
+      if (args.includes('kill-session')) h.sessions.delete(after('-t'))
+      if (args.includes('display-message')) {
+        // reviveIfDead asks for #{pane_dead}; the within-dashboard jump asks for the session name.
+        const fmt = args[args.length - 1]
+        if (fmt === '#{pane_dead}') return { stdout: h.dead ? '1' : '', stderr: '', exitCode: 0 }
+        return { stdout: h.currentSession, stderr: '', exitCode: 0 }
+      }
+      if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
+      return { stdout: '', stderr: '', exitCode: 0 }
+    },
+  ),
 }))
 
 vi.mock('@quimbyhq/runtimes', () => ({
@@ -118,8 +128,10 @@ beforeEach(() => {
 
 afterEach(() => {
   h.calls.length = 0
+  h.opts.length = 0
   h.sessions.clear()
   h.dead = false
+  h.currentSession = 'qb-dash-proj-id'
   if (savedTmux === undefined) delete process.env.TMUX
   else process.env.TMUX = savedTmux
 })
@@ -231,6 +243,44 @@ describe('runRunCommand', () => {
     const { default: cmd } = await import('./run')
     await cmd.run!({ args: { layout: 'loop' } } as never)
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('allows a preset panel layout from inside another project’s quimby tmux', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
+    h.currentSession = 'qb-dash-other'
+    const { default: cmd } = await import('./run')
+
+    await cmd.run!({ args: { layout: 'loop' } } as never)
+
+    const attachIndex = h.calls.findIndex(
+      (c) => c.includes('attach') && c.includes('qb-dash-proj-id'),
+    )
+    expect(attachIndex).toBeGreaterThanOrEqual(0)
+    expect(h.opts[attachIndex]?.env?.TMUX).toBe('')
+  })
+
+  it('still rejects a panel layout from inside this project’s quimby tmux', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
+    h.currentSession = 'qb-dash-proj-id'
+    const { default: cmd } = await import('./run')
+
+    await expect(cmd.run!({ args: { layout: 'loop' } } as never)).rejects.toThrow(
+      'outside this project',
+    )
+  })
+
+  it('allows a preset tab layout from inside another project’s quimby tmux', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
+    h.currentSession = 'qb-dash-other'
+    const { default: cmd } = await import('./run')
+
+    await cmd.run!({ args: { layout: 'tabbed' } } as never)
+
+    const attachIndex = h.calls.findIndex(
+      (c) => c.includes('attach') && c.includes('qb-dash-proj-id'),
+    )
+    expect(attachIndex).toBeGreaterThanOrEqual(0)
+    expect(h.opts[attachIndex]?.env?.TMUX).toBe('')
   })
 
   it('opens the configured default preset when run with no target', async () => {
