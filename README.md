@@ -149,7 +149,7 @@ Use `-b` to land on a named branch. On conflict the staged parcel is kept and it
 
 ## Configuration
 
-Quimby works without a config file. For saved project workflow, the reliable default is ignored per-checkout config in `.quimby/local.yaml`: roles, recipes, dashboard layouts, runtime profiles, and host bindings can live there without committing worker names, IP addresses, or machine-specific runtime settings. A tracked `quimby.yaml` is optional and should contain only team-safe intent you explicitly want to share.
+Quimby works without a config file. For shared project workflow, a tracked `quimby.yaml` is the auditable source of team intent: roles, presets, dashboard layouts, runtime profiles, and defaults that it names win over hidden config. Ignored per-checkout config in `.quimby/local.yaml` and user config can add local-only names and fill private machine details such as host bindings, provider URLs, and env without committing worker names, IP addresses, or credentials.
 
 ```yaml
 runtimeProfiles:
@@ -194,7 +194,7 @@ recipes:
     layout: review
 ```
 
-If you do choose to track a shared profile, machine-specific details can layer onto the same profile name from ignored `.quimby/local.yaml` or user config:
+Machine-specific details can layer onto a tracked profile name from ignored `.quimby/local.yaml` or user config. Shared launch fields such as `runtime` and `entrypoint` remain owned by `quimby.yaml` when it defines them; private fields such as provider hosts and env can be filled locally:
 
 ```yaml
 runtimeProfiles:

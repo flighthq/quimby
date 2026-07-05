@@ -90,7 +90,7 @@ describe('isHostAliasBound', () => {
 })
 
 describe('loadQuimbyConfig', () => {
-  it('loads ignored project-local config over tracked project config', async () => {
+  it('keeps tracked shared intent authoritative while local config adds names and private bindings', async () => {
     const dir = join(tmpdir(), `quimby-config-${crypto.randomUUID()}`)
     try {
       await mkdir(join(dir, '.quimby'), { recursive: true })
@@ -102,6 +102,9 @@ describe('loadQuimbyConfig', () => {
           'tracked-profile': { runtime: 'sbx', entrypoint: 'claude' },
           local: { runtime: 'local', entrypoint: 'claude' },
         },
+        hosts: {
+          remote: { type: 'ssh', host: 'remote' },
+        },
       })
       await writeYaml(getLocalConfigPath(dir), {
         roles: {
@@ -109,6 +112,11 @@ describe('loadQuimbyConfig', () => {
           reviewer: { runtimeProfile: 'local-profile' },
         },
         runtimeProfiles: {
+          'tracked-profile': {
+            runtime: 'openshell',
+            entrypoint: 'codex',
+            env: { LOCAL_ONLY: '1' },
+          },
           'local-profile': {
             runtime: 'openshell',
             entrypoint: 'codex',
@@ -116,17 +124,25 @@ describe('loadQuimbyConfig', () => {
             ollama: { host: 'http://localhost:11434' },
           },
         },
+        hosts: {
+          remote: { type: 'ssh', host: 'me@box' },
+        },
       })
 
       const loaded = await loadQuimbyConfig(dir)
 
-      expect(resolveRole(loaded, 'builder').runtimeProfile).toBe('local-profile')
+      expect(resolveRole(loaded, 'builder').runtimeProfile).toBe('tracked-profile')
       expect(resolveRole(loaded, 'reviewer').runtimeProfile).toBe('local-profile')
-      expect(loaded.runtimeProfiles?.['tracked-profile']).toMatchObject({ runtime: 'sbx' })
+      expect(loaded.runtimeProfiles?.['tracked-profile']).toMatchObject({
+        runtime: 'sbx',
+        entrypoint: 'claude',
+        env: { LOCAL_ONLY: '1' },
+      })
       expect(loaded.runtimeProfiles?.['local-profile']).toMatchObject({
         runtime: 'openshell',
         ollama: { host: 'http://localhost:11434' },
       })
+      expect(resolveBoundHostAlias(loaded, 'remote')).toEqual({ host: 'me@box' })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

@@ -39,7 +39,11 @@ export async function loadQuimbyConfig(repoRoot: string): Promise<QuimbyConfig> 
     readOptionalConfig(getUserConfigPath()),
     readOptionalConfig(getLocalConfigPath(repoRoot)),
   ])
-  return mergeConfigs(project, user, local)
+  const merged = mergeConfigs(user, local, project)
+  const hosts = mergeHostMaps(project?.hosts, user?.hosts, local?.hosts)
+  if (hosts) merged.hosts = hosts
+  else delete merged.hosts
+  return merged
 }
 
 export function resolveRole(config: Readonly<QuimbyConfig>, role: string): AgentRoleConfig {
@@ -130,8 +134,9 @@ export function isHostAliasBound(
 
 /**
  * The concrete binding for an alias name across the layered config, or null when
- * it is declared-but-unbound (or undeclared). Because local/user config is merged
- * over the tracked project config, a private binding transparently wins here.
+ * it is declared-but-unbound (or undeclared). Host aliases are merged with
+ * private local/user bindings over tracked declarations, so a private binding
+ * transparently wins here.
  */
 export function resolveBoundHostAlias(
   config: Readonly<QuimbyConfig>,
@@ -247,11 +252,23 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
       ...(config.recipes ?? {}),
       ...(config.presets ?? {}),
     }
-    out.hosts = { ...(out.hosts ?? {}), ...(config.hosts ?? {}) }
+    out.hosts = mergeHostMaps(out.hosts, config.hosts)
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
     if (config.default !== undefined) out.default = config.default
   }
   return out
+}
+
+function mergeHostMaps(
+  ...maps: readonly (Record<string, HostAliasConfig> | undefined)[]
+): Record<string, HostAliasConfig> | undefined {
+  const out: Record<string, HostAliasConfig> = {}
+  for (const map of maps) {
+    for (const [name, host] of Object.entries(map ?? {})) {
+      out[name] = { ...(out[name] ?? {}), ...defined(host) }
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 function mergeRuntimeProfileMap(

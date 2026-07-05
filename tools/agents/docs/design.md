@@ -218,16 +218,16 @@ The complete command reference, planned commands, advisory checks, and flag conv
 
 ## Configuration
 
-Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. Ignored project-local `.quimby/local.yaml` is the primary saved-config path for a checkout: it can remember roles, presets, runtime profiles, dashboard layouts, and host bindings without leaking private machine details.
+Quimby still works without a config file. The first `quimby add` creates `.quimby/` and initializes the workspace. When a repository carries a tracked `quimby.yaml`, it is the auditable source of shared workflow intent: roles, presets, runtime profile launch fields, dashboard layouts, and defaults that it defines dominate hidden config. Ignored project-local `.quimby/local.yaml` remembers private checkout details and local-only additions without leaking machine-specific settings.
 
 Configuration is split by boundary:
 
-- **Ignored project-local `.quimby/local.yaml`** — per-checkout roles, presets, dashboard layouts, runtime profiles, private host aliases, and provider settings.
+- **Tracked `quimby.yaml`** — team-safe shared intent: role/profile/layout/preset names, launch defaults, and dashboard shape. When it defines a shared key, it wins over hidden config.
+- **Ignored project-local `.quimby/local.yaml`** — private per-checkout details, local-only additions, host alias bindings, provider endpoints, env, and other machine-specific settings.
 - **User config `~/.config/quimby/config.yaml`** — personal defaults and reusable private aliases across projects.
-- **Tracked `quimby.yaml`** — optional team-safe shared intent only, when a repository deliberately wants to share role/profile names or layouts.
 - **Ignored `.quimby/state.yaml`** — concrete generated state: UUIDs, seeds, and created agents.
 
-Resolution order is concrete to general: CLI flags, existing agent state, project-local config, user config, tracked project config, then built-ins.
+Resolution order is: CLI flags, existing agent state, tracked project config for any shared keys it defines, project-local config for additions/private fills, user config, then built-ins. Host alias addresses are the deliberate exception: tracked config may declare an alias, but private local/user bindings supply the concrete address.
 
 ### Roles, Presets, And Layouts
 

@@ -65,7 +65,7 @@ Adding a package? `packages:check` will tell you exactly what is missing (`tscon
 
 `quimby config <agent>` and a flag-less `quimby add <agent>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects an agent's full configuration: runtime, entrypoint, local vs SSH (host/port/base), tmux, sync ref.
 
-- Concrete agent state is **per-agent** in `.quimby/state.yaml`, while ignored `.quimby/local.yaml` carries reliable per-checkout roles, presets, runtime profiles, and layouts. A tracked `quimby.yaml` is optional for team-safe shared intent only. `config` is still an interactive `set` for an existing agent; `add --role` and `up <preset>` apply saved creation defaults.
+- Concrete agent state is **per-agent** in `.quimby/state.yaml`. A tracked `quimby.yaml` carries auditable shared intent when present and wins for the roles, presets, runtime profile launch fields, layouts, and defaults it defines. Ignored `.quimby/local.yaml` carries private per-checkout details, local-only additions, and machine-specific fills. `config` is still an interactive `set` for an existing agent; `add --role` and `up <preset>` apply saved creation defaults.
 - `quimby add` honors flags when given (skips the walkthrough) so it stays scriptable for unattended use; it only prompts when no config flags are passed.
 
 ## tmux
