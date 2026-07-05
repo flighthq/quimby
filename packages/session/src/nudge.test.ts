@@ -47,13 +47,15 @@ describe('buildRemoteNudgeCommand', () => {
     const cmd = buildRemoteNudgeCommand('qb-sess', 'continue', false)
     expect(cmd).toContain(`has-session -t ${sq('qb-sess')}`)
     expect(cmd).toContain(`send-keys -t ${sq('qb-sess')} -l ${sq('continue')}`)
+    expect(cmd).toContain('sleep 0.15')
     expect(cmd).toContain('Enter')
   })
 
   it('omits the clear step when clear is false', () => {
     const cmd = buildRemoteNudgeCommand('s', 'go', false)
     expect(cmd).not.toContain('/clear')
-    expect(cmd).not.toContain('sleep')
+    expect(cmd).not.toContain('sleep 0.6')
+    expect(cmd).toContain('sleep 0.15')
   })
 
   it('types /clear with a settle beat before the nudge when clear is true', () => {
@@ -61,10 +63,12 @@ describe('buildRemoteNudgeCommand', () => {
     const clearAt = cmd.indexOf(sq('/clear'))
     const sleepAt = cmd.indexOf('sleep 0.6')
     const goAt = cmd.lastIndexOf(sq('go'))
+    const submitSleepAt = cmd.lastIndexOf('sleep 0.15')
     expect(clearAt).toBeGreaterThanOrEqual(0)
     // /clear is sent, then a sleep, then the nudge text — in that order
     expect(clearAt).toBeLessThan(sleepAt)
     expect(sleepAt).toBeLessThan(goAt)
+    expect(goAt).toBeLessThan(submitSleepAt)
   })
 
   it('single-quotes text with spaces and quotes so the remote shell keeps it literal', () => {
@@ -143,6 +147,9 @@ describe('nudgeAgentSession', () => {
     // … then a separate send-keys submits with Enter
     const enter = argvs.find((a) => a.includes('send-keys') && a.includes('Enter'))
     expect(enter).toBeDefined()
+    expect(argvs.findIndex((a) => a.includes('-l') && a.includes('go now'))).toBeLessThan(
+      argvs.findIndex((a) => a.includes('Enter')),
+    )
     expect(events.some((e) => e.level === 'success')).toBe(true)
   })
 

@@ -104,14 +104,14 @@ export function renderVerifyRequest(check?: string): string {
 
 /**
  * The message quimby types into a freshly-launched agent that has a non-empty `status.md` from a
- * prior session — the recovery loop. Points it at its predecessor's handoff so it resumes rather
- * than starting cold. Single-line so it types cleanly into the tmux prompt.
+ * prior session — the recovery loop. Points it at its predecessor's status and active task context
+ * so it resumes rather than starting cold.
  */
 export function renderResumeRequest(): string {
   return (
-    'You are resuming a session — a previous instance of you left a handoff in status.md. Read ' +
-    '@status.md first and continue from where it left off (check assignment.md and ' +
-    'handoff/in/received/ too).'
+    'continue\n\n' +
+    'A previous session wrote @status.md. Read it first, then check @assignment.md and ' +
+    '@handoff/in/received/ before continuing.'
   )
 }
 

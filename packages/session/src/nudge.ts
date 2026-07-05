@@ -21,6 +21,10 @@ const CLEAR_COMMAND = '/clear'
 // typed, or the nudge text races into the still-open `/clear` prompt.
 const CLEAR_SETTLE_MS = 600
 
+// Some agent TUIs need a short beat after literal text arrives before Enter is read as
+// submission rather than just another line-editing event.
+const SUBMIT_SETTLE_MS = 150
+
 /**
  * Whether the agent has a live tmux session right now (`tmux has-session`). False for
  * a local non-tmux agent (no session to have) and for any tmux/SSH agent that isn't
@@ -170,6 +174,7 @@ async function nudgeWindowInSession(
   const target = `${session}:=${windowName}`
   try {
     await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-l', text])
+    await delay(SUBMIT_SETTLE_MS)
     await execa('tmux', [...TMUX, 'send-keys', '-t', target, 'Enter'])
     reporter.success(`Nudged "${windowName}" in dashboard "${session}"`)
     return true
@@ -196,12 +201,13 @@ export function buildRemoteNudgeCommand(session: string, text: string, clear: bo
 // Two send-keys as a shell fragment (for SSH transport): `-l` types the literal text
 // (no key-name parsing), then a separate Enter submits it to the agent's prompt.
 function sendKeysInject(session: string, text: string): string {
-  return `${TMUX_CMD} send-keys -t ${sq(session)} -l ${sq(text)} && ${TMUX_CMD} send-keys -t ${sq(session)} Enter`
+  return `${TMUX_CMD} send-keys -t ${sq(session)} -l ${sq(text)} && sleep ${SUBMIT_SETTLE_MS / 1000} && ${TMUX_CMD} send-keys -t ${sq(session)} Enter`
 }
 
 // The local twin of `sendKeysInject`: type the literal text, then submit with Enter.
 async function sendKeysLocal(session: string, text: string): Promise<void> {
   await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text])
+  await delay(SUBMIT_SETTLE_MS)
   await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'])
 }
 

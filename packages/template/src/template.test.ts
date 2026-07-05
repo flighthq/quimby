@@ -90,11 +90,13 @@ describe('renderQuimbyContext', () => {
 })
 
 describe('renderResumeRequest', () => {
-  it('points a resuming agent at its predecessor status.md, on one line', () => {
+  it('starts quietly and points a resuming agent at status, assignment, and inbox', () => {
     const out = renderResumeRequest()
-    expect(out).toContain('status.md')
-    expect(out).toContain('resuming')
-    expect(out).not.toContain('\n')
+    expect(out).toBe(
+      'continue\n\n' +
+        'A previous session wrote @status.md. Read it first, then check @assignment.md and ' +
+        '@handoff/in/received/ before continuing.',
+    )
   })
 })
 
