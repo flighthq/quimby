@@ -12,6 +12,7 @@ import {
   QUIMBY_ROOT_TMUX_OPTION,
   quimbyRootNewWindowBindingArgs,
   renderDashboardActivityCommands,
+  renderDashboardChromeCommands,
   renderDashboardIndexCommands,
   renderDashboardKeyBindingCommands,
   renderDashboardStatusRightCommands,
@@ -758,6 +759,7 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
     await execa('tmux', [...TMUX, 'display-message', '-p', '#{session_name}'])
   ).stdout.trim()
   await applyTmuxRootBehavior(TMUX, session, repoRoot)
+  await applyTmuxCommands(renderDashboardChromeCommands(session))
   const { stdout: winList } = await execa('tmux', [
     ...TMUX,
     'list-windows',
@@ -1034,6 +1036,7 @@ async function styleDashboard(
   }
 
   await applyTmuxCommands(renderDashboardIndexCommands(session))
+  await applyTmuxCommands(renderDashboardChromeCommands(session))
   // The dashboard is ephemeral — destroy it when the user detaches. A hook is used
   // instead of `destroy-unattached` because the session is created detached (`-d`) and
   // `destroy-unattached` would fire immediately (zero clients = already unattached).
@@ -1434,6 +1437,7 @@ async function buildViewSession(
   await execa('tmux', [...TMUX, 'kill-window', '-t', `${session}:${DASH_PLACEHOLDER}`]).catch(() => {}) // prettier-ignore
 
   await applyTmuxCommands(renderDashboardIndexCommands(session))
+  await applyTmuxCommands(renderDashboardChromeCommands(session))
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
   // The per-pane strip keeps its "quimby" branding and normal background (both inherited from

@@ -133,6 +133,12 @@ describe('renderTmuxConfig', () => {
     expect(conf).toContain('set -g window-status-format " #W "')
     expect(conf).toContain('set -g window-status-current-format " #W "')
     expect(conf).toContain('set -g window-status-separator ""')
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.lastIndexOf('window-status-separator ""'),
+    )
+    expect(conf.indexOf('source-file -q ~/.tmux.conf')).toBeLessThan(
+      conf.lastIndexOf('status-left "#[fg=colour109,bold] quimby #[default]"'),
+    )
   })
 
   it('pipes selections to the OS clipboard and binds drag/Ctrl+C to copy, right-click to paste', () => {

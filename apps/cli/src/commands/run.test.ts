@@ -253,6 +253,9 @@ describe('runRunCommand', () => {
     expect(flat).not.toContain('●')
     expect(flat).not.toContain('○')
     expect(flat).not.toContain('◐')
+    expect(flat).toContain('status-left #[fg=colour109,bold] quimby #[default]')
+    expect(flat).toContain('window-status-separator ')
+    expect(flat).not.toContain('quimby #[fg=colour240]│')
     // The selected format keeps the state accent bar too (grey comes from a session-level base style).
     expect(flat).toContain('window-status-current-format #{?pane_dead')
     expect(flat).not.toContain('bg=colour24')

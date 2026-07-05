@@ -63,6 +63,8 @@ export function renderTmuxConfig(): string {
       'set -g  visual-bell off',
       'set -g  visual-activity off',
       'set -g  visual-silence off',
+      'set -g  status-left "#[fg=colour109,bold] quimby #[default]"',
+      'set -g  window-status-separator ""',
       // Never let tmux's default `reverse` alert style invert a tab background; the dashboard
       // signals activity/silence through the icon foreground instead.
       'set -g  window-status-activity-style none',
