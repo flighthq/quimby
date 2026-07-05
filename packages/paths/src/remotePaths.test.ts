@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  dashboardSessionName,
+  dashboardViewPrefix,
+  dashboardViewSessionName,
   remoteAgentDir,
   remoteAgentHandoffDir,
   remoteAgentHandoffInProcessedDir,
@@ -15,6 +18,27 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from './remotePaths'
+
+describe('dashboardSessionName', () => {
+  it('uses the full project id to avoid cross-project prefix collisions', () => {
+    const projectId = '111cde39-eb54-4541-9209-ed94966c0427'
+    expect(dashboardSessionName(projectId)).toBe(`qb-dash-${projectId}`)
+  })
+})
+
+describe('dashboardViewPrefix', () => {
+  it('uses the full project id to avoid cross-project prefix collisions', () => {
+    const projectId = '111cde39-eb54-4541-9209-ed94966c0427'
+    expect(dashboardViewPrefix(projectId)).toBe(`qbv-${projectId}-`)
+  })
+})
+
+describe('dashboardViewSessionName', () => {
+  it('appends the pane index to the full project-scoped view prefix', () => {
+    const projectId = '111cde39-eb54-4541-9209-ed94966c0427'
+    expect(dashboardViewSessionName(projectId, 2)).toBe(`qbv-${projectId}-2`)
+  })
+})
 
 describe('remoteAgentDir', () => {
   it('returns remote agent dir with agent name', () => {

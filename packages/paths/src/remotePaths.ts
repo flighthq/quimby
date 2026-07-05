@@ -92,12 +92,12 @@ export function remoteAgentStatusMirrorDir(
 export const quimbyTmuxSocket = process.env.QUIMBY_TMUX_SOCKET ?? 'quimby'
 
 /**
- * Dashboard session name for multi-agent `quimby run`. Keyed by project id so
- * different projects on the same socket don't collide with each other or with
- * per-agent sessions (`qb-<agentId>`).
+ * Dashboard session name for multi-agent `quimby run`. Keyed by the full
+ * project id so different projects on the same socket don't collide with each
+ * other or with per-agent sessions (`qb-<agentId>`).
  */
 export function dashboardSessionName(projectId: string): string {
-  return `qb-dash-${projectId.slice(0, 8)}`
+  return `qb-dash-${projectId}`
 }
 
 /**
@@ -106,7 +106,7 @@ export function dashboardSessionName(projectId: string): string {
  * the separate `qb-<agentId>` namespace, so they are never swept).
  */
 export function dashboardViewPrefix(projectId: string): string {
-  return `qbv-${projectId.slice(0, 8)}-`
+  return `qbv-${projectId}-`
 }
 
 /**

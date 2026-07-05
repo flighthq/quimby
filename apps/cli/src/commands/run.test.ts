@@ -109,6 +109,8 @@ vi.mock('execa', () => ({
           return { stdout: h.paneSize, stderr: '', exitCode: 0 }
         return { stdout: h.currentSession, stderr: '', exitCode: 0 }
       }
+      if (args.includes('list-panes')) return { stdout: '%0\n', stderr: '', exitCode: 0 }
+      if (args.includes('split-window')) return { stdout: '%1\n', stderr: '', exitCode: 0 }
       if (args.includes('list-windows')) return { stdout: '', stderr: '', exitCode: 0 }
       return { stdout: '', stderr: '', exitCode: 0 }
     },
@@ -319,7 +321,8 @@ describe('runRunCommand', () => {
     expect(wrapper).toEqual(expect.arrayContaining(['-x', '132', '-y', '50']))
 
     const split = h.calls.find((c) => c.includes('split-window'))
-    expect(split).toEqual(expect.arrayContaining(['-v', '-l', '20%']))
+    expect(split).toEqual(expect.arrayContaining(['-v', '-l', '10']))
+    expect(split).not.toContain('20%')
   })
 
   it('still rejects a panel layout from inside this project’s quimby tmux', async () => {

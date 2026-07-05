@@ -700,7 +700,7 @@ async function currentTmuxPaneSizeArgs(): Promise<string[]> {
       (r) => parsePaneSize(r.stdout),
       () => null,
     )
-    if (size) return ['-x', size.width, '-y', size.height]
+    if (size) return ['-x', String(size.width), '-y', String(size.height)]
   }
 
   const width = process.stdout.columns
@@ -719,12 +719,13 @@ async function confirmRestartForLaunchDrift(name: string): Promise<boolean> {
   return answer === true
 }
 
-function parsePaneSize(raw: string): { width: string; height: string } | null {
+function parsePaneSize(raw: string): { width: number; height: number } | null {
   const [width, height] = raw.trim().split(/\s+/, 2)
   if (!width || !height) return null
   if (!/^\d+$/.test(width) || !/^\d+$/.test(height)) return null
-  if (Number(width) <= 0 || Number(height) <= 0) return null
-  return { width, height }
+  const parsed = { width: Number(width), height: Number(height) }
+  if (parsed.width <= 0 || parsed.height <= 0) return null
+  return parsed
 }
 
 // Respawn an agent whose session is alive but whose process has exited (a dead pane held open
@@ -1325,9 +1326,8 @@ async function layoutInto(
     if (i < children.length - 1) {
       const rest = weights.slice(i + 1).reduce((a, b) => a + b, 0)
       const remaining = weights.slice(i).reduce((a, b) => a + b, 0)
-      // Clamp to [1, 99]: `-l 0%`/`100%` is degenerate, and tmux enforces its own pane minimum.
-      const restPct = Math.min(99, Math.max(1, Math.round((rest / remaining) * 100)))
-      const { stdout } = await execa('tmux', [...TMUX, 'split-window', dir, '-d', '-t', cur, '-l', `${restPct}%`, '-c', cwd, '-P', '-F', '#{pane_id}']) // prettier-ignore
+      const restSize = await splitRestSize(TMUX, cur, dir, rest / remaining)
+      const { stdout } = await execa('tmux', [...TMUX, 'split-window', dir, '-d', '-t', cur, '-l', restSize, '-c', cwd, '-P', '-F', '#{pane_id}']) // prettier-ignore
       const restPane = stdout.trim()
       await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
       cur = restPane
@@ -1335,6 +1335,30 @@ async function layoutInto(
       await layoutInto(TMUX, children[i], cur, cwd, leafCmd)
     }
   }
+}
+
+async function splitRestSize(
+  TMUX: string[],
+  paneId: string,
+  dir: '-h' | '-v',
+  fraction: number,
+): Promise<string> {
+  const size = await execa('tmux', [
+    ...TMUX,
+    'display-message',
+    '-p',
+    '-t',
+    paneId,
+    '#{pane_width} #{pane_height}',
+  ]).then(
+    (r) => parsePaneSize(r.stdout),
+    () => null,
+  )
+  if (!size) return `${Math.min(99, Math.max(1, Math.round(fraction * 100)))}%`
+
+  const axis = dir === '-h' ? size.width : size.height
+  const clamped = Math.min(Math.max(1, axis - 1), Math.max(1, Math.round(axis * fraction)))
+  return String(clamped)
 }
 
 // Build one ephemeral tab-group ("view") session: link each local agent's window in, add SSH
