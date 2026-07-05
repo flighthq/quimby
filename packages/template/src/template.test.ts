@@ -123,6 +123,12 @@ describe('renderTmuxConfig', () => {
     expect(conf).toContain('status-style')
   })
 
+  it('does not render a standalone separator before the tab list', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('set -g status-left "#[fg=colour109,bold] quimby"')
+    expect(conf).not.toContain('│')
+  })
+
   it('pipes selections to the OS clipboard and binds drag/Ctrl+C to copy, right-click to paste', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('set-clipboard on')

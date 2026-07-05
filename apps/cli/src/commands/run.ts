@@ -452,22 +452,21 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
 
 // Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump.
 //
-// EVERY tab — agent, host shell, or service — is `<bar><title>`: a quarter-width vertical
-// accent bar leads the title (no space between them), and its COLOUR is the whole signal (grey =
-// idle, teal = recently active, green = quiet after activity, red × = exited pane). The marker is
-// always shown — including for a host/service window (ordinary tmux windows with activity
-// flags), and including when the tab is SELECTED. A host shell prefixes its "$ <command>" into
-// the TITLE (not the bar); a service tab's title is just its plain name (e.g. "server").
+// EVERY tab — agent, host shell, or service — leads with a quarter-width vertical accent bar
+// (no space between it and the title), and its COLOUR is the whole signal (grey = idle, teal =
+// recently active, green = quiet after activity, red × = exited pane). The marker is always shown
+// — including for a host/service window (ordinary tmux windows with activity flags), and including
+// when the tab is SELECTED. A host shell prefixes its "$ <command>" into the TITLE (not the bar);
+// a service tab's title is just its plain name (e.g. "server").
 //
-// The two formats differ only in the title colour: UNSELECTED dims it (colour244) on the bar
-// background, while SELECTED brightens it (colour231) and lets window-status-current-style paint
-// the whole tab grey+bold — so selection is the grey block, with the same state bar on top.
+// The two formats differ only in the title colour and selected padding: UNSELECTED is tight,
+// while SELECTED includes a final space so window-status-current-style paints that last cell.
 //
 // No comma-escaping is needed: every style block is single-valued.
 const UNSELECTED_WINDOW_FMT =
   '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}}'
 const SELECTED_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W,#[fg=colour240]▎#[fg=colour231]#W}}}'
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W ,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W ,#[fg=colour240]▎#[fg=colour231]#W }}}'
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
 const PANEL_STATUS_RIGHT =

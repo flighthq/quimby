@@ -28,7 +28,7 @@ export function renderTmuxConfig(): string {
       'set -g status-interval 5',
       'set -g status-style "bg=colour235,fg=colour250"',
       'set -g status-left-length 40',
-      'set -g status-left "#[fg=colour109,bold] quimby #[fg=colour240]│ "',
+      'set -g status-left "#[fg=colour109,bold] quimby"',
       'set -g status-right-length 60',
       // Surface the detach key rather than the date: "^b d" leaves the agent running and
       // returns you to your shell — the intended way to step away (the session is durable;

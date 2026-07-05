@@ -244,7 +244,8 @@ describe('runRunCommand', () => {
     const flat = h.calls.map((c) => c.join(' ')).join('\n')
     // State is a quarter-width vertical accent bar in different colours plus × for an exited pane.
     expect(flat).toContain('#[fg=colour240]▎#[fg=colour244]') // idle: grey bar + dim title
-    expect(flat).not.toContain('#W ')
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour231]#W ') // selected: final space is highlighted
+    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour244]#W ')
     expect(flat).not.toContain('▏')
     expect(flat).toContain('×')
     expect(flat).not.toContain('∙')
