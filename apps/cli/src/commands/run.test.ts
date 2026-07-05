@@ -65,8 +65,25 @@ const config = vi.hoisted(() => ({
 }))
 const saveDefaultPreset = vi.hoisted(() => vi.fn(async () => '/fake/root/.quimby/local.yaml'))
 const writeText = vi.hoisted(() => vi.fn(async (_path: string, _text: string) => {}))
+const transport = vi.hoisted(() => ({
+  exec: vi.fn(async (cmd: string) => {
+    if (cmd.includes('has-session')) return new Promise<string>(() => {})
+    return ''
+  }),
+  syncProjectTo: vi.fn(async () => {}),
+  fileExists: vi.fn(async () => true),
+  checkCapabilities: vi.fn(async () => {}),
+  ensureDir: vi.fn(async () => {}),
+  writeFile: vi.fn(async () => {}),
+  readFile: vi.fn(async () => ''),
+}))
 
-vi.mock('@quimbyhq/agent', () => ({ addAgent }))
+vi.mock('@quimbyhq/agent', () => ({
+  addAgent,
+  configureRemoteAgentIdentity: vi.fn(async () => {}),
+  renderRemoteMailboxMigration: vi.fn(() => ''),
+  writeRemoteAgentInstructions: vi.fn(async () => {}),
+}))
 
 vi.mock('execa', () => ({
   execa: vi.fn(
@@ -114,6 +131,11 @@ vi.mock('@quimbyhq/template', async (importOriginal) => ({
   renderTmuxConfig: () => '',
 }))
 
+vi.mock('@quimbyhq/transport', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  getSSHTransport: vi.fn(() => transport),
+}))
+
 vi.mock('@quimbyhq/utils', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   writeText,
@@ -153,8 +175,13 @@ afterEach(() => {
   h.currentSession = 'qb-dash-proj-id'
   h.paneSize = '120 40'
   writeText.mockClear()
+  transport.exec.mockClear()
+  transport.syncProjectTo.mockClear()
+  transport.fileExists.mockClear()
+  transport.checkCapabilities.mockClear()
   if (savedTmux === undefined) delete process.env.TMUX
   else process.env.TMUX = savedTmux
+  delete process.env.QUIMBY_REMOTE_PROBE_TIMEOUT_MS
 })
 
 describe('runRunCommand', () => {
@@ -433,5 +460,22 @@ describe('runRunCommand', () => {
     expect(prompt?.join('\n')).not.toContain('rename-window')
     expect(prompt?.join('\n')).not.toContain('$agent prompt')
     expect(h.calls.some((c) => c.includes('link-window') && c.includes(`${tmuxSessionName('id-a')}:a`))).toBe(false) // prettier-ignore
+  })
+
+  it('does not hang dashboard construction when an SSH stale-launch probe stalls', async () => {
+    process.env.QUIMBY_REMOTE_PROBE_TIMEOUT_MS = '1'
+    const { default: cmd } = await import('./run')
+    state.value.agents.a = {
+      id: 'id-a',
+      name: 'a',
+      location: { type: 'ssh', host: 'me@gpu' },
+      defaults: {},
+    } as never
+
+    await cmd.run!({ args: { agent: 'a', _: ['a', 'b'] } } as never)
+
+    expect(transport.exec).toHaveBeenCalledWith(expect.stringContaining('has-session'))
+    expect(transport.syncProjectTo).toHaveBeenCalled()
+    expect(h.calls.some((c) => c.includes('new-window') && c.includes('ssh'))).toBe(true)
   })
 })

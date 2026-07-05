@@ -58,6 +58,7 @@ import {
   serviceNameOf,
 } from '../layout'
 import { createMissingPresetAgents } from '../presetAgents'
+import { withRemoteProbeTimeout } from '../remoteProbe'
 
 export default defineCommand({
   meta: {
@@ -528,7 +529,10 @@ async function runningLaunchDrift(
   config: Readonly<QuimbyConfig>,
 ): Promise<LaunchDrift | null> {
   if (process.env.QUIMBY_ALLOW_STALE_LAUNCH) return null
-  const state = await getAgentSessionState(agent)
+  const stateProbe = getAgentSessionState(agent)
+  const state = isSSH(agent.location)
+    ? (await withRemoteProbeTimeout(stateProbe, 'stopped' as const)).value
+    : await stateProbe
   return state === 'stopped' ? null : launchDrift(agent, config)
 }
 
