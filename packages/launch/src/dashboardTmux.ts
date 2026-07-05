@@ -21,10 +21,10 @@ export const DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT =
   '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231] #W ,#[fg=colour240]▎#[fg=colour231] #W }}'
 
 export const DASHBOARD_WINDOW_STATUS_FORMAT_WITH_DEAD =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}}'
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour244] #W ,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244] #W ,#[fg=colour240]▎#[fg=colour244] #W }}}'
 
 export const DASHBOARD_WINDOW_STATUS_CURRENT_FORMAT_WITH_DEAD =
-  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W ,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W ,#[fg=colour240]▎#[fg=colour231]#W }}}'
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour231] #W ,#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231] #W ,#[fg=colour240]▎#[fg=colour231] #W }}}'
 
 export interface DashboardTmuxWindow {
   name: string

@@ -34,13 +34,13 @@ export function renderTmuxConfig(): string {
       // returns you to your shell — the intended way to step away (the session is durable;
       // only `quimby stop` tears it down). The dashboard overrides this with its own hint.
       'set -g status-right "#[fg=colour240]^b d detach — agent keeps running  #[fg=colour245]%H:%M "',
-      // Each tab is "│ #W " — a leading separator bar, one space, the name, one space —
-      // and the styles wrap the whole string, so a selected tab's background covers the bar
-      // and both spaces too. The separator is empty so tabs butt directly against each other.
+      // Each tab is " #W " — one space, the name, one space — and the styles wrap the whole
+      // string, so a selected tab's background covers both spaces too. The separator is empty
+      // so adjacent tabs share an edge with no standalone gap or bar between them.
       'set -g window-status-separator ""',
-      'set -g window-status-format "│ #W "',
+      'set -g window-status-format " #W "',
       'set -g window-status-style "fg=colour244"',
-      'set -g window-status-current-format "│ #W "',
+      'set -g window-status-current-format " #W "',
       'set -g window-status-current-style "fg=colour231,bg=colour238,bold"',
       'set -g message-style "bg=colour109,fg=colour235"',
       'set -g pane-border-style "fg=colour238"',
