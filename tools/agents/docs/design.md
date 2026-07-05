@@ -269,6 +269,56 @@ presets:
 
 Host aliases should resolve from private local/user config, so even when a shared preset says `hostAlias: gpu`, the worker name or IP address stays out of git.
 
+### VS Code Layout Renderer (Proposed)
+
+A Visual Studio Code extension should be treated as an additional **layout renderer** over the same Quimby model, not as a second orchestrator. The user-facing goal is to open a saved `quimby.yaml` layout inside VS Code: side-by-side terminal groups, named tabs for agents, and each agent terminal running `quimby run <agent>` (or the resolved service/host command) from the project root.
+
+The extension should not independently parse `quimby.yaml`, merge layered config, infer preset agents, or understand the layout grammar. Those semantics belong to Quimby. Instead, Quimby should expose a machine-readable layout plan that the extension renders with VS Code terminal APIs.
+
+Proposed shape:
+
+```
+quimby layout <name-or-preset> --json
+quimby layout --default --json
+```
+
+The command resolves the same inputs as `quimby run --layout`: tracked `quimby.yaml`, ignored local/user config, presets, named layouts, inline layout expressions, host/service tokens, agent existence, missing preset agents, and private host alias bindings. Its output is a renderer-neutral tree:
+
+```json
+{
+  "name": "review",
+  "root": {
+    "type": "cols",
+    "children": [
+      {
+        "type": "tabs",
+        "tabs": [
+          { "name": "builder", "command": ["quimby", "run", "builder"], "cwd": "/repo" },
+          { "name": "reviewer", "command": ["quimby", "run", "reviewer"], "cwd": "/repo" }
+        ]
+      },
+      {
+        "type": "terminal",
+        "name": "host",
+        "command": ["bash", "-l"],
+        "cwd": "/repo"
+      }
+    ]
+  }
+}
+```
+
+The VS Code extension then becomes a thin renderer:
+
+- Contribute a `Quimby: Open Layout` command that lists resolved layouts/presets and the configured default.
+- Run `quimby layout <name> --json` and render the plan.
+- Create named VS Code terminals for leaves (`builder`, `reviewer`, `host`, service names).
+- Use editor or panel terminal splitting for `cols`/`rows`; use VS Code terminal tabs/groups for `tabs`.
+- Send or spawn each resolved command, normally `quimby run <agent>` for agents.
+- Keep Quimby/tmux as the retained session substrate; VS Code is the operator viewport.
+
+This can reproduce the common dashboard workflow well: "open the review layout, show builder and reviewer beside a host/service pane, with stable names." Exact tmux parity is not the goal. VS Code terminal APIs can create named terminals and split a terminal beside another, but they are not a deterministic tmux layout engine; weights such as `:70` should be best-effort hints in VS Code, while tmux remains the exact renderer for weighted panel dashboards.
+
 ## No Init Command
 
 There is no `quimby init`. The first `quimby add` creates the workspace. The `.quimby/` directory is added to `.gitignore` automatically.

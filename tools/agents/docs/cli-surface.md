@@ -41,7 +41,18 @@ quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start 
 
 ## Planned (not yet implemented)
 
-Nothing is currently pending here — every command in the reference above is implemented. (An earlier `quimby assign <agent> --status <agent>` idea, embedding a peer's status into an assignment, was dropped: pushing one agent's status to another is served by `quimby status <from> --to <agent>`, and an assignment is the user's authoritative task, not a place to inline a peer's transient status.)
+### Machine-readable layout plans
+
+```
+quimby layout <name-or-preset> --json
+quimby layout --default --json
+```
+
+Resolve a saved layout or preset through the same config semantics as `quimby run --layout`, but print a renderer-neutral JSON plan instead of opening tmux. This is primarily for external renderers such as a Visual Studio Code extension that wants to open side-by-side named terminals from `quimby.yaml`.
+
+The JSON plan should include the resolved layout tree (`cols`, `rows`, `tabs`, and terminal leaves), terminal display names, working directories, commands to run, service/host leaves, and any layout weights as hints. Quimby remains the canonical parser and resolver for config layering, presets, host/service tokens, layout grammar, and agent validation; consumers render the plan and do not duplicate those rules.
+
+(An earlier `quimby assign <agent> --status <agent>` idea, embedding a peer's status into an assignment, was dropped: pushing one agent's status to another is served by `quimby status <from> --to <agent>`, and an assignment is the user's authoritative task, not a place to inline a peer's transient status.)
 
 ### Advisory checks: cooperative self-attestation
 
