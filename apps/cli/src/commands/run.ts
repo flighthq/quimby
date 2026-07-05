@@ -426,16 +426,24 @@ function remoteTmuxRootBehaviorShell(session: string, rootCwd: string): string {
   )
 }
 
-// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump. Icons
-// carry state so colour can stay gentle: open circle = idle, half circle = recently active,
-// filled circle = quiet after activity, × = exited. Selected keeps the same state icon but
-// uses a neutral grey background so selection and status remain separate signals.
-const AGENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131]× #[fg=colour244]#W ,#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}}'
-const HOST_WINDOW_FMT =
-  '#{?window_silence_flag,#[fg=colour108]● #[fg=colour248]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour248]#W ,#[fg=colour240]○ #[fg=colour248]#W }}'
-const CURRENT_WINDOW_FMT =
-  '#{?pane_dead,#[fg=colour131,bg=colour238]× #[fg=colour231,bg=colour238,bold]#W ,#{?window_silence_flag,#[fg=colour108,bg=colour238]● #[fg=colour231,bg=colour238,bold]#W ,#{?window_activity_flag,#[fg=colour109,bg=colour238]◐ #[fg=colour231,bg=colour238,bold]#W ,#[fg=colour240,bg=colour238]○ #[fg=colour231,bg=colour238,bold]#W }}}'
+// Tab-bar formats, shared by the dashboard build and the within-dashboard `run` jump.
+//
+// EVERY tab — agent, host shell, or service — is ` <dot><title> `: a small full-stop marker
+// leads the title (no space between them), and its COLOUR is the whole signal (grey = idle,
+// teal = recently active, green = quiet after activity, red × = exited pane). The marker is
+// always shown — including for a host/service window (ordinary tmux windows with activity
+// flags), and including when the tab is SELECTED. A host shell prefixes its "$ <command>" into
+// the TITLE (not the dot); a service tab's title is just its plain name (e.g. "server").
+//
+// The two formats differ only in the title colour: UNSELECTED dims it (colour244) on the bar
+// background, while SELECTED brightens it (colour231) and lets window-status-current-style paint
+// the whole tab grey+bold — so selection is the grey block, with the same state dot on top.
+//
+// No comma-escaping is needed: every style block is single-valued.
+const UNSELECTED_WINDOW_FMT =
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour244]#W ,#{?window_silence_flag,#[fg=colour108]∙#[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]∙#[fg=colour244]#W ,#[fg=colour240]∙#[fg=colour244]#W }}}'
+const SELECTED_WINDOW_FMT =
+  '#{?pane_dead,#[fg=colour131]×#[fg=colour231]#W ,#{?window_silence_flag,#[fg=colour108]∙#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]∙#[fg=colour231]#W ,#[fg=colour240]∙#[fg=colour231]#W }}}'
 // The whole-dashboard bar shows only the shortcut hint + clock (no background, no branding);
 // "quimby" branding stays on each pane's own tab strip (inherited from the bundled config).
 const PANEL_STATUS_RIGHT =
@@ -849,8 +857,8 @@ async function buildSSHWindow(
 // session at once (the "disappearing tab"). A dead tab is revived in place with the dashboard's
 // restart key (respawn-window).
 async function styleAgentTab(TMUX: string[], target: string): Promise<void> {
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', AGENT_WINDOW_FMT]) // prettier-ignore
-  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
+  await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
   await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'remain-on-exit', 'on']).catch(() => {}) // prettier-ignore
 }
 
@@ -874,6 +882,10 @@ async function styleDashboard(
   // session options — isolated to the dashboard, never touching an agent's own session.
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
+  // The selected tab is a solid grey block: this base style paints the whole tab (bold white on
+  // grey), and SELECTED_WINDOW_FMT just prints the padded title over it. Set explicitly here so
+  // the dashboard doesn't depend on the bundled config's default leaking through.
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
   await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session])
   // The dashboard is ephemeral — destroy it when the user detaches. A hook is used
   // instead of `destroy-unattached` because the session is created detached (`-d`) and
@@ -881,10 +893,10 @@ async function styleDashboard(
   // Linked windows survive in their own agent sessions.
   await execa('tmux', [...TMUX, 'set-hook', '-t', session, 'client-detached', 'kill-session'])
 
-  // ── Host tab: auto-rename with "$" prefix ───────────────────────────────────
-  // The bundled tmux config disables auto-rename globally to keep agent window names
-  // stable; this per-window override only affects the host tab so it shows the running
-  // command (e.g. "$ bash", "$ quimby").
+  // ── Host tab: auto-rename to "$ <live command>" ─────────────────────────────
+  // The bundled tmux config disables auto-rename globally to keep agent window names stable;
+  // this per-window override only affects the host tab so its title tracks the running command
+  // with a leading "$ " marker baked into the title itself (e.g. "$ bash", "$ quimby").
   const hostIdx = tabs.findIndex((t) => t.name === HOST_TAB_NAME)
   if (hostIdx !== -1) {
     const target = `${session}:${hostIdx}`
@@ -911,6 +923,10 @@ async function styleDashboard(
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
+  // Neutralize tmux's default `reverse` alert styles: activity/silence is signalled through the
+  // icon foreground in the tab format, so the alert must not invert the tab background on its own.
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-activity-style', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-bell-style', 'none'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'activity-action', 'none'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'silence-action', 'none'])
   await execa('tmux', [
@@ -943,8 +959,8 @@ async function styleDashboard(
   for (const idx of winIdx.split('\n').filter(Boolean)) {
     const target = `${session}:${idx}`
     if (Number(idx) === hostIdx) {
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
     } else {
       await styleAgentTab(TMUX, target)
     }
@@ -1137,15 +1153,20 @@ async function buildViewSession(
   await execa('tmux', [...TMUX, 'kill-session', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, '-f', tmuxConf, 'new-session', '-d', '-s', session, '-n', DASH_PLACEHOLDER, '-c', repoRoot]) // prettier-ignore
   await applyTmuxRootBehavior(TMUX, session, repoRoot)
+  // Windows keep the name they were created with: auto-rename is off session-wide (the host tab
+  // re-enables it for itself), so a service window created as "server" stays "server".
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'automatic-rename', 'off'])
 
   let enrolled = false
   for (const name of names) {
     if (isServiceToken(name)) {
       // A service is a dashboard-local pane running its host command via a login shell (so
       // PATH has quimby et al.); it lives in this ephemeral view session, so it is torn down
-      // when the dashboard exits — no retained session, nothing to leak.
+      // when the dashboard exits — no retained session, nothing to leak. It is created with its
+      // FINAL bare name (e.g. "server", the "$name" token minus the "$"), so it is never "$server"
+      // at any point — no rename, no re-detection, and it styles exactly like an agent tab.
       const cmd = services[serviceNameOf(name)]
-      await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, 'bash', '-l', '-c', cmd]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', serviceNameOf(name), '-c', repoRoot, 'bash', '-l', '-c', cmd]) // prettier-ignore
     } else if (isHostToken(name)) {
       await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', HOST_TAB_NAME, '-c', repoRoot, 'bash', '-l']) // prettier-ignore
     } else {
@@ -1168,6 +1189,8 @@ async function buildViewSession(
 
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'base-index', '0'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'renumber-windows', 'on'])
+  // Selected tab = solid grey block; SELECTED_WINDOW_FMT prints the title over it (see styleDashboard).
+  await execa('tmux', [...TMUX, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
   await execa('tmux', [...TMUX, 'move-window', '-r', '-t', session]).catch(() => {})
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'status', 'on'])
   await execa('tmux', [...TMUX, 'set-option', '-t', session, 'prefix', 'C-b'])
@@ -1182,19 +1205,13 @@ async function buildViewSession(
     const wname = line.slice(line.indexOf(' ') + 1)
     const target = `${session}:${idx}`
     if (wname === HOST_TAB_NAME) {
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', UNSELECTED_WINDOW_FMT]) // prettier-ignore
+      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', SELECTED_WINDOW_FMT]) // prettier-ignore
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'on'])
       await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename-format', '$ #{pane_current_command}']) // prettier-ignore
-    } else if (isServiceToken(wname)) {
-      // Label a service `$ <name>` — same host-side `$ ` prefix and shell styling as a plain
-      // `$ bash` tab, so the two read as one family (rather than a glued `$server` beside a
-      // spaced `$ bash`). Fixed name, so no automatic-rename onto the live command.
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'automatic-rename', 'off'])
-      await execa('tmux', [...TMUX, 'rename-window', '-t', target, `$ ${serviceNameOf(wname)}`])
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-format', HOST_WINDOW_FMT]) // prettier-ignore
-      await execa('tmux', [...TMUX, 'set-window-option', '-t', target, 'window-status-current-format', CURRENT_WINDOW_FMT]) // prettier-ignore
     } else {
+      // Agents and services both land here — a service is now just a bare-named window, so it
+      // gets the same state-dot styling as an agent tab.
       await styleAgentTab(TMUX, target)
     }
   }
@@ -1247,6 +1264,8 @@ async function stylePanelDashboard(
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-bell', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-activity', 'off'])
   await execa('tmux', [...TMUX, 'set-option', '-g', 'visual-silence', 'off'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-activity-style', 'none'])
+  await execa('tmux', [...TMUX, 'set-option', '-g', 'window-status-bell-style', 'none'])
   await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-activity', 'set-window-option monitor-silence 30']) // prettier-ignore
   await execa('tmux', [...TMUX, 'set-hook', '-g', 'alert-silence', 'set-window-option monitor-silence 0']) // prettier-ignore
 

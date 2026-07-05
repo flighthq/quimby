@@ -144,6 +144,9 @@ export function buildDashboardPlan(
     'window-status-current-format',
     WINDOW_STATUS_CURRENT_FORMAT,
   ])
+  // Selected tab is a solid grey block: this base style paints the whole tab and the current
+  // format prints just the padded title over it.
+  commands.push([...tmux, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
   commands.push([...tmux, 'select-window', '-t', `${session}:0`])
 
   return { commands, attach: [...tmux, 'attach', '-t', session] }
@@ -236,10 +239,17 @@ const MONITOR_OPTS: [string, string][] = [
   ['visual-bell', 'off'],
   ['visual-activity', 'off'],
   ['visual-silence', 'off'],
+  // Neutralize tmux's default `reverse` alert styles: we signal activity/silence through the
+  // icon foreground in the format, so the alert must not invert the tab background on its own.
+  ['window-status-activity-style', 'none'],
+  ['window-status-bell-style', 'none'],
 ]
 
-// Tmux conditional format: ● quiet, ◐ active, ○ idle.
+// Unselected tab: `<dot><title> `, a small full-stop marker leading the title (no space
+// between), its COLOUR the only signal — green = quiet after activity, teal = active, grey = idle.
 const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]● #[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]◐ #[fg=colour244]#W ,#[fg=colour240]○ #[fg=colour244]#W }}'
+  '#{?window_silence_flag,#[fg=colour108]∙#[fg=colour244]#W ,#{?window_activity_flag,#[fg=colour109]∙#[fg=colour244]#W ,#[fg=colour240]∙#[fg=colour244]#W }}'
+// Selected tab: the same state dot as unselected, on the whole-tab grey that
+// window-status-current-style paints — only the title brightens (colour231) vs the dim unselected.
 const WINDOW_STATUS_CURRENT_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108,bg=colour238]● #[fg=colour231,bg=colour238,bold]#W ,#{?window_activity_flag,#[fg=colour109,bg=colour238]◐ #[fg=colour231,bg=colour238,bold]#W ,#[fg=colour240,bg=colour238]○ #[fg=colour231,bg=colour238,bold]#W }}'
+  '#{?window_silence_flag,#[fg=colour108]∙#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]∙#[fg=colour231]#W ,#[fg=colour240]∙#[fg=colour231]#W }}'

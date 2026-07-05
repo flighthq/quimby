@@ -59,6 +59,10 @@ export function renderTmuxConfig(): string {
       'set -g  visual-bell off',
       'set -g  visual-activity off',
       'set -g  visual-silence off',
+      // Never let tmux's default `reverse` alert style invert a tab background; the dashboard
+      // signals activity/silence through the icon foreground instead.
+      'set -g  window-status-activity-style none',
+      'set -g  window-status-bell-style none',
       '# Keep prefix+c useful from agent panes: new windows start at the project root',
       '# recorded on the session, falling back to the current pane path for older sessions.',
       'bind c new-window -c "#{?@quimby-root,#{@quimby-root},#{pane_current_path}}"',
