@@ -18,6 +18,7 @@ runtimeProfiles:
 defaults:
   runtimeProfile: claude-sbx
   tmux: true
+  hostAlias: remote
 
 roles:
   review: {}
@@ -25,11 +26,11 @@ roles:
   integration: {}
 
 services:
-  server: quimby serve
+  serve: quimby serve
 
 layouts:
   default:
-    expr: ((review review2) | (builder builder2 integration)):80 / (host $server):20
+    expr: ((review review2) | (builder builder2 integration)):80 / (host $serve):20
 
 default: default
 
@@ -39,21 +40,15 @@ presets:
     agents:
       review:
         role: review
-        hostAlias: remote
       review2:
         role: review
         runtimeProfile: codex-sbx
-        hostAlias: remote
       builder:
         role: builder
-        hostAlias: remote
       builder2:
         role: builder
-        hostAlias: remote
       builder3:
         role: builder
         runtimeProfile: codex-sbx
-        hostAlias: remote
       integration:
         role: integration
-        hostAlias: remote
