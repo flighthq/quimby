@@ -80,9 +80,14 @@ describe('buildDashboardPlan', () => {
     expect(flat).toContain('set-option -t dash activity-action none')
     expect(flat).toContain('set-option -t dash silence-action none')
     // State is a quarter-width vertical accent bar in different colours — no dots/circles.
-    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244]') // idle: grey bar + dim title
-    expect(flat).toContain('#[fg=colour240]▎#[fg=colour231]#W ') // selected: final space is highlighted
-    expect(flat).not.toContain('#[fg=colour240]▎#[fg=colour244]#W ')
+    // Each tab is `<bar> <title> `: one space between the bar and the title, one after it.
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour244] #W ') // idle: grey bar + dim padded title
+    // Selected tab: same `<bar> <title> ` shape and width, bright title over the grey block, so
+    // the background sits behind the leading space, the title, and the trailing space.
+    expect(flat).toContain('#[fg=colour240]▎#[fg=colour231] #W ')
+    // Never flush: the bar must not touch the title (there is always one space between them).
+    expect(flat).not.toContain('▎#[fg=colour244]#W')
+    expect(flat).not.toContain('▎#[fg=colour231]#W')
     expect(flat).not.toContain('▏')
     expect(flat).not.toContain('∙')
     expect(flat).not.toContain('●')
@@ -90,6 +95,18 @@ describe('buildDashboardPlan', () => {
     expect(flat).not.toContain('◐')
     expect(flat).toContain('bg=colour238')
     expect(flat).not.toContain('bg=colour24')
+  })
+
+  it('sets tab-bar chrome explicitly: bar-free "quimby" label and gap-free tabs', () => {
+    const flat = buildDashboardPlan('dash', '/c', windows)
+      .commands.map((c) => c.join(' '))
+      .join('\n')
+    // status-left set live (not left to the tmux.conf, which only reloads on server restart),
+    // and it carries no separator bar of its own after "quimby".
+    expect(flat).toContain('set-option -t dash status-left #[fg=colour109,bold] quimby #[default]')
+    expect(flat).not.toContain('quimby #[fg=colour240]│')
+    // Empty window separator: tabs butt directly together, no gap between them.
+    expect(flat).toContain('set-option -t dash window-status-separator ')
   })
 
   it('ends with a select-window and returns the attach invocation', () => {

@@ -145,8 +145,14 @@ export function buildDashboardPlan(
     WINDOW_STATUS_CURRENT_FORMAT,
   ])
   // Selected tab is a solid grey block: this base style paints the whole tab and the current
-  // format prints just the padded title over it.
+  // format prints just the title over it.
   commands.push([...tmux, 'set-option', '-t', session, 'window-status-current-style', 'fg=colour231,bg=colour238,bold']) // prettier-ignore
+  // Set the tab-bar chrome explicitly (not just via the bundled tmux.conf, which tmux only
+  // re-reads on server start): the "quimby" label carries no separator bar of its own, so the
+  // only vertical accents are the per-tab bars, and an empty window separator butts tabs
+  // directly together with no gap between them.
+  commands.push([...tmux, 'set-option', '-t', session, 'status-left', '#[fg=colour109,bold] quimby #[default]']) // prettier-ignore
+  commands.push([...tmux, 'set-option', '-t', session, 'window-status-separator', ''])
   commands.push([...tmux, 'select-window', '-t', `${session}:0`])
 
   return { commands, attach: [...tmux, 'attach', '-t', session] }
@@ -245,12 +251,14 @@ const MONITOR_OPTS: [string, string][] = [
   ['window-status-bell-style', 'none'],
 ]
 
-// Unselected tab: `<bar><title>`, a quarter-width vertical accent bar leading the title (no
-// space between), its COLOUR the only signal — green = quiet after activity, teal = active, grey = idle.
+// Unselected tab: `<bar> <title> ` — a quarter-width vertical accent bar, one space, the title,
+// one space. The bar COLOUR is the only state signal — green = quiet after activity, teal =
+// active, grey = idle. The one space each side is fixed, so a tab never changes width.
 const WINDOW_STATUS_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244]#W,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244]#W,#[fg=colour240]▎#[fg=colour244]#W}}'
-// Selected tab: the same state accent bar as unselected, on the whole-tab grey that
-// window-status-current-style paints. The final space stays selected so the highlight fills
-// through the tab's trailing cell.
+  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour244] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour244] #W ,#[fg=colour240]▎#[fg=colour244] #W }}'
+// Selected tab: the same `<bar> <title> ` shape as unselected, over the whole-tab grey that
+// window-status-current-style paints — so the background sits behind the leading space, the
+// title, and the trailing space. Same width as unselected (no select-time jitter), and with the
+// empty window separator the highlighted trailing space butts directly against the next tab.
 const WINDOW_STATUS_CURRENT_FORMAT =
-  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231]#W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231]#W ,#[fg=colour240]▎#[fg=colour231]#W }}'
+  '#{?window_silence_flag,#[fg=colour108]▎#[fg=colour231] #W ,#{?window_activity_flag,#[fg=colour109]▎#[fg=colour231] #W ,#[fg=colour240]▎#[fg=colour231] #W }}'
