@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build quimby-vscode",
+      "type": "shell",
+      "command": "npm run build -w quimby-vscode",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
