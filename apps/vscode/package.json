@@ -93,45 +93,37 @@
       "terminal/title/context": [
         {
           "command": "quimby.syncAgentTerminal",
-          "group": "inline@10",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "inline@10"
         },
         {
           "command": "quimby.handoffAgentTerminal",
-          "group": "inline@11",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "inline@11"
         },
         {
           "command": "quimby.reconnectAgentTerminal",
-          "group": "quimby@10",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@10"
         },
         {
           "command": "quimby.closeAgentTerminal",
-          "group": "quimby@11",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@11"
         }
       ],
       "terminal/context": [
         {
           "command": "quimby.syncAgentTerminal",
-          "group": "quimby@10",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@10"
         },
         {
           "command": "quimby.handoffAgentTerminal",
-          "group": "quimby@11",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@11"
         },
         {
           "command": "quimby.reconnectAgentTerminal",
-          "group": "quimby@12",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@12"
         },
         {
           "command": "quimby.closeAgentTerminal",
-          "group": "quimby@13",
-          "when": "terminalName =~ /^Quimby: /"
+          "group": "quimby@13"
         }
       ]
     },

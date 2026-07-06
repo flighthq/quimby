@@ -10,7 +10,6 @@ import { loadQuimbyConfig, loadState } from '@quimbyhq/workspace'
 import * as vscode from 'vscode'
 
 const LAST_LAYOUT_KEY = 'quimby.lastLayout'
-const QUIMBY_TERMINAL_PREFIX = 'Quimby: '
 const SINGLE_AGENT_LAYOUT_NAME = '__vscode_agent__'
 // Names of the terminals the current layout opened, persisted so `Close Layout` can find and
 // dispose them even after a window reload (VS Code restores terminal editors, but the extension's
@@ -347,19 +346,22 @@ async function handoffAgentTerminalCommand(terminal?: vscode.Terminal): Promise<
 async function reconnectAgent(agentName: string): Promise<void> {
   agentTerminals.get(agentName)?.dispose()
   const root = await requireRepoRoot()
-  const leaf = await resolveSingleAgentTerminal(root, agentName)
   const terminal = vscode.window.createTerminal({
-    name: `${QUIMBY_TERMINAL_PREFIX}${leaf.displayName}`,
-    cwd: leaf.cwd,
+    name: agentName,
+    cwd: root,
     color: new vscode.ThemeColor('terminal.ansiYellow'),
     iconPath: quimbyTerminalIcon(),
     isTransient: true,
     location: vscode.TerminalLocation.Editor,
+    message: `Starting Quimby agent "${agentName}"...`,
   })
   agentTerminals.set(agentName, terminal)
   terminalAgents.set(terminal, agentName)
   log?.info(`open agent terminal: ${agentName}`)
   terminal.show()
+
+  const leaf = await resolveSingleAgentTerminal(root, agentName)
+  if (agentTerminals.get(agentName) !== terminal) return
   terminal.sendText(leaf.command.string)
 }
 
@@ -426,10 +428,7 @@ async function syncAgentWork(agentName: string): Promise<void> {
 
 function agentNameForTerminal(terminal: vscode.Terminal | undefined): string | null {
   if (!terminal) return null
-  const tracked = terminalAgents.get(terminal)
-  if (tracked) return tracked
-  const name = terminal.creationOptions.name
-  return name?.startsWith(QUIMBY_TERMINAL_PREFIX) ? name.slice(QUIMBY_TERMINAL_PREFIX.length) : null
+  return terminalAgents.get(terminal) ?? null
 }
 
 function quimbyTerminalIcon(): vscode.IconPath | undefined {
@@ -450,8 +449,15 @@ function quimbyTerminalIcon(): vscode.IconPath | undefined {
 }
 
 async function requireAgentNameForTerminal(terminal?: vscode.Terminal): Promise<string> {
-  const agentName = agentNameForTerminal(terminal ?? vscode.window.activeTerminal)
+  const targetTerminal = terminal ?? vscode.window.activeTerminal
+  const agentName = agentNameForTerminal(targetTerminal)
   if (agentName) return agentName
+  const terminalName = targetTerminal?.creationOptions.name
+  if (typeof terminalName === 'string') {
+    const root = await requireRepoRoot()
+    const state = await loadState(root)
+    if (state.agents[terminalName]) return terminalName
+  }
   const picked = await pickAgent({ includeAdd: false })
   if (picked?.agentName) return picked.agentName
   throw new Error('Select a Quimby agent terminal first.')
