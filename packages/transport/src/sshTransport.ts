@@ -273,7 +273,13 @@ export class SSHTransport implements Transport {
             '--exclude=dist/',
             '--exclude=.git/hooks/',
             '--exclude=flight/',
-            ...(excludeFile ? [`--exclude-from=${excludeFile}`, '--from0'] : []),
+            // `--from0` MUST precede `--exclude-from`: rsync only reads a
+            // `-from` file as NUL-delimited when `--from0` is already set at the
+            // moment that file is parsed. Placed after, the NUL-separated file is
+            // read as one newline-delimited line — the whole blob becomes a single
+            // filter rule, which exceeds MAXPATHLEN and is discarded ("overlong
+            // filter"), so nothing is excluded and ignored files sync anyway.
+            ...(excludeFile ? ['--from0', `--exclude-from=${excludeFile}`] : []),
             '--protect-args',
             '-e',
             this.sshRsyncCmd,

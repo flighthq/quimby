@@ -282,6 +282,9 @@ describe('SSHTransport', () => {
     )
     const excludeArg = args.find((a) => a.startsWith('--exclude-from='))
     expect(excludeArg).toBeDefined()
+    // `--from0` must precede `--exclude-from`, or rsync reads the NUL-separated
+    // file as one newline-delimited (over-long, discarded) rule and excludes nothing.
+    expect(args.indexOf('--from0')).toBeLessThan(args.indexOf(excludeArg!))
     expect(args).toContain('--protect-args')
     expect(args[args.length - 1]).toBe('user@box:/remote/root/')
     // The temp exclude file is removed in the finally block.
