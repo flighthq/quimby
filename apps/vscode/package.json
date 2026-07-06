@@ -21,10 +21,7 @@
         "command": "quimby.openAgent",
         "title": "Open Agent",
         "category": "Quimby",
-        "icon": {
-          "dark": "resources/quimby-bomb-dark.svg",
-          "light": "resources/quimby-bomb-light.svg"
-        }
+        "icon": "$(shield)"
       },
       {
         "command": "quimby.addAgent",
@@ -154,7 +151,6 @@
     "@quimbyhq/agent": "*",
     "@quimbyhq/git": "*",
     "@quimbyhq/handoff": "*",
-    "@quimbyhq/launch": "*",
     "@quimbyhq/layout": "*",
     "@quimbyhq/reporter": "*",
     "@quimbyhq/server": "*",
