@@ -197,6 +197,7 @@ async function openAgent(agentName: string): Promise<void> {
   const existing = agentPanels.get(agentName)
   if (existing) {
     existing.reveal()
+    await existing.ensureConnected()
     return
   }
   const panel = vscode.window.createWebviewPanel(
@@ -442,6 +443,7 @@ class AgentPanel {
       },
       command: leaf.command.string,
       cols: this.terminalSize.cols,
+      label: this.agentName,
       rows: this.terminalSize.rows,
     })
     this.connected = true
@@ -459,6 +461,10 @@ class AgentPanel {
 
   reveal(): void {
     this.panel.reveal()
+  }
+
+  async ensureConnected(): Promise<void> {
+    if (!this.connected || !this.session) await this.reconnect()
   }
 
   dispose(): void {
@@ -490,6 +496,7 @@ class EmbeddedTerminalSession {
       command: string
       cols: number
       cwd: string
+      label: string
       onClose: () => void
       onOutput: (data: string) => void
       rows: number
@@ -515,7 +522,7 @@ class EmbeddedTerminalSession {
 
   start(): void {
     const launch = terminalShellCommand(this.opts.command)
-    log?.info(`embedded terminal pty: ${launch.file} ${launch.args.join(' ')}`)
+    log?.info(`embedded terminal pty: ${this.opts.label}`)
     this.process = spawn(launch.file, launch.args, {
       cols: this.opts.cols,
       cwd: this.opts.cwd,
