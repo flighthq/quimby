@@ -37,7 +37,7 @@ Context: a debugging session traced the extension's Home / Close-Layout / "crash
 
 ### Still open (VS Code extension)
 
-- Move beyond the embedded xterm PTY as the primary agent UI. It is a useful compatibility bridge because it can attach to retained tmux/SSH sessions, but it is still a fixed-width terminal and feels more like a CLI viewport than a mature VS Code agent frontend. The richer direction is an agent editor with structured transcript/state panes, dedicated controls, progress/status rendering, and terminal fallback only where raw TTY interaction is necessary.
+- Move beyond native terminal tabs as the primary agent UI. They are the current compatibility bridge because they preserve VS Code's mature terminal behavior while attaching to retained tmux/SSH sessions, but they still feel like a CLI viewport rather than a mature VS Code agent frontend. The richer direction is an agent editor with structured transcript/state panes, dedicated controls, progress/status rendering, and terminal fallback only where raw TTY interaction is necessary.
 - Implement the single-driver lease in `@quimbyhq/server` first (keeps the CLI usable at each step), then flip the extension to spawn-and-track a `quimby serve` child.
 - Resolve the `quimby` binary from the extension host, whose PATH may differ from a login shell; fall back cleanly if it can't be found.
 - Interim guidance until landed: run **either** the extension **or** a CLI `quimby run` dashboard against a given workspace, not both.

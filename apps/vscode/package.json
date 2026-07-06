@@ -33,6 +33,30 @@
         "icon": "$(add)"
       },
       {
+        "command": "quimby.syncAgentTerminal",
+        "title": "Sync Agent",
+        "category": "Quimby",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "quimby.handoffAgentTerminal",
+        "title": "Handoff Agent",
+        "category": "Quimby",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "quimby.reconnectAgentTerminal",
+        "title": "Reconnect Agent",
+        "category": "Quimby",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "quimby.closeAgentTerminal",
+        "title": "Close Agent Terminal",
+        "category": "Quimby",
+        "icon": "$(close)"
+      },
+      {
         "command": "quimby.home",
         "title": "Home",
         "category": "Quimby"
@@ -64,6 +88,50 @@
           "command": "quimby.addAgent",
           "group": "navigation@11",
           "when": "resourceScheme != quimby-agent"
+        }
+      ],
+      "terminal/title/context": [
+        {
+          "command": "quimby.syncAgentTerminal",
+          "group": "inline@10",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.handoffAgentTerminal",
+          "group": "inline@11",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.reconnectAgentTerminal",
+          "group": "quimby@10",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.closeAgentTerminal",
+          "group": "quimby@11",
+          "when": "terminalName =~ /^Quimby: /"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "quimby.syncAgentTerminal",
+          "group": "quimby@10",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.handoffAgentTerminal",
+          "group": "quimby@11",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.reconnectAgentTerminal",
+          "group": "quimby@12",
+          "when": "terminalName =~ /^Quimby: /"
+        },
+        {
+          "command": "quimby.closeAgentTerminal",
+          "group": "quimby@13",
+          "when": "terminalName =~ /^Quimby: /"
         }
       ]
     },
@@ -99,10 +167,7 @@
     "@quimbyhq/server": "*",
     "@quimbyhq/session": "*",
     "@quimbyhq/types": "*",
-    "@quimbyhq/workspace": "*",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "node-pty": "^1.1.0"
+    "@quimbyhq/workspace": "*"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

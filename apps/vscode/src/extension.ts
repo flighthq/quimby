@@ -7,11 +7,10 @@ import { getServerInfo, type QuimbyServerHandle, startServer } from '@quimbyhq/s
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { LayoutPlanNode, LayoutPlanTerminal } from '@quimbyhq/types'
 import { loadQuimbyConfig, loadState } from '@quimbyhq/workspace'
-import type { IPty } from 'node-pty'
-import { spawn } from 'node-pty'
 import * as vscode from 'vscode'
 
 const LAST_LAYOUT_KEY = 'quimby.lastLayout'
+const QUIMBY_TERMINAL_PREFIX = 'Quimby: '
 const SINGLE_AGENT_LAYOUT_NAME = '__vscode_agent__'
 // Names of the terminals the current layout opened, persisted so `Close Layout` can find and
 // dispose them even after a window reload (VS Code restores terminal editors, but the extension's
@@ -40,13 +39,6 @@ interface AgentQuickPickItem extends vscode.QuickPickItem {
   add?: boolean
 }
 
-interface AgentWebviewMessage {
-  command?: string
-  cols?: number
-  data?: string
-  rows?: number
-}
-
 let repoRoot: string | null = null
 let ownedServer: QuimbyServerHandle | null = null
 let layoutSession: LayoutSession | null = null
@@ -56,7 +48,8 @@ let log: vscode.LogOutputChannel | null = null
 // the layout has no other discoverable affordance, and a status-bar item disambiguates which of
 // several Extension Development Host windows actually owns the live session.
 let statusBarItem: vscode.StatusBarItem | null = null
-const agentPanels = new Map<string, AgentPanel>()
+const agentTerminals = new Map<string, vscode.Terminal>()
+const terminalAgents = new Map<vscode.Terminal, string>()
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context
@@ -66,6 +59,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('quimby.openAgent', () => runCommand(() => openAgentCommand())),
     vscode.commands.registerCommand('quimby.addAgent', () => runCommand(() => addAgentCommand())),
+    vscode.commands.registerCommand('quimby.syncAgentTerminal', (terminal?: vscode.Terminal) =>
+      runCommand(() => syncAgentTerminalCommand(terminal)),
+    ),
+    vscode.commands.registerCommand('quimby.handoffAgentTerminal', (terminal?: vscode.Terminal) =>
+      runCommand(() => handoffAgentTerminalCommand(terminal)),
+    ),
+    vscode.commands.registerCommand('quimby.reconnectAgentTerminal', (terminal?: vscode.Terminal) =>
+      runCommand(() => reconnectAgentTerminalCommand(terminal)),
+    ),
+    vscode.commands.registerCommand('quimby.closeAgentTerminal', (terminal?: vscode.Terminal) =>
+      runCommand(() => closeAgentTerminalCommand(terminal)),
+    ),
     vscode.commands.registerCommand('quimby.home', () => runCommand(() => showHome(context))),
     vscode.commands.registerCommand('quimby.openLayout', () =>
       runCommand(() => openLayoutCommand(context)),
@@ -84,9 +89,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : 'Quimby: no layout terminals to close.',
       )
     }),
+    vscode.window.onDidCloseTerminal((terminal) => {
+      const name = terminalAgents.get(terminal)
+      if (!name) return
+      terminalAgents.delete(terminal)
+      if (agentTerminals.get(name) === terminal) agentTerminals.delete(name)
+    }),
     { dispose: () => void stopOwnedServer() },
     { dispose: () => void closeLayout() },
-    { dispose: () => disposeAgentPanels() },
+    { dispose: () => disposeAgentTerminals() },
   )
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
@@ -113,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  disposeAgentPanels()
+  disposeAgentTerminals()
   closeLayout()
   await stopOwnedServer()
 }
@@ -194,26 +205,12 @@ async function openAgentCommand(): Promise<void> {
 }
 
 async function openAgent(agentName: string): Promise<void> {
-  const existing = agentPanels.get(agentName)
+  const existing = agentTerminals.get(agentName)
   if (existing) {
-    existing.reveal()
-    await existing.ensureConnected()
+    existing.show()
     return
   }
-  const panel = vscode.window.createWebviewPanel(
-    'quimby.agent',
-    `Quimby: ${agentName}`,
-    vscode.ViewColumn.Active,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-    },
-  )
-  if (!extensionContext) throw new Error('Quimby extension context is not initialized.')
-  const agentPanel = new AgentPanel(panel, agentName, extensionContext.extensionUri)
-  agentPanels.set(agentName, agentPanel)
-  agentPanel.render()
-  await agentPanel.reconnect()
+  await reconnectAgent(agentName)
 }
 
 async function restoreLastLayout(
@@ -332,231 +329,132 @@ function flattenTabGroups(node: LayoutPlanNode): LayoutPlanTerminal[][] {
   return node.type === 'tabs' ? [node.terminals] : node.children.flatMap(flattenTabGroups)
 }
 
-function disposeAgentPanels(): void {
-  for (const panel of agentPanels.values()) panel.dispose()
-  agentPanels.clear()
+function disposeAgentTerminals(): void {
+  for (const terminal of agentTerminals.values()) terminal.dispose()
+  agentTerminals.clear()
+  terminalAgents.clear()
 }
 
-class AgentPanel {
-  private connected = false
-  private disposed = false
-  private session: EmbeddedTerminalSession | null = null
-  private terminalSize = { cols: 120, rows: 30 }
-
-  constructor(
-    private readonly panel: vscode.WebviewPanel,
-    private readonly agentName: string,
-    private readonly extensionUri: vscode.Uri,
-  ) {
-    this.panel.onDidDispose(() => {
-      this.disposed = true
-      agentPanels.delete(this.agentName)
-      this.session?.dispose()
-      this.session = null
-    })
-    this.panel.webview.onDidReceiveMessage((message: AgentWebviewMessage) => {
-      void runCommand(async () => {
-        if (message.command === 'sync') await this.sync()
-        else if (message.command === 'handoff') await this.handoff()
-        else if (message.command === 'disconnect') this.disconnect()
-        else if (message.command === 'reconnect') await this.reconnect()
-        else if (message.command === 'terminalInput' && typeof message.data === 'string') {
-          this.session?.write(message.data)
-        } else if (
-          message.command === 'terminalResize' &&
-          typeof message.cols === 'number' &&
-          typeof message.rows === 'number'
-        ) {
-          this.terminalSize = { cols: message.cols, rows: message.rows }
-          this.session?.resize(message.cols, message.rows)
-        } else if (message.command === 'terminalReady') {
-          this.session?.flush()
-        }
-      })
-    })
-  }
-
-  disconnect(): void {
-    this.session?.dispose()
-    this.session = null
-    this.connected = false
-    this.render()
-  }
-
-  async handoff(): Promise<void> {
-    const recipient = await pickAgent({ exclude: this.agentName })
-    if (!recipient?.agentName) return
-    const message = await vscode.window.showInputBox({
-      ignoreFocusOut: true,
-      placeHolder: 'Optional note for the recipient',
-      prompt: `Handoff ${this.agentName} to ${recipient.agentName}`,
-    })
-    if (message === undefined) return
-    const root = await requireRepoRoot()
-    const state = await loadState(root)
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Handing off ${this.agentName} to ${recipient.agentName}`,
-      },
-      async () => {
-        const result = await handoffWork(
-          {
-            state,
-            repoRoot: root,
-            from: this.agentName,
-            to: recipient.agentName,
-            message: message.trim() || undefined,
-          },
-          vscodeReporter(),
-        )
-        if (result.nudgeText !== null) {
-          await nudgeAgentSession({
-            agent: state.agents[result.to],
-            displayName: result.to,
-            reporter: vscodeReporter(),
-            text: result.nudgeText,
-          })
-        }
-      },
-    )
-    await vscode.window.showInformationMessage(
-      `Quimby handoff queued for "${recipient.agentName}".`,
-    )
-  }
-
-  async reconnect(): Promise<void> {
-    this.session?.dispose()
-    this.session = null
-    const root = await requireRepoRoot()
-    const leaf = await resolveSingleAgentTerminal(root, this.agentName)
-    this.session = new EmbeddedTerminalSession({
-      cwd: leaf.cwd,
-      onClose: () => {
-        if (this.disposed) return
-        this.session = null
-        this.connected = false
-        this.render()
-      },
-      onOutput: (data) => {
-        void this.panel.webview.postMessage({ data, command: 'terminalOutput' })
-      },
-      command: leaf.command.string,
-      cols: this.terminalSize.cols,
-      label: this.agentName,
-      rows: this.terminalSize.rows,
-    })
-    this.connected = true
-    this.render()
-    this.session.start()
-  }
-
-  render(): void {
-    if (this.disposed) return
-    this.panel.webview.html = renderAgentPanelHtml(this.panel.webview, this.extensionUri, {
-      agentName: this.agentName,
-      connected: this.connected,
-    })
-  }
-
-  reveal(): void {
-    this.panel.reveal()
-  }
-
-  async ensureConnected(): Promise<void> {
-    if (!this.connected || !this.session) await this.reconnect()
-  }
-
-  dispose(): void {
-    this.panel.dispose()
-  }
-
-  private async sync(): Promise<void> {
-    const root = await requireRepoRoot()
-    const result = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Syncing Quimby agent "${this.agentName}"`,
-      },
-      () => syncAgent(root, this.agentName),
-    )
-    const verb = result.rebased ? `rebased ${result.commitsReplayed} commit(s)` : 'already current'
-    await vscode.window.showInformationMessage(`Quimby sync complete: ${verb}.`)
-  }
+async function closeAgentTerminalCommand(terminal?: vscode.Terminal): Promise<void> {
+  const agentName = await requireAgentNameForTerminal(terminal)
+  agentTerminals.get(agentName)?.dispose()
 }
 
-class EmbeddedTerminalSession {
-  private disposed = false
-  private process: IPty | null = null
-  private readonly pending: string[] = []
-  private ready = false
+async function handoffAgentTerminalCommand(terminal?: vscode.Terminal): Promise<void> {
+  await handoffAgentWork(await requireAgentNameForTerminal(terminal))
+}
 
-  constructor(
-    private readonly opts: {
-      command: string
-      cols: number
-      cwd: string
-      label: string
-      onClose: () => void
-      onOutput: (data: string) => void
-      rows: number
+async function reconnectAgent(agentName: string): Promise<void> {
+  agentTerminals.get(agentName)?.dispose()
+  const root = await requireRepoRoot()
+  const leaf = await resolveSingleAgentTerminal(root, agentName)
+  const terminal = vscode.window.createTerminal({
+    name: `${QUIMBY_TERMINAL_PREFIX}${leaf.displayName}`,
+    cwd: leaf.cwd,
+    color: new vscode.ThemeColor('terminal.ansiYellow'),
+    iconPath: quimbyTerminalIcon(),
+    isTransient: true,
+    location: vscode.TerminalLocation.Editor,
+  })
+  agentTerminals.set(agentName, terminal)
+  terminalAgents.set(terminal, agentName)
+  log?.info(`open agent terminal: ${agentName}`)
+  terminal.show()
+  terminal.sendText(leaf.command.string)
+}
+
+async function reconnectAgentTerminalCommand(terminal?: vscode.Terminal): Promise<void> {
+  await reconnectAgent(await requireAgentNameForTerminal(terminal))
+}
+
+async function syncAgentTerminalCommand(terminal?: vscode.Terminal): Promise<void> {
+  await syncAgentWork(await requireAgentNameForTerminal(terminal))
+}
+
+async function handoffAgentWork(agentName: string): Promise<void> {
+  const recipient = await pickAgent({ exclude: agentName })
+  if (!recipient?.agentName) return
+  const message = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    placeHolder: 'Optional note for the recipient',
+    prompt: `Handoff ${agentName} to ${recipient.agentName}`,
+  })
+  if (message === undefined) return
+  const root = await requireRepoRoot()
+  const state = await loadState(root)
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Handing off ${agentName} to ${recipient.agentName}`,
     },
-  ) {}
-
-  dispose(): void {
-    this.disposed = true
-    this.process?.kill()
-    this.process = null
-  }
-
-  flush(): void {
-    this.ready = true
-    while (this.pending.length > 0) {
-      this.opts.onOutput(this.pending.shift() ?? '')
-    }
-  }
-
-  resize(cols: number, rows: number): void {
-    this.process?.resize(Math.max(1, Math.floor(cols)), Math.max(1, Math.floor(rows)))
-  }
-
-  start(): void {
-    const launch = terminalShellCommand(this.opts.command)
-    log?.info(`embedded terminal pty: ${this.opts.label}`)
-    this.process = spawn(launch.file, launch.args, {
-      cols: this.opts.cols,
-      cwd: this.opts.cwd,
-      env: {
-        ...process.env,
-        TERM: process.env.TERM ?? 'xterm-256color',
-      },
-      name: 'xterm-256color',
-      rows: this.opts.rows,
-    })
-    this.process.onData((data) => this.output(data))
-    this.process.onExit(() => {
-      if (!this.disposed) this.opts.onClose()
-    })
-  }
-
-  write(data: string): void {
-    this.process?.write(data)
-  }
-
-  private output(data: string): void {
-    if (this.ready) {
-      this.opts.onOutput(data)
-    } else {
-      this.pending.push(data)
-    }
-  }
+    async () => {
+      const result = await handoffWork(
+        {
+          state,
+          repoRoot: root,
+          from: agentName,
+          to: recipient.agentName,
+          message: message.trim() || undefined,
+        },
+        vscodeReporter(),
+      )
+      if (result.nudgeText !== null) {
+        await nudgeAgentSession({
+          agent: state.agents[result.to],
+          displayName: result.to,
+          reporter: vscodeReporter(),
+          text: result.nudgeText,
+        })
+      }
+    },
+  )
+  await vscode.window.showInformationMessage(`Quimby handoff queued for "${recipient.agentName}".`)
 }
 
-function terminalShellCommand(command: string): { args: string[]; file: string } {
-  if (process.platform === 'win32') {
-    return { file: 'powershell.exe', args: ['-NoLogo', '-NoExit', '-Command', command] }
-  }
-  return { file: 'bash', args: ['-l', '-c', command] }
+async function syncAgentWork(agentName: string): Promise<void> {
+  const root = await requireRepoRoot()
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Syncing Quimby agent "${agentName}"`,
+    },
+    () => syncAgent(root, agentName),
+  )
+  const verb = result.rebased ? `rebased ${result.commitsReplayed} commit(s)` : 'already current'
+  await vscode.window.showInformationMessage(`Quimby sync complete: ${verb}.`)
+}
+
+function agentNameForTerminal(terminal: vscode.Terminal | undefined): string | null {
+  if (!terminal) return null
+  const tracked = terminalAgents.get(terminal)
+  if (tracked) return tracked
+  const name = terminal.creationOptions.name
+  return name?.startsWith(QUIMBY_TERMINAL_PREFIX) ? name.slice(QUIMBY_TERMINAL_PREFIX.length) : null
+}
+
+function quimbyTerminalIcon(): vscode.IconPath | undefined {
+  return extensionContext
+    ? {
+        dark: vscode.Uri.joinPath(
+          extensionContext.extensionUri,
+          'resources',
+          'quimby-hat-dark.svg',
+        ),
+        light: vscode.Uri.joinPath(
+          extensionContext.extensionUri,
+          'resources',
+          'quimby-hat-light.svg',
+        ),
+      }
+    : undefined
+}
+
+async function requireAgentNameForTerminal(terminal?: vscode.Terminal): Promise<string> {
+  const agentName = agentNameForTerminal(terminal ?? vscode.window.activeTerminal)
+  if (agentName) return agentName
+  const picked = await pickAgent({ includeAdd: false })
+  if (picked?.agentName) return picked.agentName
+  throw new Error('Select a Quimby agent terminal first.')
 }
 
 async function resolveSingleAgentTerminal(
@@ -624,188 +522,6 @@ async function loadStateForAgentPicker(
   }
 }
 
-function renderAgentPanelHtml(
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri,
-  opts: { agentName: string; connected: boolean },
-): string {
-  const nonce = nonceValue()
-  const xtermCss = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview-assets', 'xterm.css'),
-  )
-  const xtermJs = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview-assets', 'xterm.js'),
-  )
-  const fitJs = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview-assets', 'addon-fit.js'),
-  )
-  const state = opts.connected ? 'Connected' : 'Disconnected'
-  const detail = opts.connected
-    ? 'The agent terminal is owned by this Quimby tab.'
-    : 'The terminal was closed or disconnected. Reconnect to open a fresh agent terminal.'
-  const reconnectButton = opts.connected
-    ? `<button data-command="disconnect" title="Disconnect terminal">Disconnect</button>`
-    : `<button class="primary" data-command="reconnect" title="Reconnect terminal">Reconnect</button>`
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src ${webview.cspSource} 'nonce-${nonce}';">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Quimby: ${escapeHtml(opts.agentName)}</title>
-  <link rel="stylesheet" href="${xtermCss}">
-  <style nonce="${nonce}">
-    html,
-    body {
-      height: 100%;
-    }
-    body {
-      color: var(--vscode-foreground);
-      background: var(--vscode-editor-background);
-      font-family: var(--vscode-font-family);
-      margin: 0;
-    }
-    .root {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      min-height: 0;
-    }
-    .toolbar {
-      align-items: center;
-      border-bottom: 1px solid var(--vscode-panel-border);
-      box-sizing: border-box;
-      display: flex;
-      flex: 0 0 auto;
-      gap: 8px;
-      padding: 10px 12px;
-    }
-    .title {
-      font-weight: 600;
-      margin-right: auto;
-    }
-    button {
-      background: var(--vscode-button-secondaryBackground);
-      border: 0;
-      border-radius: 4px;
-      color: var(--vscode-button-secondaryForeground);
-      cursor: pointer;
-      font: inherit;
-      padding: 5px 10px;
-    }
-    button:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    button.primary {
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      font-weight: 600;
-    }
-    button.primary:hover {
-      background: var(--vscode-button-hoverBackground);
-    }
-    .state {
-      align-items: center;
-      display: flex;
-      flex: 1 1 auto;
-      gap: 16px;
-      padding: 36px 24px;
-    }
-    .terminal-wrap {
-      flex: 1 1 auto;
-      min-height: 0;
-      padding: 8px;
-    }
-    #terminal {
-      height: 100%;
-      width: 100%;
-    }
-    .glyph {
-      align-items: center;
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 8px;
-      color: var(--vscode-descriptionForeground);
-      display: flex;
-      font-size: 30px;
-      height: 64px;
-      justify-content: center;
-      width: 64px;
-    }
-    h2 {
-      font-size: 18px;
-      margin: 0 0 6px;
-    }
-    p {
-      color: var(--vscode-descriptionForeground);
-      line-height: 1.45;
-      margin: 0;
-      max-width: 620px;
-    }
-  </style>
-</head>
-<body>
-  <div class="root">
-    <div class="toolbar">
-      <div class="title">Quimby: ${escapeHtml(opts.agentName)}</div>
-      <button data-command="sync" title="Sync this agent">Sync</button>
-      <button data-command="handoff" title="Handoff this agent's work">Handoff</button>
-      ${reconnectButton}
-    </div>
-    ${
-      opts.connected
-        ? `<div class="terminal-wrap"><div id="terminal"></div></div>`
-        : `<main class="state">
-      <div class="glyph">&#8635;</div>
-      <div>
-        <h2>${state}</h2>
-        <p>${detail}</p>
-      </div>
-    </main>`
-    }
-  </div>
-  <script nonce="${nonce}" src="${xtermJs}"></script>
-  <script nonce="${nonce}" src="${fitJs}"></script>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    for (const button of document.querySelectorAll('button[data-command]')) {
-      button.addEventListener('click', () => {
-        vscode.postMessage({ command: button.dataset.command });
-      });
-    }
-    const terminalElement = document.getElementById('terminal');
-    if (terminalElement) {
-      const term = new Terminal({
-        allowProposedApi: false,
-        convertEol: true,
-        cursorBlink: true,
-        fontFamily: 'var(--vscode-editor-font-family)',
-        fontSize: Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-font-size'), 10) || 13,
-        theme: {
-          background: getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-background').trim(),
-          foreground: getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-foreground').trim()
-        }
-      });
-      const fit = new FitAddon.FitAddon();
-      term.loadAddon(fit);
-      term.open(terminalElement);
-      const resize = () => {
-        fit.fit();
-        vscode.postMessage({ command: 'terminalResize', cols: term.cols, rows: term.rows });
-      };
-      term.onData((data) => vscode.postMessage({ command: 'terminalInput', data }));
-      window.addEventListener('resize', resize);
-      resize();
-      vscode.postMessage({ command: 'terminalReady' });
-      window.addEventListener('message', (event) => {
-        if (event.data?.command === 'terminalOutput') term.write(event.data.data);
-      });
-      term.focus();
-    }
-  </script>
-</body>
-</html>`
-}
-
 function validateAgentNameInput(value: string): string | undefined {
   if (!value) return 'Enter an agent name.'
   if (!/^[A-Za-z0-9._-]+$/.test(value)) {
@@ -823,21 +539,6 @@ function vscodeReporter(): Reporter {
     success: (message) => log?.info(message),
     warn: (message) => log?.warn(message),
   }
-}
-
-function nonceValue(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let value = ''
-  for (let i = 0; i < 32; i++) value += chars[Math.floor(Math.random() * chars.length)]
-  return value
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
 }
 
 // Dispose the layout's terminals: the tracked objects directly (reliable in-session), plus any
