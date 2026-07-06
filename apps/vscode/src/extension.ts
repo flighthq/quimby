@@ -52,7 +52,6 @@ let ownedServer: QuimbyServerHandle | null = null
 let layoutSession: LayoutSession | null = null
 let extensionContext: vscode.ExtensionContext | null = null
 let log: vscode.LogOutputChannel | null = null
-let crashLoggingInstalled = false
 // Always-visible proof the extension is alive IN THIS window, plus a one-click close control —
 // the layout has no other discoverable affordance, and a status-bar item disambiguates which of
 // several Extension Development Host windows actually owns the live session.
@@ -64,7 +63,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log = vscode.window.createOutputChannel('Quimby', { log: true })
   context.subscriptions.push(log)
   log.info('Quimby extension activated')
-  installCrashLogging()
   context.subscriptions.push(
     vscode.commands.registerCommand('quimby.openAgent', () => runCommand(() => openAgentCommand())),
     vscode.commands.registerCommand('quimby.addAgent', () => runCommand(() => addAgentCommand())),
@@ -935,22 +933,6 @@ async function safely(label: string, action: () => Promise<void>): Promise<void>
   } catch (err) {
     log?.error(`${label} failed: ${errorDetail(err)}`)
   }
-}
-
-// Route otherwise-invisible async failures to the Quimby channel. The embedded server's poller
-// spawns ssh/tmux child processes on a timer, so a rejected probe with no local catch surfaces as
-// a process-level unhandledRejection — which silently terminates the VS Code extension host. Both
-// handlers log a stack here first; the uncaughtException handler also keeps the host alive so one
-// bad tick no longer takes the whole extension down with it.
-function installCrashLogging(): void {
-  if (crashLoggingInstalled) return
-  crashLoggingInstalled = true
-  process.on('unhandledRejection', (reason) => {
-    log?.error(`unhandledRejection: ${errorDetail(reason)}`)
-  })
-  process.on('uncaughtException', (err) => {
-    log?.error(`uncaughtException: ${errorDetail(err)}`)
-  })
 }
 
 function errorDetail(err: unknown): string {
