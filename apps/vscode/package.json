@@ -21,7 +21,10 @@
         "command": "quimby.openAgent",
         "title": "Open Agent",
         "category": "Quimby",
-        "icon": "$(hubot)"
+        "icon": {
+          "dark": "resources/quimby-hat-dark.svg",
+          "light": "resources/quimby-hat-light.svg"
+        }
       },
       {
         "command": "quimby.addAgent",
@@ -69,8 +72,8 @@
       "properties": {
         "quimby.restoreLastLayout": {
           "type": "boolean",
-          "default": true,
-          "description": "Restore the last Quimby layout when a workspace opens."
+          "default": false,
+          "description": "Restore the last Quimby layout when a workspace opens. Disabled by default so opening VS Code does not launch every agent in a saved layout."
         },
         "quimby.suppressTerminalKillConfirmation": {
           "type": "boolean",

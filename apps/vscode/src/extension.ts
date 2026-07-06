@@ -109,8 +109,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const restored = await restoreLastLayout(context, { quiet: true })
       if (!restored) await showHome(context)
     })
-  } else {
-    await showHome(context)
   }
 }
 
@@ -873,9 +871,9 @@ function updateStatusBar(): void {
     statusBarItem.tooltip = 'Close Quimby layout'
     statusBarItem.command = 'quimby.closeLayout'
   } else {
-    statusBarItem.text = '$(rocket) Quimby'
-    statusBarItem.tooltip = 'Open Quimby layout'
-    statusBarItem.command = 'quimby.openLayout'
+    statusBarItem.text = '$(shield) Quimby'
+    statusBarItem.tooltip = 'Open one Quimby agent'
+    statusBarItem.command = 'quimby.openAgent'
   }
   statusBarItem.show()
 }
@@ -892,7 +890,7 @@ async function stopOwnedServer(): Promise<void> {
 }
 
 function shouldRestoreLastLayout(): boolean {
-  return vscode.workspace.getConfiguration('quimby').get('restoreLastLayout', true)
+  return vscode.workspace.getConfiguration('quimby').get('restoreLastLayout', false)
 }
 
 // Editor-area terminals with a running process route their dispose through VS Code's "confirm
