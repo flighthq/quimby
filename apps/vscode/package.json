@@ -45,6 +45,11 @@
           "type": "boolean",
           "default": true,
           "description": "Restore the last Quimby layout when a workspace opens."
+        },
+        "quimby.suppressTerminalKillConfirmation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set terminal.integrated.confirmOnKill to \"never\" for this workspace so Quimby can close layout terminals (and you can close them by hand) without a confirmation prompt. Quimby's agents keep their durable state on disk, so closing a terminal loses no work."
         }
       }
     }

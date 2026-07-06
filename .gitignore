@@ -8,6 +8,7 @@ coverage/
 packages/template/src/quimbyContext.ts
 
 .quimby
+.quimby/
 
 # Local reference checkout (not part of quimby)
 flight/
