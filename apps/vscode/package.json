@@ -22,8 +22,8 @@
         "title": "Open Agent",
         "category": "Quimby",
         "icon": {
-          "dark": "resources/quimby-hat-dark.svg",
-          "light": "resources/quimby-hat-light.svg"
+          "dark": "resources/quimby-bomb-dark.svg",
+          "light": "resources/quimby-bomb-light.svg"
         }
       },
       {
@@ -154,6 +154,7 @@
     "@quimbyhq/agent": "*",
     "@quimbyhq/git": "*",
     "@quimbyhq/handoff": "*",
+    "@quimbyhq/launch": "*",
     "@quimbyhq/layout": "*",
     "@quimbyhq/reporter": "*",
     "@quimbyhq/server": "*",

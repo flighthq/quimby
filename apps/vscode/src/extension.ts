@@ -1,6 +1,7 @@
 import { addAgent, syncAgent } from '@quimbyhq/agent'
 import { findRoot } from '@quimbyhq/git'
 import { handoffWork } from '@quimbyhq/handoff'
+import { resolveRuntimeSelection } from '@quimbyhq/launch'
 import { buildResolvedLayoutPlan, listLayoutTargets, resolveLayoutPlan } from '@quimbyhq/layout'
 import type { Reporter } from '@quimbyhq/reporter'
 import { getServerInfo, type QuimbyServerHandle, startServer } from '@quimbyhq/server'
@@ -49,6 +50,7 @@ let log: vscode.LogOutputChannel | null = null
 let statusBarItem: vscode.StatusBarItem | null = null
 const agentTerminals = new Map<string, vscode.Terminal>()
 const terminalAgents = new Map<vscode.Terminal, string>()
+type AgentIconKind = 'bomb' | 'claude' | 'codex'
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context
@@ -305,6 +307,7 @@ function spawnLayoutTerminal(
     name: leaf.displayName,
     cwd: leaf.cwd,
     location,
+    iconPath: leaf.kind === 'agent' ? agentTerminalIconFromText(leaf.command.string) : undefined,
     // Don't let VS Code revive these across a window reload: otherwise the reload restores the
     // terminals AND `restoreLastLayout` re-creates them, producing duplicates that Close Layout
     // can't fully clear. The extension re-opens the layout itself on activation instead.
@@ -346,11 +349,12 @@ async function handoffAgentTerminalCommand(terminal?: vscode.Terminal): Promise<
 async function reconnectAgent(agentName: string): Promise<void> {
   agentTerminals.get(agentName)?.dispose()
   const root = await requireRepoRoot()
+  const iconPath = await resolveAgentTerminalIcon(root, agentName)
   const terminal = vscode.window.createTerminal({
     name: agentName,
     cwd: root,
     color: new vscode.ThemeColor('terminal.ansiYellow'),
-    iconPath: quimbyTerminalIcon(),
+    iconPath,
     isTransient: true,
     location: vscode.TerminalLocation.Editor,
     message: `Starting Quimby agent "${agentName}"...`,
@@ -431,21 +435,47 @@ function agentNameForTerminal(terminal: vscode.Terminal | undefined): string | n
   return terminalAgents.get(terminal) ?? null
 }
 
-function quimbyTerminalIcon(): vscode.IconPath | undefined {
+function quimbyIcon(kind: AgentIconKind): vscode.IconPath | undefined {
   return extensionContext
     ? {
         dark: vscode.Uri.joinPath(
           extensionContext.extensionUri,
           'resources',
-          'quimby-hat-dark.svg',
+          `quimby-${kind}-dark.svg`,
         ),
         light: vscode.Uri.joinPath(
           extensionContext.extensionUri,
           'resources',
-          'quimby-hat-light.svg',
+          `quimby-${kind}-light.svg`,
         ),
       }
     : undefined
+}
+
+function agentTerminalIconFromText(text: string | undefined): vscode.IconPath | undefined {
+  return quimbyIcon(agentIconKindFromText(text) ?? 'bomb')
+}
+
+async function resolveAgentTerminalIcon(
+  root: string,
+  agentName: string,
+): Promise<vscode.IconPath | undefined> {
+  try {
+    const [config, state] = await Promise.all([loadQuimbyConfig(root), loadState(root)])
+    const agent = state.agents[agentName]
+    if (!agent) return quimbyIcon('bomb')
+    return agentTerminalIconFromText(resolveRuntimeSelection({ agent, config }).entrypoint)
+  } catch (err) {
+    log?.warn(`agent icon fallback for "${agentName}": ${errorDetail(err)}`)
+    return quimbyIcon('bomb')
+  }
+}
+
+function agentIconKindFromText(text: string | undefined): AgentIconKind | null {
+  if (!text) return null
+  if (/\bcodex\b/i.test(text)) return 'codex'
+  if (/\bclaude\b/i.test(text)) return 'claude'
+  return null
 }
 
 async function requireAgentNameForTerminal(terminal?: vscode.Terminal): Promise<string> {
