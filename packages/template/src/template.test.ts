@@ -83,6 +83,9 @@ describe('renderQuimbyContext', () => {
     expect(out).toContain('./agent.sh attest')
     // Status writes are silent.
     expect(out).toContain('silent')
+    // Commits are one-line, no body, no co-author trailer.
+    expect(out).toContain('single line')
+    expect(out).toContain('Co-Authored-By')
   })
 
   it('mirrors peer status into status/ for on-demand peek', () => {

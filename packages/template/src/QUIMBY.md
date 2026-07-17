@@ -14,7 +14,7 @@ Quimby still stores assignment, status, mailbox, and peer mirrors as files under
 ## Working
 
 1. **Resume first.** Run `./agent.sh status`; if a prior instance left useful state, continue from it.
-2. Run `./agent.sh assignment`, do the work in `repo/`, commit as you go. Keep all work on your original branch — don't create or switch branches; Quimby captures your working tree against its seed, so a new branch isn't carried.
+2. Run `./agent.sh assignment`, do the work in `repo/`, commit as you go. Keep commit messages to a single line — no long body, no `Co-Authored-By` trailer. Keep all work on your original branch — don't create or switch branches; Quimby captures your working tree against its seed, so a new branch isn't carried.
 3. Keep your status current with `./agent.sh status set -m "..."` or `./agent.sh status append -m "..."` — what you're doing, what's done, blockers, the next concrete step. It's your handoff to your own successor, who resumes from it alone after a reset. Finish with `./agent.sh status done -m "done: …"`. These writes are silent; don't announce them.
 
 ## Keep `assignment.md` true — and know it ranks below the live user
