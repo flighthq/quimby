@@ -1,3 +1,4 @@
+import { collectingReporter } from '@quimbyhq/reporter'
 import type { QuimbyState } from '@quimbyhq/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -112,6 +113,48 @@ describe('handoffWork', () => {
       nudge: false,
     })
     expect(forcedOff.nudgeText).toBeNull()
+  })
+
+  it('echoes the note back on the success line so `-m` is visibly captured', async () => {
+    const { reporter, events } = collectingReporter()
+    await handoffWork(
+      {
+        state: stateWith('builder', 'review'),
+        repoRoot: '/r',
+        from: 'builder',
+        to: 'review',
+        message: 'fix the null case in Y',
+      },
+      reporter,
+    )
+    const success = events.find((e) => e.level === 'success')?.message
+    expect(success).toBe(
+      'Handed off from "builder" to "review" with your note "fix the null case in Y"',
+    )
+  })
+
+  it('collapses and caps a long or multi-line note in the confirmation', async () => {
+    const { reporter, events } = collectingReporter()
+    await handoffWork(
+      {
+        state: stateWith('b', 'r'),
+        repoRoot: '/r',
+        from: 'b',
+        to: 'r',
+        message: `line one\n  line two that keeps going well past the seventy-two character legibility cap`,
+      },
+      reporter,
+    )
+    const success = events.find((e) => e.level === 'success')?.message ?? ''
+    expect(success).not.toContain('\n')
+    expect(success).toContain('line one line two')
+    expect(success).toContain('…')
+  })
+
+  it('omits the note clause on a data-only handoff', async () => {
+    const { reporter, events } = collectingReporter()
+    await handoffWork({ state: stateWith('b', 'r'), repoRoot: '/r', from: 'b', to: 'r' }, reporter)
+    expect(events.find((e) => e.level === 'success')?.message).toBe('Handed off from "b" to "r"')
   })
 
   it('throws when a named source agent does not exist', async () => {

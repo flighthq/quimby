@@ -98,7 +98,13 @@ export async function handoffWork(
     projectId: state.id,
   })
   await discardHandoff(repoRoot, parcelName)
-  reporter.success(`Handed off from ${fromHost ? HOST_SENDER : `"${sender}"`} to "${recipient}"`)
+  // Echo the note back so the caller can see `-m` was captured — the note lands in the
+  // parcel, not the recipient's terse `quimby · parcel from …` nudge, so this is the one
+  // place it surfaces to the host.
+  const noteConfirmation = opts.message ? ` with your note ${quoteNote(opts.message)}` : ''
+  reporter.success(
+    `Handed off from ${fromHost ? HOST_SENDER : `"${sender}"`} to "${recipient}"${noteConfirmation}`,
+  )
 
   return {
     from: sender,
@@ -106,4 +112,17 @@ export async function handoffWork(
     parcelName,
     nudgeText: shouldNudge ? inboxNoticeText(parcelName, opts.message) : null,
   }
+}
+
+// The longest note echoed on the confirmation line before it is truncated; the full note
+// always lives in the parcel, so this is a legibility cap, not a content limit.
+const NOTE_ECHO_LIMIT = 72
+
+// Render a note for the one-line handoff confirmation: whitespace collapsed to keep it on
+// one line, and capped so a long note doesn't flood the log.
+function quoteNote(note: string): string {
+  const oneLine = note.replace(/\s+/g, ' ').trim()
+  const capped =
+    oneLine.length > NOTE_ECHO_LIMIT ? `${oneLine.slice(0, NOTE_ECHO_LIMIT - 1)}…` : oneLine
+  return `"${capped}"`
 }
