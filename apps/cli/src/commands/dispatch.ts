@@ -63,7 +63,10 @@ export async function runDispatchCommand({
   for (const { sender, results } of senders) {
     for (const result of results) {
       if (result.status === 'delivered') {
-        logger.success(`Delivered "${sender}" → "${result.recipient}"`)
+        const fileSuffix = result.files?.length
+          ? ` (+${result.files.length} file(s): ${result.files.join(', ')})`
+          : ''
+        logger.success(`Delivered "${sender}" → "${result.recipient}"${fileSuffix}`)
         if (args.nudge && result.parcelName) {
           const recip = state.agents[result.recipient]
           if (recip) {

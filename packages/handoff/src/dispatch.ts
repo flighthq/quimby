@@ -1,4 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import { getStagingHandoffDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
@@ -7,6 +8,7 @@ import { isSSH } from '@quimbyhq/types'
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
 import {
   clearRemoteOutboxDraft,
+  copyOutboxExtraFiles,
   markHandoffSent,
   pickupRemoteOutbox,
   readOutboxDraft,
@@ -19,6 +21,8 @@ export interface DispatchOutboxResult {
   status: 'delivered' | 'unknown' | 'failed'
   parcelName?: string
   hasNote?: boolean
+  /** Extra files the sender attached (via `agent.sh handoff --file`) that were carried along. */
+  files?: string[]
   error?: string
 }
 
@@ -140,6 +144,16 @@ export async function dispatchOutbox(opts: {
             resolveAttestation: opts.resolveAttestation,
           })
 
+      // Carry any files the sender attached beyond the note + diff. They were staged into
+      // the queued parcel by `agent.sh handoff --file`; without copying them into the
+      // assembled staging parcel here they would be dropped and never reach the inbox.
+      const files = await copyOutboxExtraFiles(
+        repoRoot,
+        senderId,
+        recipient,
+        getStagingHandoffDir(repoRoot, meta.name),
+      )
+
       await deliverHandoff({
         repoRoot,
         name: meta.name,
@@ -156,6 +170,7 @@ export async function dispatchOutbox(opts: {
         status: 'delivered',
         parcelName: meta.name,
         hasNote: Boolean(draft.note),
+        files: files.length > 0 ? files : undefined,
       })
     } catch (err) {
       results.push({

@@ -127,6 +127,30 @@ describe('dispatchOutbox', () => {
     expect(await exists(getAgentHandoffOutSentRecipientDir(dir, 'review', 'builder'))).toBe(true)
   })
 
+  it('carries the sender-attached files into the recipient inbox alongside the note', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(draft, { recursive: true })
+    await writeFile(join(draft, 'README.md'), 'see the brief')
+    await writeFile(join(draft, 'brief.md'), '# Lighting rework brief')
+
+    const results = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+
+    expect(results[0]).toMatchObject({
+      recipient: 'builder',
+      status: 'delivered',
+      files: ['brief.md'],
+    })
+    const received = getAgentHandoffInReceivedParcelDir(dir, 'builder', results[0].parcelName!)
+    expect(await exists(join(received, 'brief.md'))).toBe(true)
+    expect(await exists(join(received, 'README.md'))).toBe(true)
+  })
+
   it('fails when attach references a nonexistent code source', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

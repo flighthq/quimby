@@ -65,7 +65,10 @@ export async function autoDispatchOutboxes(
     })
     for (const result of results) {
       if (result.status === 'delivered') {
-        reporter.success(`  delivered "${sender}" → "${result.recipient}" (${result.parcelName})`)
+        const fileSuffix = result.files?.length ? ` +${result.files.length} file(s)` : ''
+        reporter.success(
+          `  delivered "${sender}" → "${result.recipient}" (${result.parcelName})${fileSuffix}`,
+        )
         const recip = state.agents[result.recipient]
         if (recip && result.parcelName) {
           await nudgeAgentSession({

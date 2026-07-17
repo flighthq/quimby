@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   clearRemoteOutboxDraft,
+  copyOutboxExtraFiles,
   markHandoffSent,
   pickupRemoteOutbox,
   readOutboxDraft,
@@ -109,6 +110,64 @@ describe('clearRemoteOutboxDraft', () => {
     const cmd = (sshTransport.exec.mock.calls[0] as unknown as [string])[0]
     expect(cmd).toContain('/agents/9b35cd55/handoff/out')
     expect(cmd).toMatch(/&& mv \S+\/out\/queued\/'builder' \S+\/out\/sent\/'builder'/)
+  })
+})
+
+describe('copyOutboxExtraFiles', () => {
+  it('returns empty when the queued parcel dir does not exist', async () => {
+    expect(await copyOutboxExtraFiles(dir, 'ghost', 'builder', join(dir, 'dest'))).toEqual([])
+  })
+
+  it('copies the sender-attached files (not the note) into the destination, sorted', async () => {
+    await setupAgentRepo(dir, 'review')
+    const queued = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(queued, { recursive: true })
+    await writeFile(join(queued, 'README.md'), 'the note')
+    await writeFile(join(queued, 'brief.md'), '# Brief')
+    await writeFile(join(queued, 'data.json'), '{}')
+    const destDir = join(dir, 'staging-parcel')
+    const copied = await copyOutboxExtraFiles(dir, 'review', 'builder', destDir)
+    expect(copied).toEqual(['brief.md', 'data.json'])
+    expect(await exists(join(destDir, 'brief.md'))).toBe(true)
+    expect(await exists(join(destDir, 'data.json'))).toBe(true)
+    // The note travels via the assembler's README.md, not as an extra file.
+    expect(await exists(join(destDir, 'README.md'))).toBe(false)
+  })
+
+  it('returns empty when the parcel carries only the note', async () => {
+    await setupAgentRepo(dir, 'review')
+    const queued = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(queued, { recursive: true })
+    await writeFile(join(queued, 'README.md'), 'just a note')
+    const destDir = join(dir, 'staging-parcel')
+    expect(await copyOutboxExtraFiles(dir, 'review', 'builder', destDir)).toEqual([])
+  })
+
+  it('never copies a reserved parcel filename (an attachment cannot clobber the diff/manifest)', async () => {
+    await setupAgentRepo(dir, 'review')
+    const queued = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(queued, { recursive: true })
+    await writeFile(join(queued, 'README.md'), 'note')
+    await writeFile(join(queued, 'squashed.diff'), 'ATTACKER DIFF')
+    await writeFile(join(queued, 'meta.yaml'), 'evil: true')
+    await writeFile(join(queued, 'keep.txt'), 'ok')
+    const destDir = join(dir, 'staging-parcel')
+    const copied = await copyOutboxExtraFiles(dir, 'review', 'builder', destDir)
+    expect(copied).toEqual(['keep.txt'])
+    expect(await exists(join(destDir, 'squashed.diff'))).toBe(false)
+    expect(await exists(join(destDir, 'meta.yaml'))).toBe(false)
+  })
+
+  it('ignores directories — only plain files are carried', async () => {
+    await setupAgentRepo(dir, 'review')
+    const queued = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(join(queued, 'commits'), { recursive: true })
+    await writeFile(join(queued, 'commits', '0001.patch'), 'patch')
+    await writeFile(join(queued, 'notes.txt'), 'plain')
+    const destDir = join(dir, 'staging-parcel')
+    const copied = await copyOutboxExtraFiles(dir, 'review', 'builder', destDir)
+    expect(copied).toEqual(['notes.txt'])
+    expect(await exists(join(destDir, 'commits'))).toBe(false)
   })
 })
 

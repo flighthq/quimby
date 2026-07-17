@@ -11,7 +11,7 @@ import {
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { ensureDir, exists } from '@quimbyhq/utils'
+import { cp, ensureDir, exists } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
 /**
@@ -32,6 +32,36 @@ export async function clearRemoteOutboxDraft(
   const queued = `${queuedDir}/${sq(recipient)}`
   const sent = `${sentDir}/${sq(recipient)}`
   await transport.exec(`mkdir -p ${sentDir} && rm -rf ${sent} && mv ${queued} ${sent}`)
+}
+
+/**
+ * Copy a queued parcel's extra files — everything the sender attached alongside the note via
+ * `agent.sh handoff --file` — into `destDir` (the assembled staging parcel), returning the copied
+ * basenames. The note (`README.md`) and the code source's diff are assembled separately; the
+ * reserved parcel filenames are skipped so an attachment can never clobber the diff/manifest.
+ * Without this, arbitrary files a sender staged are silently dropped on carry — the parcel shows
+ * them in `out/queued`/`out/sent`, but they never reach the recipient's inbox. Directories are
+ * ignored (`--file` only stages plain files). A no-op when the queue dir or extras are absent.
+ */
+export async function copyOutboxExtraFiles(
+  repoRoot: string,
+  fromId: string,
+  recipient: string,
+  destDir: string,
+): Promise<string[]> {
+  const queuedDir = getAgentHandoffOutQueuedRecipientDir(repoRoot, fromId, recipient)
+  if (!(await exists(queuedDir))) return []
+  const entries = await readdir(queuedDir, { withFileTypes: true })
+  const extras = entries
+    .filter((e) => e.isFile() && !RESERVED_PARCEL_FILES.has(e.name))
+    .map((e) => e.name)
+    .sort()
+  if (extras.length === 0) return []
+  await ensureDir(destDir)
+  for (const name of extras) {
+    await cp(join(queuedDir, name), join(destDir, name))
+  }
+  return extras
 }
 
 /** Move a delivered parcel from `out/queued/` into the `out/sent/` ledger (the progress record). */
@@ -93,6 +123,15 @@ export async function readOutboxRecipients(repoRoot: string, fromId: string): Pr
     .map((e) => e.name)
     .sort()
 }
+
+// Parcel filenames the assembler owns; a sender's `--file` attachment must never overwrite them.
+// `README.md` is the note (assembled from the draft's frontmatter-stripped body separately).
+const RESERVED_PARCEL_FILES = new Set([
+  'README.md',
+  'squashed.diff',
+  'uncommitted.diff',
+  'meta.yaml',
+])
 
 function parseDraft(content: string): { note: string; attach?: string } {
   if (!content.startsWith('---')) return { note: content }
