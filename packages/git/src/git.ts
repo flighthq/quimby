@@ -1,5 +1,8 @@
+import { access } from 'node:fs/promises'
+
 import { GitError } from '@quimbyhq/errors'
 import { execa } from 'execa'
+import { isAbsolute, join } from 'pathe'
 
 async function git(args: string[], cwd: string, opts?: { raw?: boolean }): Promise<string> {
   try {
@@ -218,6 +221,25 @@ export async function isMergeInProgress(cwd: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+export async function isRebaseOrAmInProgress(cwd: string): Promise<boolean> {
+  // A `git am` (and an old-style rebase) marks progress with a `rebase-apply` directory; an
+  // interactive/merge rebase with `rebase-merge`. Neither sets a single ref like MERGE_HEAD, so
+  // detection is directory presence — resolved through `--git-path` so it holds for worktrees and
+  // submodules. Callers use this exactly as `isMergeInProgress` guards a mid-merge: to avoid
+  // clobbering a live retry state.
+  for (const marker of ['rebase-apply', 'rebase-merge']) {
+    const rel = (await git(['rev-parse', '--git-path', marker], cwd)).trim()
+    const dir = isAbsolute(rel) ? rel : join(cwd, rel)
+    try {
+      await access(dir)
+      return true
+    } catch {
+      // marker absent — check the next one
+    }
+  }
+  return false
 }
 
 export async function log(cwd: string, range: string, format?: string): Promise<string> {

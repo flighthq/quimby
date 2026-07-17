@@ -27,6 +27,7 @@ import {
   init,
   isClean,
   isMergeInProgress,
+  isRebaseOrAmInProgress,
   log,
   merge,
   mergeAbort,
@@ -438,6 +439,51 @@ describe('isMergeInProgress', () => {
     expect(await isMergeInProgress(dir)).toBe(true)
     await mergeAbort(dir)
     expect(await isMergeInProgress(dir)).toBe(false)
+  })
+})
+
+describe('isRebaseOrAmInProgress', () => {
+  it('is false in a clean repo', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    expect(await isRebaseOrAmInProgress(dir)).toBe(false)
+  })
+
+  it('is true during a conflicted rebase, false again after abort', async () => {
+    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'file.txt', 'feature change\n', 'feature edit')
+    await checkout(dir, defaultBranch)
+    await makeCommit(dir, 'file.txt', 'main change\n', 'main edit')
+    await checkout(dir, 'feature')
+    await expect(rebase(dir, defaultBranch)).rejects.toThrow() // conflict leaves the rebase live
+    expect(await isRebaseOrAmInProgress(dir)).toBe(true)
+    await rebaseAbort(dir)
+    expect(await isRebaseOrAmInProgress(dir)).toBe(false)
+  })
+
+  it('is true during a conflicted git am, false again after abort', async () => {
+    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'file.txt', 'feature change\n', 'feature edit')
+    const patch = join(dir, 'feature.patch')
+    const { stdout: formatted } = await execa('git', ['format-patch', '-1', '--stdout'], {
+      cwd: dir,
+    })
+    await writeFile(patch, formatted)
+    await checkout(dir, defaultBranch)
+    await makeCommit(dir, 'file.txt', 'diverged change\n', 'diverged edit')
+    await expect(execa('git', ['am', '--3way', patch], { cwd: dir })).rejects.toThrow() // am can't 3-way merge the conflict, session stays open
+    expect(await isRebaseOrAmInProgress(dir)).toBe(true)
+    await execa('git', ['am', '--abort'], { cwd: dir })
+    expect(await isRebaseOrAmInProgress(dir)).toBe(false)
   })
 })
 

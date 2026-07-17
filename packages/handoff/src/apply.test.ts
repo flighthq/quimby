@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -515,6 +515,67 @@ describe('applyHandoff', () => {
         }),
       ).rejects.toThrow('temporary merge branch')
       expect(await getCurrentBranch(targetDir)).toBe(tempBranch)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('commits mode aborts a failed git am and leaves the target clean and retryable', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+
+    // Corrupt the staged patch so `git am --3way` cannot apply it (context and blob indexes
+    // absent at the seed) — standing in for the real triggers the user hit (binary/mode/CRLF
+    // patches that won't replay). Before the abort fix this stranded the target mid-am on the
+    // temp branch with `.git/rebase-apply` left behind.
+    const commitsDir = join(getStagingHandoffDir(dir, meta.name), 'commits')
+    const patchFile = (await readdir(commitsDir)).find((f) => f.endsWith('.patch'))!
+    await writeFile(
+      join(commitsDir, patchFile),
+      [
+        'From 1234567890123456789012345678901234567890 Mon Sep 17 00:00:00 2001',
+        'From: Test User <test@test.com>',
+        'Date: Mon, 1 Jan 2024 00:00:00 +0000',
+        'Subject: [PATCH] unappliable change',
+        '',
+        '---',
+        ' base.txt | 2 +-',
+        ' 1 file changed, 1 insertion(+), 1 deletion(-)',
+        '',
+        'diff --git a/base.txt b/base.txt',
+        'index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644',
+        '--- a/base.txt',
+        '+++ b/base.txt',
+        '@@ -1 +1 @@',
+        '-line that does not exist at seed',
+        '+replacement',
+        '',
+      ].join('\n'),
+    )
+
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const before = await getCurrentBranch(targetDir)
+      await expect(
+        applyHandoff({
+          repoRoot: dir,
+          name: meta.name,
+          targetRepoPath: targetDir,
+          mode: 'commits',
+        }),
+      ).rejects.toThrow(/Could not replay the agent's commits/)
+      // No dangling am session, back on the original branch, clean tree, temp branch gone — so
+      // the staged parcel (kept by the caller) can simply be retried.
+      expect(await git.isRebaseOrAmInProgress(targetDir)).toBe(false)
+      expect(await getCurrentBranch(targetDir)).toBe(before)
+      expect(await git.isClean(targetDir)).toBe(true)
+      const tempBranch = `quimby/merge-${meta.from}-${meta.seedCommit!.slice(0, 8)}`
+      expect(await git.branchExists(targetDir, tempBranch)).toBe(false)
     } finally {
       await rm(targetDir, { recursive: true, force: true })
       await rm(sourceDir, { recursive: true, force: true })

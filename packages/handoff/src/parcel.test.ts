@@ -98,6 +98,27 @@ async function setupConflictedRepo(): Promise<string> {
   return repo
 }
 
+async function setupRebasingRepo(): Promise<string> {
+  const repo = join(tmpdir(), `quimby-target-${crypto.randomUUID()}`)
+  await mkdir(repo, { recursive: true })
+  await execa('git', ['init'], { cwd: repo })
+  await configureGit(repo)
+  await writeFile(join(repo, 'f.txt'), 'base\n')
+  await execa('git', ['add', '-A'], { cwd: repo })
+  await execa('git', ['commit', '-m', 'base'], { cwd: repo })
+  const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo })
+  const main = stdout.trim()
+  await execa('git', ['checkout', '-b', 'feature'], { cwd: repo })
+  await writeFile(join(repo, 'f.txt'), 'feature\n')
+  await execa('git', ['commit', '-am', 'feature'], { cwd: repo })
+  await execa('git', ['checkout', main], { cwd: repo })
+  await writeFile(join(repo, 'f.txt'), 'main\n')
+  await execa('git', ['commit', '-am', 'main'], { cwd: repo })
+  await execa('git', ['checkout', 'feature'], { cwd: repo })
+  await execa('git', ['rebase', main], { cwd: repo, reject: false }) // conflicts → leaves rebase-merge
+  return repo
+}
+
 beforeEach(async () => {
   dir = await setupRepoRoot()
 })
@@ -211,6 +232,21 @@ describe('healAbandonedStaging', () => {
     await withFeatureCommit(agentRepoDir)
     const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
     const target = await setupConflictedRepo()
+    try {
+      expect(await healAbandonedStaging(dir, target)).toBe(false)
+      expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)
+    } finally {
+      await rm(target, { recursive: true, force: true })
+    }
+  })
+
+  // A `--commits` merge lands via `git am` (a rebase-family operation), so guarding on
+  // MERGE_HEAD alone would wipe the parcel while an am/rebase-based retry is still live.
+  it('preserves the staging area while a rebase/am is in progress in the target (the retry path)', async () => {
+    const agentRepoDir = await setupAgentRepo(dir, 'alice')
+    await withFeatureCommit(agentRepoDir)
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const target = await setupRebasingRepo()
     try {
       expect(await healAbandonedStaging(dir, target)).toBe(false)
       expect(await exists(getStagingHandoffDir(dir, meta.name))).toBe(true)

@@ -129,7 +129,23 @@ export async function applyHandoff(opts: {
               .map((f) => join(commitsDir, f))
           : []
         if (sortedPatches.length > 0) {
-          await git.am(targetRepoPath, sortedPatches, { skipHooks: true })
+          try {
+            await git.am(targetRepoPath, sortedPatches, { skipHooks: true })
+          } catch (amErr) {
+            // git refuses to switch branches while an `am` is in progress, so a half-applied am
+            // would strand the user on the temp branch (the outer catch's checkout silently
+            // fails) with `.git/rebase-apply` left behind — the "broken state". Abort the am here
+            // (mirroring the merge path's mergeAbort) so recovery returns cleanly to previousRef
+            // with the staged parcel intact and retryable. The individual commits aren't
+            // reconstructable here, so point the user at the modes that don't replay them.
+            await git.amAbort(targetRepoPath)
+            const detail = amErr instanceof Error ? amErr.message : String(amErr)
+            throw new QuimbyError(
+              `Could not replay the agent's commits with "git am" (${detail}). The parcel is kept — ` +
+                `retry with "quimby merge ${meta.from}" (squashed, the default) or add --patch to ` +
+                `land the work without replaying individual commits.`,
+            )
+          }
           const rp = join(dir, 'uncommitted.diff')
           if (await exists(rp)) remainderPath = rp
         } else {
