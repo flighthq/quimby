@@ -25,6 +25,13 @@ const CLEAR_SETTLE_MS = 600
 // submission rather than just another line-editing event.
 const SUBMIT_SETTLE_MS = 150
 
+// A courier-injected message leads with this so the agent can tell it from text the user typed
+// live: `quimby · <label>` (e.g. `parcel from review`, `assignment updated`, `resume …`). The
+// interpunct is the only separator; where to read (inbox / assignment / status) is taught once in
+// the agent's AGENTS.md rather than repeated on every line. Absence of the lead means the user is
+// typing directly — the agent's top authority.
+export const COURIER_PREFIX = 'quimby · '
+
 /**
  * Whether the agent has a live tmux session right now (`tmux has-session`). False for
  * a local non-tmux agent (no session to have) and for any tmux/SSH agent that isn't
@@ -81,18 +88,30 @@ export async function nudgeAgentSession(opts: {
   agent: Readonly<AgentState>
   clear?: boolean
   displayName: string
-  text: string
+  /** Raw text typed verbatim — a bare poke ("continue") or the user's own `nudge -m` words. */
+  text?: string
+  /**
+   * A courier label. When set, the message typed is `quimby · <courier>` rather than `text`, and
+   * the `quimby · ` lead marks it as delivered by the courier (a parcel, an assignment change, a
+   * resume) — the one signal the agent uses to tell an agent/system directive from the user typing
+   * live. Rendered here so no caller can inject a courier message unmarked.
+   */
+  courier?: string
   dashboardSession?: string
   reporter?: Reporter
 }): Promise<void> {
-  const { agent, clear, displayName, text, dashboardSession } = opts
+  const { agent, clear, displayName, dashboardSession } = opts
   const reporter = opts.reporter ?? silentReporter
+  const message = opts.courier !== undefined ? `${COURIER_PREFIX}${opts.courier}` : opts.text
+  if (message === undefined) {
+    throw new Error('nudgeAgentSession requires either `text` or `courier`')
+  }
 
   if (!isSSH(agent.location) && !agent.tmux) {
     // Local non-tmux agent — try dashboard window before giving up.
     if (
       dashboardSession &&
-      (await nudgeWindowInSession(dashboardSession, displayName, text, reporter))
+      (await nudgeWindowInSession(dashboardSession, displayName, message, reporter))
     ) {
       return
     }
@@ -108,7 +127,7 @@ export async function nudgeAgentSession(opts: {
   try {
     if (isSSH(agent.location)) {
       const transport = getSSHTransport(agent.location)
-      await transport.exec(buildRemoteNudgeCommand(session, text, Boolean(clear)))
+      await transport.exec(buildRemoteNudgeCommand(session, message, Boolean(clear)))
     } else {
       // Guard the dashboard hazard: if this command is itself running inside the quimby tmux
       // server and the target session's active pane is the very pane we're in, send-keys would
@@ -126,7 +145,7 @@ export async function nudgeAgentSession(opts: {
         await sendKeysLocal(session, CLEAR_COMMAND)
         await delay(CLEAR_SETTLE_MS)
       }
-      await sendKeysLocal(session, text)
+      await sendKeysLocal(session, message)
     }
     const cleared = clear ? ' (cleared context first)' : ''
     reporter.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
@@ -137,7 +156,7 @@ export async function nudgeAgentSession(opts: {
 
   if (
     dashboardSession &&
-    (await nudgeWindowInSession(dashboardSession, displayName, text, reporter))
+    (await nudgeWindowInSession(dashboardSession, displayName, message, reporter))
   ) {
     return
   }

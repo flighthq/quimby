@@ -1,12 +1,7 @@
 import { readdir, stat } from 'node:fs/promises'
 
 import { getAgentAttestation } from '@quimbyhq/agent'
-import {
-  dispatchOutbox,
-  inboxNoticeText,
-  pickupRemoteOutbox,
-  readOutboxRecipients,
-} from '@quimbyhq/handoff'
+import { dispatchOutbox, pickupRemoteOutbox, readOutboxRecipients } from '@quimbyhq/handoff'
 import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
@@ -76,7 +71,7 @@ export async function autoDispatchOutboxes(
           await nudgeAgentSession({
             agent: recip,
             displayName: result.recipient,
-            text: inboxNoticeText(result.parcelName),
+            courier: `parcel from ${sender}`,
             reporter,
           })
         }

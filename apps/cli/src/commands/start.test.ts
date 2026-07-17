@@ -5,7 +5,7 @@ const saveState = vi.hoisted(() => vi.fn(async () => {}))
 const prepareLocalTmuxLaunch = vi.hoisted(() => vi.fn())
 const prepareSshLaunch = vi.hoisted(() => vi.fn())
 const execa = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({})))
-const nudgeAgentSession = vi.hoisted(() => vi.fn(async (_opts: { text: string }) => {}))
+const nudgeAgentSession = vi.hoisted(() => vi.fn(async (_opts: Record<string, unknown>) => {}))
 const readAgentStatus = vi.hoisted(() => vi.fn(async () => null as string | null))
 
 // Collapse the resume settle delay so the test isn't slowed by the real 1.5s.
@@ -122,8 +122,9 @@ describe('runStartCommand', () => {
     const { default: cmd } = await import('./start')
     await cmd.run!({ args: { agent: 'builder' } } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
-    expect((nudgeAgentSession.mock.calls[0][0] as { text: string }).text).toContain(
-      './agent.sh status',
+    // The resume nudge is a courier notice; nudgeAgentSession prepends the `quimby ·` lead.
+    expect((nudgeAgentSession.mock.calls[0][0] as { courier: string }).courier).toBe(
+      'resume from @status.md',
     )
   })
 

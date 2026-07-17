@@ -108,16 +108,13 @@ export function renderVerifyRequest(check?: string): string {
 }
 
 /**
- * The message quimby types into a freshly-launched agent that has a non-empty `status.md` from a
- * prior session — the recovery loop. Points it at its predecessor's status and active task context
- * so it resumes rather than starting cold.
+ * The body of the courier resume nudge for a freshly-launched agent with a non-empty `status.md`
+ * from a prior session — the recovery loop. `nudgeAgentSession` prepends the `quimby · ` lead, so
+ * the agent receives `quimby · resume from @status.md` and reads status.md per its AGENTS.md grammar
+ * to resume rather than starting cold.
  */
 export function renderResumeRequest(): string {
-  return (
-    'continue\n\n' +
-    'A previous session left status. Run `./agent.sh status`, then `./agent.sh assignment` and ' +
-    '`./agent.sh inbox` before continuing.'
-  )
+  return 'resume from @status.md'
 }
 
 /**

@@ -217,7 +217,7 @@ async function resumeFromPredecessor(
   await nudgeAgentSession({
     agent,
     displayName: name,
-    text: renderResumeRequest(),
+    courier: renderResumeRequest(),
     reporter: consolaReporter,
   })
 }

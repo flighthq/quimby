@@ -1,5 +1,5 @@
 import { rebaseAgentOntoBase } from '@quimbyhq/agent'
-import { dispatchOutboxes, inboxNoticeText } from '@quimbyhq/handoff'
+import { dispatchOutboxes } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
@@ -70,7 +70,7 @@ export async function runDispatchCommand({
             await nudgeAgentSession({
               agent: recip,
               displayName: result.recipient,
-              text: inboxNoticeText(result.parcelName),
+              courier: `parcel from ${sender}`,
               reporter: consolaReporter,
             })
           }

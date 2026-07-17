@@ -87,7 +87,7 @@ export async function runAssignCommand({
       agent: state.agents[args.agent],
       clear: args.clear,
       displayName: args.agent,
-      text: result.nudgeText,
+      courier: 'assignment updated',
       reporter: consolaReporter,
     })
   }

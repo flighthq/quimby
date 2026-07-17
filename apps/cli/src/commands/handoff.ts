@@ -102,7 +102,7 @@ export async function runHandoffCommand({
       agent: state.agents[result.to],
       clear: args.clear,
       displayName: result.to,
-      text: result.nudgeText,
+      courier: `parcel from ${result.from}`,
       reporter: consolaReporter,
     })
   }

@@ -85,8 +85,11 @@ describe('runDispatchCommand', () => {
     const { default: cmd } = await import('./dispatch')
     await cmd.run!({ args: { agent: 'review', all: false, rebase: false, nudge: true } } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
-    expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({ displayName: 'builder' })
-    expect(typeof (nudgeAgentSession.mock.calls[0][0] as { text: unknown }).text).toBe('string')
+    // Courier notice names the sender; nudgeAgentSession prepends the `quimby ·` lead.
+    expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
+      displayName: 'builder',
+      courier: 'parcel from review',
+    })
   })
 
   it('does not nudge a delivered parcel when --no-nudge', async () => {

@@ -46,7 +46,7 @@ describe('runAssignCommand', () => {
     expect(args.nudge).toMatchObject({ type: 'boolean', default: true })
   })
 
-  it('enacts the nudge with the returned text when nudgeText is set', async () => {
+  it('enacts a courier "assignment updated" nudge when nudgeText is set', async () => {
     resolved = workspace({ builder: { id: 'b1', name: 'builder' } })
     assignAgentTask.mockResolvedValueOnce({
       behind: 0,
@@ -58,9 +58,10 @@ describe('runAssignCommand', () => {
       args: { agent: 'builder', message: 'do it', nudge: true, sync: true, clear: false },
     } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
+    // The nudge is a courier notice pointing at the (durable) assignment, not the task text inline.
     expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
       displayName: 'builder',
-      text: "Here's your assignment: run `./agent.sh assignment`.",
+      courier: 'assignment updated',
       clear: false,
     })
   })

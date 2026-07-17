@@ -86,6 +86,12 @@ describe('renderQuimbyContext', () => {
     // Commits are one-line, no body, no co-author trailer.
     expect(out).toContain('single line')
     expect(out).toContain('Co-Authored-By')
+    // The `quimby ·` courier-lead grammar: distinguishes delivered messages from live user input.
+    expect(out).toContain('`quimby ·`')
+    expect(out).toContain('parcel from <agent>')
+    expect(out).toContain('assignment updated')
+    expect(out).toContain('resume from @status.md')
+    expect(out).toContain('no** `quimby ·` lead is the user typing')
   })
 
   it('mirrors peer status into status/ for on-demand peek', () => {
@@ -100,13 +106,9 @@ describe('renderQuimbyContext', () => {
 })
 
 describe('renderResumeRequest', () => {
-  it('starts quietly and points a resuming agent at status, assignment, and inbox', () => {
-    const out = renderResumeRequest()
-    expect(out).toBe(
-      'continue\n\n' +
-        'A previous session left status. Run `./agent.sh status`, then `./agent.sh assignment` and ' +
-        '`./agent.sh inbox` before continuing.',
-    )
+  it('is the terse courier resume label the `quimby ·` lead is prepended to', () => {
+    // nudgeAgentSession renders `quimby · resume from @status.md`; this is just the label body.
+    expect(renderResumeRequest()).toBe('resume from @status.md')
   })
 })
 
