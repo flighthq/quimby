@@ -497,6 +497,8 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 
 For SSH agents, rebuild rsyncs the latest source to the remote, deletes and re-clones the remote repo, retags `quimby/seed`, and clears the remote mailbox.
 
+The mailbox clear is done **in place** — the parcels inside each tray are removed, but the tray directories (and `handoff/in`/`handoff/out` above them) are kept as the same inodes; rebuild never does a blanket `rm -rf handoff` + recreate. This is a virtiofs/9p correctness requirement: an agent's root is often a guest bind-mount, and swapping the `handoff/{in,out}` inodes out from under the guest leaves it holding a **stale dentry** — the directory still lists via `getdents` but `stat` returns `ENOENT`, so the agent's next `mkdir -p handoff/out/draft/<recipient>` (in `agent.sh`) fails and no parcel can be staged until the guest cache is dropped (`sync; echo 2 | sudo tee /proc/sys/vm/drop_caches`, which needs root). Keeping the inodes stable avoids the window. As a backstop, `agent.sh`'s `mkdir` failures name this exact cause and remedy rather than dying on a bare `No such file or directory`, and stronger mount coherence (e.g. virtiofs `cache=none`) is the runtime-side complete fix, since it is outside Quimby's control.
+
 ## diff Semantics
 
 - `quimby diff <agent>` — live diff of the agent's commits against its seed (a preview of what a handoff or merge would carry)

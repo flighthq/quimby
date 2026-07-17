@@ -1,4 +1,4 @@
-import { chmod, rm } from 'node:fs/promises'
+import { chmod, readdir, rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -107,8 +107,13 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
     const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
+    // Empty the mailbox in place — remove parcels within each tray but keep the tray directories
+    // (handoff/in, handoff/out, …) as the same inodes, the remote twin of `clearMailboxContents`.
+    // A remote agent can also run over a virtiofs/9p guest mount, where `rm -rf handoff` + recreate
+    // swaps the inodes and leaves the guest with a stale dentry that breaks its next handoff.
+    const rTrays = MAILBOX_TRAYS.map((t) => sp(`${rAgentDir}/${t}`)).join(' ')
     await transport.exec(
-      `rm -rf ${sp(rRepoDir)} ${sp(`${rAgentDir}/handoff`)} ${sp(`${rAgentDir}/status`)}`,
+      `rm -rf ${sp(rRepoDir)}; for d in ${rTrays}; do [ -d "$d" ] && rm -rf "$d"/* "$d"/.[!.]* 2>/dev/null; done; true`,
     )
     state.agents[name].seedCommit = await cloneAndSeedRemoteAgentRepo(transport, {
       rRoot,
@@ -129,11 +134,14 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   state.agents[name].seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, currentRef)
   await saveState(repoRoot, state)
 
-  // A rebuilt agent is a fresh start — clear the mailbox so stale parcels and a prior task don't
-  // carry over, then re-scaffold. The instruction files are quimby-generated, so re-scaffolding
-  // refreshes them to the current template (they're overwritten on every launch anyway).
-  await rm(join(agentDir, 'handoff'), { recursive: true, force: true })
-  await rm(join(agentDir, 'status'), { recursive: true, force: true })
+  // A rebuilt agent is a fresh start — empty the mailbox so stale parcels and a prior task don't
+  // carry over, then re-scaffold. The clear is done IN PLACE (contents removed, tray directories
+  // kept), never `rm -rf handoff`: under a virtiofs/9p guest mount, swapping the handoff/{in,out}
+  // inodes out from under the guest leaves it holding a stale dentry — the dir still lists but
+  // stat's ENOENT until the guest cache is dropped (root-only), which breaks the agent's next
+  // handoff. Keeping the inodes stable avoids that window. Re-scaffolding then refreshes the
+  // quimby-generated instruction files (overwritten on every launch anyway).
+  await clearMailboxContents(agentDir)
   await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id })
 }
 
@@ -397,6 +405,27 @@ async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {
   }
 }
 
+/**
+ * Empty an agent's mailbox in place: remove the parcels within each tray but keep the tray
+ * directories (and `handoff/in`, `handoff/out` above them) as the *same inodes*. This is the
+ * inode-stable alternative to `rm -rf handoff` — under a virtiofs/9p guest mount, replacing those
+ * directory inodes leaves the guest holding a stale dentry (the dir lists via getdents but stat's
+ * ENOENT until the guest cache is dropped, which needs root), breaking the agent's next handoff.
+ * A tray that does not exist yet is skipped; `writeAgentScaffold` recreates the canonical ones.
+ */
+async function clearMailboxContents(agentDir: string): Promise<void> {
+  for (const tray of MAILBOX_TRAYS) {
+    const dir = join(agentDir, tray)
+    let entries: string[]
+    try {
+      entries = await readdir(dir)
+    } catch {
+      continue
+    }
+    await Promise.all(entries.map((e) => rm(join(dir, e), { recursive: true, force: true })))
+  }
+}
+
 function validateAgentName(name: string): void {
   // The whitelist keeps names free of characters that carry meaning elsewhere: `.` is tmux's
   // pane separator (`session:window.pane`, so a dot breaks `send-keys -t`), and `:` is the
@@ -414,3 +443,16 @@ function validateAgentName(name: string): void {
     throw new QuimbyError('Agent name "host" is reserved (it names the host in a handoff).')
   }
 }
+
+// The mailbox trays emptied on rebuild (relative to the agent dir), plus the `status/` mirror
+// root. Their parent directories (`handoff/in`, `handoff/out`) are kept inode-stable by clearing
+// only the parcels inside these leaves. Shared by the local `clearMailboxContents` and the SSH
+// remote-clear in `rebuildAgent`.
+const MAILBOX_TRAYS: readonly string[] = [
+  'handoff/out/draft',
+  'handoff/out/queued',
+  'handoff/out/sent',
+  'handoff/in/received',
+  'handoff/in/processed',
+  'status',
+]

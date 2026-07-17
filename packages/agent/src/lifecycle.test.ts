@@ -237,6 +237,34 @@ describe('rebuildAgent', () => {
     expect(await readFile(join(agentDir, 'status.md'), 'utf-8')).toBe('idle')
   })
 
+  // The mailbox is emptied IN PLACE — handoff/{in,out} keep their inodes across a rebuild — so a
+  // virtiofs/9p guest holding cached dentries for those dirs never sees them stat ENOENT (which
+  // used to break the agent's next handoff until the guest cache was dropped). A blanket
+  // `rm -rf handoff` + recreate would allocate fresh inodes and fail this.
+  it('keeps handoff/in and handoff/out inode-stable across a rebuild', async () => {
+    const agent = await addAgent(dir, 'alice')
+    const agentDir = getAgentDir(dir, agent.id)
+    await mkdir(join(agentDir, 'handoff', 'out', 'queued', 'builder'), { recursive: true })
+    await writeFile(join(agentDir, 'handoff', 'out', 'queued', 'builder', 'README.md'), 'a reply')
+
+    const inodesBefore = await Promise.all([
+      stat(join(agentDir, 'handoff')).then((s) => s.ino),
+      stat(join(agentDir, 'handoff', 'in')).then((s) => s.ino),
+      stat(join(agentDir, 'handoff', 'out')).then((s) => s.ino),
+    ])
+
+    await rebuildAgent(dir, 'alice')
+
+    const inodesAfter = await Promise.all([
+      stat(join(agentDir, 'handoff')).then((s) => s.ino),
+      stat(join(agentDir, 'handoff', 'in')).then((s) => s.ino),
+      stat(join(agentDir, 'handoff', 'out')).then((s) => s.ino),
+    ])
+    expect(inodesAfter).toEqual(inodesBefore)
+    // …and the parcel inside is still gone.
+    expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'builder'))).toBe(false)
+  })
+
   it('throws QuimbyError if agent does not exist', async () => {
     await expect(rebuildAgent(dir, 'nonexistent')).rejects.toThrow('not found')
   })

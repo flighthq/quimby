@@ -116,6 +116,17 @@ describe('renderAgentScript', () => {
     expect(sh).toContain('attach: %s')
   })
 
+  it('mkdirs through qa_mkdir, which names the stale-virtiofs-dentry cause on failure', () => {
+    const sh = renderAgentScript()
+    // The failing mkdir sites route through the helper, not a bare `mkdir -p`.
+    expect(sh).toContain('qa_mkdir "$draft"')
+    expect(sh).toContain('qa_mkdir "$ROOT/handoff/out/queued"')
+    expect(sh).toContain('qa_mkdir "$ROOT/handoff/in/processed"')
+    // …and the helper points at the guest-cache remedy rather than dying blind.
+    expect(sh).toContain('stale virtiofs dentry')
+    expect(sh).toContain('drop_caches')
+  })
+
   const posix = process.platform !== 'win32'
   it.runIf(posix)('handoff produces a queued parcel the host attach-parser reads', () => {
     const root = makeAgentWorkspace()
