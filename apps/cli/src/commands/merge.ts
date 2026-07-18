@@ -205,8 +205,12 @@ export async function runMergeCommand({
   let message = args.message
   if (mode === 'squashed' && message === undefined) {
     if (isInteractive()) {
-      message = await editCommitMessage(repoRoot, meta.suggestedMessage)
-      if (!message) throw new QuimbyError('Merge aborted — empty commit message.')
+      const authored = await editCommitMessage(repoRoot, meta.suggestedMessage)
+      // A non-zero editor exit (e.g. `:cq` in vim) cancels the merge — bail silently, nothing
+      // lands and nothing is printed. An empty (but saved) message still reports the abort.
+      if (authored === null) return
+      if (!authored) throw new QuimbyError('Merge aborted — empty commit message.')
+      message = authored
     } else {
       effectiveMode = 'patch'
     }
@@ -293,7 +297,7 @@ function isInteractive(): boolean {
  * prefilled message and return the edited text with comment lines stripped, git-commit
  * style. An empty result signals an abort.
  */
-export async function editCommitMessage(repoRoot: string, prefill: string): Promise<string> {
+export async function editCommitMessage(repoRoot: string, prefill: string): Promise<string | null> {
   const editor = (await execa('git', ['var', 'GIT_EDITOR'], { cwd: repoRoot })).stdout.trim()
   const dir = await mkdtemp(join(tmpdir(), 'quimby-merge-msg-'))
   const file = join(dir, 'COMMIT_EDITMSG')
@@ -301,11 +305,20 @@ export async function editCommitMessage(repoRoot: string, prefill: string): Prom
     file,
     `${prefill}\n\n` +
       `# Please enter the commit message for the work you're merging.\n` +
-      `# Lines starting with '#' are ignored, and an empty message aborts the merge.\n`,
+      `# Lines starting with '#' are ignored; an empty message or a non-zero editor exit\n` +
+      `# (e.g. :cq in vim) cancels the merge.\n`,
   )
   try {
-    // The editor may carry args (e.g. "code --wait"), so run the whole command via a shell.
-    await execa(`${editor} "${file}"`, { stdio: 'inherit', shell: true })
+    try {
+      // The editor may carry args (e.g. "code --wait"), so run the whole command via a shell.
+      await execa(`${editor} "${file}"`, { stdio: 'inherit', shell: true })
+    } catch (err) {
+      // A non-zero editor exit (e.g. `:cq`) is the user cancelling the merge: signal it with a
+      // null sentinel so the caller bails silently. execa surfaces a completed-but-failed
+      // process with a numeric exitCode; anything without one is a real spawn error, so rethrow.
+      if (typeof (err as { exitCode?: unknown }).exitCode === 'number') return null
+      throw err
+    }
     const edited = await readFile(file, 'utf8')
     return edited
       .split('\n')

@@ -27,6 +27,29 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return (await execa('git', args, { cwd })).stdout.trim()
 }
 
+// git's editor precedence puts $GIT_EDITOR/$VISUAL/$EDITOR above core.editor, so an ambient
+// editor env var (the sandbox exports GIT_EDITOR=true to keep git from opening an interactive
+// editor) would outrank the core.editor a test configures. Clear them for the duration, restore
+// after, so the resolved editor is the test's own script.
+async function withNeutralizedEditorEnv<T>(fn: () => Promise<T>): Promise<T> {
+  const saved = {
+    GIT_EDITOR: process.env.GIT_EDITOR,
+    VISUAL: process.env.VISUAL,
+    EDITOR: process.env.EDITOR,
+  }
+  delete process.env.GIT_EDITOR
+  delete process.env.VISUAL
+  delete process.env.EDITOR
+  try {
+    return await fn()
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
 // A host repo with a committed .gitignore (so the tree is clean for the merge precondition)
 // and one local agent carrying a single committed change since its seed.
 async function setupHostAndAgent(): Promise<{ host: string; agentId: string }> {
@@ -88,30 +111,32 @@ describe('editCommitMessage', () => {
     await git(repo, 'config', 'core.editor', `${editor} ${seen}`)
 
     const { editCommitMessage } = await import('./merge')
-    // git's editor precedence puts $GIT_EDITOR/$VISUAL/$EDITOR above core.editor, so an
-    // ambient editor env var (the sandbox exports GIT_EDITOR=true to keep git from opening an
-    // interactive editor) would outrank the core.editor this test configures. Neutralize them
-    // so the resolved editor is this test's script, then restore.
-    const savedEditorEnv = {
-      GIT_EDITOR: process.env.GIT_EDITOR,
-      VISUAL: process.env.VISUAL,
-      EDITOR: process.env.EDITOR,
-    }
-    delete process.env.GIT_EDITOR
-    delete process.env.VISUAL
-    delete process.env.EDITOR
-    try {
+    await withNeutralizedEditorEnv(async () => {
       await expect(editCommitMessage(repo, 'Original subject')).resolves.toBe('Edited subject')
 
       const [basename, tempDir] = (await readFile(seen, 'utf8')).trim().split('\n')
       expect(basename).toBe('COMMIT_EDITMSG')
       expect(await exists(tempDir!)).toBe(false)
-    } finally {
-      for (const [key, value] of Object.entries(savedEditorEnv)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
-    }
+    })
+  })
+
+  it('returns null when the editor exits non-zero (a :cq-style cancel)', async () => {
+    const repo = join(tmpdir(), `quimby-merge-cancel-${crypto.randomUUID()}`)
+    tmpDirs.push(repo)
+    await mkdir(repo, { recursive: true })
+    await execa('git', ['init', '-b', 'main'], { cwd: repo })
+
+    const editor = join(repo, 'editor.sh')
+    await writeFile(editor, '#!/bin/sh\nexit 1\n')
+    await chmod(editor, 0o755)
+    await git(repo, 'config', 'core.editor', editor)
+
+    const { editCommitMessage } = await import('./merge')
+    await withNeutralizedEditorEnv(async () => {
+      // A non-zero editor exit signals a cancel, surfaced as null (the caller then bails
+      // silently) rather than throwing or returning the prefill as an accepted message.
+      await expect(editCommitMessage(repo, 'Original subject')).resolves.toBeNull()
+    })
   })
 })
 
