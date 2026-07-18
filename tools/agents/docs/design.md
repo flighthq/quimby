@@ -432,6 +432,8 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 `quimby merge <agent>` is the one verb that moves work **out** to the user's real repository. It uses a **merge-based** strategy: the agent's diff is reconstructed on a temporary branch rooted at the agent's seed commit (where it applies cleanly by definition), then merged into the target. The agent is never committed to in the process — capture is commit-free; the commit (if any) happens here, at the boundary.
 
+By default `merge` also brings the agent's base into alignment with the branch at **both ends** (`--no-sync` opts out of both): it **syncs the agent onto the target before landing**, so base-drift conflicts resolve on the agent instead of in your repo, and it **advances the agent's seed after** a clean landing, so the next diff carries only new work. Both ends are gated on merging into the branch the agent tracks; see the two subsections below.
+
 ### Merge-based strategy
 
 The agent's diff was generated against its seed. Patching it directly onto a target repo that has moved past the seed fails — context lines don't match, `git apply` aborts, and the user faces a conflict they can't interpret (is it real overlap, or just a stale diff?). The merge-based flow solves this:
@@ -458,11 +460,19 @@ On conflict, the merge is left in progress. The user resolves with standard git 
 
 If the user instead **abandons** the merge (`git merge --abort`), that staged parcel would linger. There is deliberately no `quimby merge --abort`/`--continue` to clean it up; quimby **auto-heals** instead. The next `quimby merge` (when it stages fresh work) silently clears a leftover staging area **only when no git merge is in progress** in the target — an in-progress merge is the live retry path, so its parcel is preserved. Nothing for the user to remember.
 
+### Syncing the agent onto the target first (on by default)
+
+With multiple agents, a `merge` that crosses from the agent's _old_ seed conflicts often: the branch has accumulated everyone else's landed work since that seed, so the agent's diff — measured against a stale base — textually collides with already-shipped work even where nothing semantically overlaps (context/hunk drift on lines the agent never touched). The merge-based flow is _correct_ regardless (git's 3-way resolves it), but the conflict then lands as a `git merge` in progress in **your** repo, and you — the integration bottleneck — resolve it.
+
+So `merge` first runs the safe pre-sync (`sync`'s non-destructive rebase onto the merge target) **before** it stages the parcel, advancing the merge base to the branch's current tip. That eliminates the stale-base _false_ conflicts by construction; only genuine same-line overlap survives, and it surfaces during the **rebase in the agent's own clone**, which aborts there with the work intact — so a real conflict is resolved on the agent (which has the code context) rather than on the host. A clean pre-sync then makes the boundary crossing a fast-forward, which is exactly the condition the seed post-advance (below) needs, so the clean-landing loop becomes the common case. If the pre-sync hits a conflict, `merge` reports it and re-run guidance without crossing the boundary; if it brings the agent fully up to date (the work already landed), there's nothing left to carry and `merge` says so cleanly.
+
+The pre-sync is gated on **merging into the branch the agent tracks** — the same gate as the post-advance (no `-b`, no divergent `-t`, `HEAD` at the agent's `syncRef` tip) — so both ends fire together for the ordinary iterate-on-its-branch case and both stand down for a deliberate off-branch merge. `--no-sync` skips it (and the post-advance) — the raw merge, host-side conflict resolution intact. `--rebase` forces it even off-branch.
+
 ### Advancing the seed after a merge (on by default)
 
 An agent's diff is always its working tree against `quimby/seed` — **cumulative**. So when you iterate with one agent (merge its work, then ask it for a revision), its next diff still re-contains everything already merged. Re-merging that on a target that now has the earlier work is fragile: the moment the regenerated diff isn't byte-identical to what landed, git flags a conflict on lines the agent never touched. The fix is to advance the agent's seed onto what just landed, so the next diff carries only new work.
 
-`merge` does this automatically on a clean, committed merge (`--no-sync` opts out; `--sync <ref>` advances _and_ retargets the agent's sync ref to `<ref>`) by running `sync -f` for the agent — but only when it is provably lossless:
+`merge` does this automatically on a clean, committed merge (`--no-sync` opts out of the whole alignment — this advance and the pre-sync above; `--sync <ref>` advances _and_ retargets the agent's sync ref to `<ref>`) by running `sync -f` for the agent — but only when it is provably lossless:
 
 - **The merge settled onto the branch the agent tracks**, in the host repo — no `-b`, no divergent `-t`, and `HEAD` resolves to the agent's `syncRef` tip. Otherwise the work isn't on `syncRef`, and advancing would snap the agent to a base that lacks it (reintroducing the cumulative-diff conflicts). A landing-branch or foreign-target merge is a deliberate deferral, so the seed stays put.
 - **The agent is unchanged since the snapshot the merge captured** — checked by recomputing the agent's live parcel name (its content hash) and comparing to the merged parcel's. Equal ⇒ identical tree ⇒ the `reset --hard` in `sync -f` loses nothing. If it drifted (the agent kept working), the seed is left alone with a pointer to `quimby sync <agent> --current -f`.

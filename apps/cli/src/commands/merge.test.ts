@@ -167,7 +167,7 @@ describe('runMergeCommand', () => {
     expect((await loadState(host)).agents.alice.seedCommit).toBe(before)
   })
 
-  it('does not replay commits again when retrying after the host already contains them', async () => {
+  it('does not replay commits again when retrying with --no-sync (alreadyApplied path)', async () => {
     const { host } = await setupHostAndAgent()
     const before = (await loadState(host)).agents.alice.seedCommit
     const { default: cmd } = await import('./merge')
@@ -184,12 +184,65 @@ describe('runMergeCommand', () => {
       state: await loadState(host),
       repoRoot: host,
     })
+    // --no-sync skips the pre-sync, so the agent still carries its commit and the
+    // already-applied detection in applyHandoff is what prevents a double replay.
+    await cmd.run!(mergeArgs({ commits: true, target: host, sync: false }))
+
+    expect(await git(host, 'rev-parse', 'HEAD')).toBe(headAfterFirst)
+    expect((await loadState(host)).agents.alice.seedCommit).toBe(before)
+    const subjects = (await git(host, 'log', '--format=%s')).split('\n')
+    expect(subjects.filter((subject) => subject === 'add feature')).toHaveLength(1)
+  })
+
+  it('pre-syncs by default: a re-merge of already-landed work finds nothing and advances the seed', async () => {
+    const { host } = await setupHostAndAgent()
+    const { default: cmd } = await import('./merge')
+
+    // Land once with --no-sync so the agent keeps its commit and its seed doesn't advance.
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    await cmd.run!(mergeArgs({ commits: true, target: host, sync: false }))
+    const headAfterFirst = await git(host, 'rev-parse', 'HEAD')
+
+    // Re-merge with the default (pre-sync on): the pre-sync rebases the agent onto the branch,
+    // dropping the now-duplicate commit and advancing its seed, so nothing is left to carry —
+    // reported cleanly rather than as a "nothing to hand off" error.
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
     await cmd.run!(mergeArgs({ commits: true, target: host }))
 
     expect(await git(host, 'rev-parse', 'HEAD')).toBe(headAfterFirst)
     expect((await loadState(host)).agents.alice.seedCommit).toBe(headAfterFirst)
     const subjects = (await git(host, 'log', '--format=%s')).split('\n')
     expect(subjects.filter((subject) => subject === 'add feature')).toHaveLength(1)
+  })
+
+  it('by default pre-syncs and aborts on a rebase conflict without crossing the boundary', async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    const agentRepo = getAgentRepoDir(host, agentId)
+    // The agent edits base.txt on its side...
+    await writeFile(join(agentRepo, 'base.txt'), 'agent-change\n')
+    await git(agentRepo, 'commit', '-am', 'agent edits base')
+    // ...and the tracked branch edits the same line differently, so rebasing onto it conflicts.
+    await writeFile(join(host, 'base.txt'), 'host-change\n')
+    await git(host, 'commit', '-am', 'host edits base')
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await expect(cmd.run!(mergeArgs({ message: 'land it', target: host }))).rejects.toThrow(
+      /rebase conflict|Resolve/i,
+    )
+    // The boundary was never crossed: the agent's feature work did not land, and no git merge
+    // was left in progress in the host repo — the conflict stayed on the agent's side.
+    expect(await exists(join(host, 'feature.txt'))).toBe(false)
+    expect(await exists(join(host, '.git', 'MERGE_HEAD'))).toBe(false)
   })
 
   it('retargets the agent sync ref with --sync <ref> while advancing', async () => {

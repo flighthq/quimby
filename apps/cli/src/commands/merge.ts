@@ -7,7 +7,7 @@ import {
   rebaseAgentOntoBase,
   syncAgent,
 } from '@quimbyhq/agent'
-import { ConflictError, QuimbyError } from '@quimbyhq/errors'
+import { ConflictError, HandoffError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
   applyHandoff,
@@ -80,7 +80,7 @@ export default defineCommand({
     sync: {
       type: 'string',
       description:
-        "Advance the agent's seed onto the merge when it lands cleanly on its branch (on by default; --sync <ref> also retargets the agent's sync ref to <ref>; --no-sync skips)",
+        "Align the agent's base to the merge, both ends, on by default: sync it onto the target before landing and advance its seed after, when landing on its tracked branch (--sync <ref> also retargets the sync ref; --no-sync leaves the base untouched at both ends)",
     },
   },
   run: runMergeCommand,
@@ -141,20 +141,58 @@ export async function runMergeCommand({
   // by name — that path points at staging deliberately, and a live conflict is preserved by
   // healAbandonedStaging's own merge-in-progress guard.
   if (isAgent) await healAbandonedStaging(repoRoot, targetRepoPath)
-  const name = isAgent
-    ? (
-        await stageParcel({
-          state,
+
+  // Pre-sync (on by default): bring the agent onto the branch we're merging into *before*
+  // capturing its diff, so base-drift conflicts — the agent's seed trailing other agents'
+  // already-landed work — surface as a rebase in the agent's own clone (aborted there, work
+  // intact) instead of a `git merge` left in your repo. Gated on merging into the branch the
+  // agent tracks, exactly like the seed post-advance below; `--rebase` forces it ungated;
+  // `--no-sync` (advanceOn=false) skips it. A rebase conflict is reported without crossing.
+  if (isAgent && (args.rebase || advanceOn)) {
+    const gate = args.rebase
+      ? ({ ok: true } as const)
+      : await mergingOntoTrackedBranch({
           repoRoot,
-          from: args.agent,
-          message: args.message,
-          beforeStage: args.rebase
-            ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
-            : undefined,
-          resolveAttestation: attestationResolver(repoRoot, state),
+          targetRepoPath,
+          agent: state.agents[args.agent],
+          fallbackRef: state.sourceRef,
+          landedOnBranch: branch !== undefined,
         })
-      ).name
-    : args.agent
+    if (gate.ok) {
+      try {
+        await rebaseAgentOntoBase(repoRoot, args.agent, consolaReporter)
+      } catch (err) {
+        if (err instanceof QuimbyError) {
+          throw new QuimbyError(`${err.message}\nThen re-run \`quimby merge ${args.agent}\`.`)
+        }
+        throw err
+      }
+    }
+  }
+
+  let name: string
+  try {
+    name = isAgent
+      ? (
+          await stageParcel({
+            state,
+            repoRoot,
+            from: args.agent,
+            message: args.message,
+            resolveAttestation: attestationResolver(repoRoot, state),
+          })
+        ).name
+      : args.agent
+  } catch (err) {
+    // The pre-sync (or a prior, interrupted merge) may have already brought the agent onto
+    // its base, leaving nothing to carry. That's an integrated agent, not a failure — report
+    // it cleanly. The pre-sync already advanced the seed, so there's nothing left to do.
+    if (isAgent && err instanceof HandoffError) {
+      logger.success(`Nothing to merge — "${args.agent}" is already up to date with its base.`)
+      return
+    }
+    throw err
+  }
 
   const { meta } = await readHandoff(repoRoot, name)
 
@@ -337,33 +375,30 @@ async function settleAgentSeed(opts: {
   const { state, repoRoot, agent, name, mergedName, targetRepoPath, landedOnBranch, retargetRef } =
     opts
   const catchUp = `\`quimby sync ${name} --current -f\``
-
-  // Compare git toplevels, not raw paths: `repoRoot` is `--show-toplevel`, while
-  // `targetRepoPath` defaults to the cwd, which may be a subdirectory of the same repo.
-  // A raw `!==` would treat a merge run from a subdir as a foreign target and skip the
-  // advance. Only a genuinely different repo (or a non-repo path) is "off the branch".
-  const targetTop = await git.findRoot(targetRepoPath)
-  if (landedOnBranch || targetTop !== repoRoot) {
-    logger.info(`Landed off "${name}"'s tracked branch — catch it up when ready with ${catchUp}.`)
-    return
-  }
-
   const syncRef = agent.syncRef ?? state.sourceRef
-  let syncTip: string
-  let headTip: string
-  try {
-    syncTip = await git.revParse(repoRoot, syncRef)
-    headTip = await git.revParse(repoRoot, 'HEAD')
-  } catch {
-    logger.info(
-      `Couldn't resolve "${name}"'s tracked branch (${syncRef}) — catch it up with ${catchUp}.`,
-    )
-    return
-  }
-  if (syncTip !== headTip) {
-    logger.info(
-      `Merge isn't on "${name}"'s tracked branch (${syncRef}) — catch it up with ${catchUp}.`,
-    )
+
+  // The same gate the pre-sync used, recomputed after the merge: when the merge lands on the
+  // tracked branch, HEAD and syncRef move together, so it still holds. A failing gate means
+  // the work isn't on syncRef and a hard reset would drop it — defer to the manual catch-up.
+  const gate = await mergingOntoTrackedBranch({
+    repoRoot,
+    targetRepoPath,
+    agent,
+    fallbackRef: state.sourceRef,
+    landedOnBranch,
+  })
+  if (!gate.ok) {
+    if (gate.reason.startsWith('unresolved:')) {
+      logger.info(
+        `Couldn't resolve "${name}"'s tracked branch (${syncRef}) — catch it up with ${catchUp}.`,
+      )
+    } else if (gate.reason.startsWith('off-syncref')) {
+      logger.info(
+        `Merge isn't on "${name}"'s tracked branch (${syncRef}) — catch it up with ${catchUp}.`,
+      )
+    } else {
+      logger.info(`Landed off "${name}"'s tracked branch — catch it up when ready with ${catchUp}.`)
+    }
     return
   }
 
@@ -386,4 +421,36 @@ async function settleAgentSeed(opts: {
   const result = await syncAgent(repoRoot, name, { force: true, base: retargetRef })
   const retargeted = retargetRef ? ` (now tracks ${retargetRef})` : ''
   logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}${retargeted}`)
+}
+
+/**
+ * Whether a merge is landing on the branch the agent tracks — the shared gate for both the
+ * pre-sync (before staging) and the seed post-advance (after landing), so both fire together
+ * for the ordinary iterate-on-its-branch case and both stand down for a deliberate off-branch
+ * merge. True only when there's no `-b` landing branch, the target is this same host repo, and
+ * HEAD resolves to the agent's syncRef tip. Compares git toplevels (not raw paths) so a merge
+ * run from a subdirectory still counts as the same repo. The failure reason drives the caller's
+ * catch-up message.
+ */
+async function mergingOntoTrackedBranch(opts: {
+  repoRoot: string
+  targetRepoPath: string
+  agent: Readonly<AgentState>
+  fallbackRef: string
+  landedOnBranch: boolean
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { repoRoot, targetRepoPath, agent, fallbackRef, landedOnBranch } = opts
+  const targetTop = await git.findRoot(targetRepoPath)
+  if (landedOnBranch || targetTop !== repoRoot) return { ok: false, reason: 'off-branch' }
+  const syncRef = agent.syncRef ?? fallbackRef
+  let syncTip: string
+  let headTip: string
+  try {
+    syncTip = await git.revParse(repoRoot, syncRef)
+    headTip = await git.revParse(repoRoot, 'HEAD')
+  } catch {
+    return { ok: false, reason: `unresolved:${syncRef}` }
+  }
+  if (syncTip !== headTip) return { ok: false, reason: `off-syncref:${syncRef}` }
+  return { ok: true }
 }
