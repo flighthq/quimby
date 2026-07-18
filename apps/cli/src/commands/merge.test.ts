@@ -88,11 +88,30 @@ describe('editCommitMessage', () => {
     await git(repo, 'config', 'core.editor', `${editor} ${seen}`)
 
     const { editCommitMessage } = await import('./merge')
-    await expect(editCommitMessage(repo, 'Original subject')).resolves.toBe('Edited subject')
+    // git's editor precedence puts $GIT_EDITOR/$VISUAL/$EDITOR above core.editor, so an
+    // ambient editor env var (the sandbox exports GIT_EDITOR=true to keep git from opening an
+    // interactive editor) would outrank the core.editor this test configures. Neutralize them
+    // so the resolved editor is this test's script, then restore.
+    const savedEditorEnv = {
+      GIT_EDITOR: process.env.GIT_EDITOR,
+      VISUAL: process.env.VISUAL,
+      EDITOR: process.env.EDITOR,
+    }
+    delete process.env.GIT_EDITOR
+    delete process.env.VISUAL
+    delete process.env.EDITOR
+    try {
+      await expect(editCommitMessage(repo, 'Original subject')).resolves.toBe('Edited subject')
 
-    const [basename, tempDir] = (await readFile(seen, 'utf8')).trim().split('\n')
-    expect(basename).toBe('COMMIT_EDITMSG')
-    expect(await exists(tempDir!)).toBe(false)
+      const [basename, tempDir] = (await readFile(seen, 'utf8')).trim().split('\n')
+      expect(basename).toBe('COMMIT_EDITMSG')
+      expect(await exists(tempDir!)).toBe(false)
+    } finally {
+      for (const [key, value] of Object.entries(savedEditorEnv)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
   })
 })
 
