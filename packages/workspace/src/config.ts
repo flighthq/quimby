@@ -233,6 +233,25 @@ export async function saveDefaultPreset(
   return path
 }
 
+/**
+ * Persist the default merge mode (used by a bare `quimby merge`) to ignored config:
+ * `.quimby/local.yaml` for this project (default) or user config (`global`), mirroring
+ * git's per-repo / global config model. Existing config content is preserved. Returns
+ * the file written.
+ */
+export async function saveMergeModeDefault(
+  repoRoot: string,
+  mode: QuimbyConfig['mergeMode'],
+  opts: Readonly<{ global?: boolean }> = {},
+): Promise<string> {
+  const path = opts.global ? getUserConfigPath() : getLocalConfigPath(repoRoot)
+  const existing: QuimbyConfig = (await exists(path)) ? await readYaml<QuimbyConfig>(path) : {}
+  existing.mergeMode = mode
+  await ensureDir(dirname(path))
+  await writeYaml(path, existing)
+  return path
+}
+
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {
   if (check === undefined) return undefined
   return typeof check === 'string' ? { command: check } : check
@@ -255,6 +274,7 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     out.hosts = mergeHostMaps(out.hosts, config.hosts)
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
     if (config.default !== undefined) out.default = config.default
+    if (config.mergeMode !== undefined) out.mergeMode = config.mergeMode
   }
   return out
 }

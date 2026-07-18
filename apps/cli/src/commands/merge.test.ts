@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { addAgent } from '@quimbyhq/agent'
-import { getAgentDir, getAgentRepoDir } from '@quimbyhq/paths'
-import { exists } from '@quimbyhq/utils'
-import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
+import { getAgentDir, getAgentRepoDir, getLocalConfigPath } from '@quimbyhq/paths'
+import { exists, writeYaml } from '@quimbyhq/utils'
+import { loadQuimbyConfig, loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -80,8 +80,11 @@ function mergeArgs(overrides: Record<string, unknown>) {
       agent: 'alice',
       commits: false,
       patch: false,
+      squashed: false,
       '3way': false,
       rebase: false,
+      default: false,
+      global: false,
       // `sync` omitted (undefined) means advance-on by default, mirroring citty with no --sync flag.
       ...overrides,
     },
@@ -300,6 +303,48 @@ describe('runMergeCommand', () => {
     const { default: cmd } = await import('./merge')
     await cmd.run!(mergeArgs({ message: 'land it', target: host, sync: 'release' }))
     expect((await loadState(host)).agents.alice.syncRef).toBe('release')
+  })
+
+  it('uses the configured mergeMode default when no mode flag is given', async () => {
+    const { host } = await setupHostAndAgent()
+    // A per-repo default of commits: bare `merge` should replay the agent's commit verbatim
+    // (preserving "add feature") rather than squashing.
+    await writeYaml(getLocalConfigPath(host), { mergeMode: 'commits' })
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host }))
+    const subjects = (await git(host, 'log', '--format=%s')).split('\n')
+    expect(subjects).toContain('add feature')
+  })
+
+  it('lets an explicit --squashed override a configured commits default', async () => {
+    const { host } = await setupHostAndAgent()
+    await writeYaml(getLocalConfigPath(host), { mergeMode: 'commits' })
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host, squashed: true, message: 'land it' }))
+    const subjects = (await git(host, 'log', '--format=%s')).split('\n')
+    // Squashed: one authored commit, the agent's own "add feature" folded away.
+    expect(subjects).toContain('land it')
+    expect(subjects).not.toContain('add feature')
+  })
+
+  it('persists the chosen mode to local config with --default', async () => {
+    const { host } = await setupHostAndAgent()
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host, commits: true, default: true }))
+    const written = await loadQuimbyConfig(host)
+    expect(written.mergeMode).toBe('commits')
   })
 
   it('leaves the seed alone when landing on a fresh branch (-b)', async () => {

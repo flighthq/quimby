@@ -91,4 +91,11 @@ export interface QuimbyConfig {
   services?: Record<string, string>
   /** Name of the preset bare `quimby run` opens and bare `quimby up` creates. */
   default?: string
+  /**
+   * Default mode for a bare `quimby merge` (no `--commits`/`--patch`/`--squashed`). One of
+   * "squashed" (the built-in default when unset), "commits", or "patch" — the values match
+   * `@quimbyhq/handoff`'s `ApplyMode`. Set per-repo or user-global with
+   * `quimby merge <agent> --<mode> --default [--global]`, mirroring the git config model.
+   */
+  mergeMode?: 'squashed' | 'commits' | 'patch'
 }

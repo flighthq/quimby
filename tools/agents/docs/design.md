@@ -452,6 +452,8 @@ The merge is where git's 3-way machinery kicks in. It knows what the agent chang
 - **`--patch`** — one commit on the temp branch, merged with `--squash --no-commit`. Changes land in the working tree uncommitted — curate your own commits.
 - `-b` lands it on a fresh branch; `-t` targets a repo path other than the cwd.
 
+**Choosing the mode.** An explicit `--commits`/`--patch`/`--squashed` wins (at most one); otherwise the configured `mergeMode` default is used; otherwise squashed. The default is set git-style — `quimby merge <agent> --<mode> --default` persists it to this repo (`--global` to user config), resolved across the config layers — so a repo that coaches good agent commits can default to `--commits` and stop typing it, while `--squashed` remains the built-in default and the explicit override of a configured commits/patch default. Squash stays the default because it's the safe median: it curates noisy history into one commit, captures uncommitted work with no loose remainder, and reliably triggers the seed-advance.
+
 The unifying rule: **the boundary never fabricates a commit message.** A commit that lands carries either the agent's own message (`--commits`) or one you author (the squash, or a `--commits -m` remainder). When quimby can't ask you to name a commit it would otherwise synthesize — no `-m` and no TTY — it doesn't invent one: squashed **degrades to `--patch`** (the work lands uncommitted, with the suggested message printed), and `--commits` simply leaves its remainder loose. So the interactive squashed loop opens an editor; scripts fall back to an uncommitted landing; a generic auto-message never reaches your history.
 
 ### Conflict handling

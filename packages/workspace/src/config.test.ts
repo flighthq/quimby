@@ -23,6 +23,7 @@ import {
   resolveSSHConnection,
   saveDefaultPreset,
   saveHostAliasBinding,
+  saveMergeModeDefault,
 } from './config'
 
 const config = {
@@ -204,6 +205,14 @@ describe('mergeConfigs', () => {
   it('carries the default preset name through the merge, last layer winning', () => {
     expect(mergeConfigs({ default: 'a' }, { default: 'b' }).default).toBe('b')
     expect(mergeConfigs({ default: 'a' }, {}).default).toBe('a')
+  })
+
+  it('carries mergeMode through the merge, last layer winning', () => {
+    // Layer order is user → local → project; a per-repo value overrides a user-global one.
+    expect(mergeConfigs({ mergeMode: 'squashed' }, { mergeMode: 'commits' }).mergeMode).toBe(
+      'commits',
+    )
+    expect(mergeConfigs({ mergeMode: 'commits' }, {}).mergeMode).toBe('commits')
   })
 })
 
@@ -422,6 +431,23 @@ describe('saveHostAliasBinding', () => {
       expect(path).toBe(getLocalConfigPath(dir))
       const written = await loadQuimbyConfig(dir)
       expect(written.hosts?.remote).toEqual({ type: 'ssh', host: 'me@box', port: 2222 })
+      expect(written.roles?.builder).toEqual({ runtime: 'sbx' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('saveMergeModeDefault', () => {
+  it('writes the merge mode to local project config, preserving other content', async () => {
+    const dir = join(tmpdir(), `quimby-mergemode-${crypto.randomUUID()}`)
+    await mkdir(join(dir, '.quimby'), { recursive: true })
+    await writeYaml(getLocalConfigPath(dir), { roles: { builder: { runtime: 'sbx' } } })
+    try {
+      const path = await saveMergeModeDefault(dir, 'commits')
+      expect(path).toBe(getLocalConfigPath(dir))
+      const written = await loadQuimbyConfig(dir)
+      expect(written.mergeMode).toBe('commits')
       expect(written.roles?.builder).toEqual({ runtime: 'sbx' })
     } finally {
       await rm(dir, { recursive: true, force: true })

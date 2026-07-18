@@ -21,7 +21,7 @@ import {
 import { getStagingHandoffDir } from '@quimbyhq/paths'
 import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveWorkspace, saveMergeModeDefault } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { colors } from 'consola/utils'
 import { execa } from 'execa'
@@ -82,6 +82,23 @@ export default defineCommand({
       description:
         "Align the agent's base to the merge, both ends, on by default: sync it onto the target before landing and advance its seed after, when landing on its tracked branch (--sync <ref> also retargets the sync ref; --no-sync leaves the base untouched at both ends)",
     },
+    squashed: {
+      type: 'boolean',
+      description:
+        'Squash into one commit — the built-in default, spelled out to override a configured commits/patch default',
+      default: false,
+    },
+    default: {
+      type: 'boolean',
+      description:
+        "Persist the chosen mode as this repo's default merge mode (bare `quimby merge`)",
+      default: false,
+    },
+    global: {
+      type: 'boolean',
+      description: 'With --default, persist to user config (every repo) instead of this repo',
+      default: false,
+    },
   },
   run: runMergeCommand,
 })
@@ -93,6 +110,7 @@ export async function runMergeCommand({
     agent: string
     commits: boolean
     patch: boolean
+    squashed: boolean
     '3way': boolean
     branch?: string
     target?: string
@@ -100,15 +118,23 @@ export async function runMergeCommand({
     rebase: boolean
     // `--sync <ref>` → string, `--no-sync` → false, bare `--sync`/absent → '' / undefined.
     sync?: string | boolean
+    default: boolean
+    global: boolean
   }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  if (args.commits && args.patch) {
-    throw new QuimbyError('Cannot use --commits and --patch together')
-  }
+  // Mode precedence: an explicit --commits/--patch/--squashed wins; else the configured
+  // workspace/user default (git-style, resolved across the config layers); else squashed.
+  const config = await loadQuimbyConfig(repoRoot)
+  const mode = resolveMergeMode(args, config.mergeMode)
 
-  const mode: ApplyMode = args.commits ? 'commits' : args.patch ? 'patch' : 'squashed'
+  // `--default` persists the chosen mode as the bare-`merge` default — to this repo, or user
+  // config with `--global`. A config-setting side effect, independent of this merge's outcome.
+  if (args.default) {
+    const path = await saveMergeModeDefault(repoRoot, mode, { global: args.global })
+    logger.info(`Default merge mode set to "${mode}" (${path})`)
+  }
   // Uniform `--sync`: --no-sync (false) skips the seed advance; a ref string advances *and*
   // retargets the agent's sync ref to it; bare `--sync`/absent advances onto the landed branch.
   const advanceOn = args.sync !== false
@@ -290,6 +316,35 @@ export async function runMergeCommand({
 
 function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY)
+}
+
+/**
+ * Resolve the merge mode: an explicit `--commits`/`--patch`/`--squashed` flag wins (at most one),
+ * then the configured workspace/user default (resolved across the config layers, validated here
+ * since YAML is untyped at load), then the built-in `squashed`.
+ */
+function resolveMergeMode(
+  args: Readonly<{ commits: boolean; patch: boolean; squashed: boolean }>,
+  configured: string | undefined,
+): ApplyMode {
+  const explicit = [
+    args.commits ? 'commits' : undefined,
+    args.patch ? 'patch' : undefined,
+    args.squashed ? 'squashed' : undefined,
+  ].filter(Boolean) as ApplyMode[]
+  if (explicit.length > 1) {
+    throw new QuimbyError('Choose at most one of --commits, --patch, --squashed')
+  }
+  if (explicit.length === 1) return explicit[0]
+  if (configured !== undefined) {
+    if (configured !== 'squashed' && configured !== 'commits' && configured !== 'patch') {
+      throw new QuimbyError(
+        `Config mergeMode "${configured}" is invalid — use "squashed", "commits", or "patch".`,
+      )
+    }
+    return configured
+  }
+  return 'squashed'
 }
 
 /**
