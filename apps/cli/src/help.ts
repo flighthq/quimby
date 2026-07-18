@@ -18,7 +18,7 @@ const COMMAND_GROUPS: readonly CommandGroup[] = [
     title: 'Run & Inspect',
     names: ['run', 'start', 'stop', 'layout', 'list', 'status', 'diff', 'sync', 'doctor'],
   },
-  { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge'] },
+  { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge', 'merge-mode'] },
   { title: 'Storage', names: ['restore', 'storage'] },
   { title: 'Server', names: ['serve'] },
   { title: 'Help', names: ['help'] },

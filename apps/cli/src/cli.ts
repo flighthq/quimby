@@ -30,6 +30,7 @@ const main = defineCommand({
     handoff: () => import('./commands/handoff').then((m) => m.default),
     dispatch: () => import('./commands/dispatch').then((m) => m.default),
     merge: () => import('./commands/merge').then((m) => m.default),
+    'merge-mode': () => import('./commands/merge-mode').then((m) => m.default),
     set: () => import('./commands/set').then((m) => m.default),
     sync: () => import('./commands/sync').then((m) => m.default),
     rebuild: () => import('./commands/rebuild').then((m) => m.default),
