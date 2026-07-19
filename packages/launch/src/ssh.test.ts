@@ -117,10 +117,11 @@ describe('prepareSshLaunch', () => {
       hostRepoRoot: '/repo',
     })
     // Scaffolds the remote agent dir (mailbox + baseline files + instruction files).
-    expect(mockedScaffold).toHaveBeenCalledWith(transport, '~/.quimby/agents/r-id', {
-      agentName: 'researcher',
-      agentId: 'r-id',
-    })
+    expect(mockedScaffold).toHaveBeenCalledWith(
+      transport,
+      '~/.quimby/agents/r-id',
+      expect.objectContaining({ agentName: 'researcher', agentId: 'r-id' }),
+    )
 
     // The captured seed is persisted through saveState.
     expect(state.agents.researcher.seedCommit).toBe('seedsha123')
@@ -159,10 +160,11 @@ describe('prepareSshLaunch', () => {
       expect.any(String),
       expect.any(String),
     )
-    expect(mockedWriteInstructions).toHaveBeenCalledWith(transport, '~/.quimby/agents/r-id', {
-      agentName: 'researcher',
-      agentId: 'r-id',
-    })
+    expect(mockedWriteInstructions).toHaveBeenCalledWith(
+      transport,
+      '~/.quimby/agents/r-id',
+      expect.objectContaining({ agentName: 'researcher', agentId: 'r-id' }),
+    )
 
     // Still returns a valid launch spec.
     expect(launch.sessionName).toBe('qb-r-id')

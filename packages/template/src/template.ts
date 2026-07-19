@@ -121,11 +121,23 @@ export function renderResumeRequest(): string {
  * Substitute an agent's identity into the shared {@link QUIMBY_CONTEXT} block. This is the
  * Quimby tier both `CLAUDE.md` and `AGENTS.md` carry; the repo's own instructions are a second
  * tier the tools discover natively under `repo/`.
+ *
+ * `runtime` selects the `{{capability}}` clause: a sandboxed runtime (`sbx`/`openshell`) is told to
+ * run/build/test freely in its disposable clone; anything else (local, or an unknown/undefined
+ * runtime resolved before first launch) gets the conservative local guidance. Instructions are
+ * regenerated on every launch with the *resolved* runtime, so a fuzzy pre-launch value self-corrects.
  */
-export function renderQuimbyContext(opts: { agentName: string; agentId: string }): string {
+export function renderQuimbyContext(opts: {
+  agentName: string
+  agentId: string
+  runtime?: string
+}): string {
   // agentId is still accepted (callers pass it) but no longer surfaced to the agent — its UUID is
   // plumbing it never uses, and leading with it read as framework-forward "you are a managed agent".
-  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName)
+  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName).replaceAll(
+    '{{capability}}',
+    renderCapabilityClause(opts.runtime),
+  )
 }
 
 /**
@@ -134,7 +146,11 @@ export function renderQuimbyContext(opts: { agentName: string; agentId: string }
  * load directly; a missing target is silently skipped, so the line is safe whether or not the repo
  * has one.
  */
-export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }): string {
+export function renderAgentClaudeMd(opts: {
+  agentName: string
+  agentId: string
+  runtime?: string
+}): string {
   return `${renderQuimbyContext(opts)}\n## Project instructions\n\n@repo/CLAUDE.md\n`
 }
 
@@ -144,10 +160,48 @@ export function renderAgentClaudeMd(opts: { agentName: string; agentId: string }
  * mechanism, so the context is inlined (not linked) and the repo's own guidance is named in prose
  * rather than imported — the tool discovers `repo/AGENTS.md` natively as it works there.
  */
-export function renderAgentAgentsMd(opts: { agentName: string; agentId: string }): string {
+export function renderAgentAgentsMd(opts: {
+  agentName: string
+  agentId: string
+  runtime?: string
+}): string {
   return (
     `${renderQuimbyContext(opts)}\n## Project instructions\n\n` +
     'This project may provide its own guidance in `repo/AGENTS.md` (and `repo/CLAUDE.md`). Treat ' +
     'it as the project-specific layer on top of this Quimby context; follow it where it applies.\n'
+  )
+}
+
+/** Runtimes that give the agent a disposable, isolated environment where running the code freely is safe. */
+const SANDBOX_RUNTIMES = new Set(['sbx', 'openshell'])
+
+/**
+ * The `{{capability}}` clause for {@link renderQuimbyContext}, chosen by runtime. A sandboxed runtime
+ * gets the affirmative "this is your job — run/build/test here" text that stops agents from falsely
+ * caveating "confirm on the host" when they can verify in their own disposable clone. Local (or an
+ * unknown/undefined runtime) gets conservative guidance: verify with the project's own commands, but
+ * don't install system deps or run destructive tooling on the user's real machine without a go-ahead.
+ * Both defer to the project's own `repo/AGENTS.md`/`CLAUDE.md` on what may be run.
+ */
+function renderCapabilityClause(runtime: string | undefined): string {
+  if (runtime !== undefined && SANDBOX_RUNTIMES.has(runtime)) {
+    return (
+      'But isolated does not mean read-only: your runtime is a disposable, isolated sandbox, and ' +
+      'running the code is your job. Install dependencies, build, run, and exercise it end-to-end ' +
+      '(including any browser/e2e tooling) right here, then report what actually happened — never ' +
+      'caveat a change as "unverified, confirm on the host" when you can verify it yourself. The ' +
+      'boundary governs where your work _lands_ (only the user merges it into the real repo), not ' +
+      "what you _run_ to produce it. Where the project's own instructions (`repo/AGENTS.md` / " +
+      '`repo/CLAUDE.md`) say not to run something, they win.'
+    )
+  }
+  return (
+    "You are running **locally**, directly on the user's machine — not in a throwaway sandbox. " +
+    "Verify your work with the project's own build/test commands, but do not install system-level " +
+    "dependencies or run destructive or networked tooling without the user's go-ahead. The boundary " +
+    'governs where your work _lands_ (only the user merges it into the real repo), not whether you ' +
+    "verify it — so verify with the project's commands rather than deferring to the host, and where " +
+    "a real check needs setup you do not have, say exactly that. The project's own instructions " +
+    '(`repo/AGENTS.md` / `repo/CLAUDE.md`) win on what to run.'
   )
 }

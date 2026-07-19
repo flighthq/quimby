@@ -898,7 +898,11 @@ async function buildSSHWindow(
     const seedCommit = (await transport.exec(`git rev-parse HEAD`, { cwd: rRepoDir })).trim()
     await transport.writeFile(`${rAgentDir}/assignment.md`, '')
     await transport.writeFile(`${rAgentDir}/status.md`, 'idle')
-    await writeRemoteAgentInstructions(transport, rAgentDir, { agentName: name, agentId: agent.id })
+    await writeRemoteAgentInstructions(transport, rAgentDir, {
+      agentName: name,
+      agentId: agent.id,
+      runtime: agent.defaults?.runtime,
+    })
 
     state.agents[name].seedCommit = seedCommit
     await saveState(repoRoot, state)
@@ -909,7 +913,11 @@ async function buildSSHWindow(
   // mirroring prepareSshLaunch. Best-effort — a transient remote hiccup must not fail the window.
   try {
     await configureRemoteAgentIdentity(transport, rRepoDir, name, repoRoot)
-    await writeRemoteAgentInstructions(transport, rAgentDir, { agentName: name, agentId: agent.id })
+    await writeRemoteAgentInstructions(transport, rAgentDir, {
+      agentName: name,
+      agentId: agent.id,
+      runtime: agent.defaults?.runtime,
+    })
   } catch {
     // Advisory; leave whatever the remote clone already has.
   }

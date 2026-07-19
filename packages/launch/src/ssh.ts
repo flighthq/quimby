@@ -84,6 +84,14 @@ export async function prepareSshLaunch(
   // its id-keyed path so it operates on the right agent dir.
   await transport.exec(renderRemoteMailboxMigration(rAgentDir))
 
+  // Resolve the runtime up front (pure — no side effects): the scaffold and instruction writes
+  // below tag the agent's CLAUDE.md/AGENTS.md with a runtime-appropriate capability clause.
+  const config = await loadQuimbyConfig(repoRoot)
+  const { runtime, entrypoint, runtimeLabel, env, requiredTools } = resolveRuntimeSelection({
+    ...opts,
+    config,
+  })
+
   // Lazy remote init: clone + scaffold the agent if this is the first launch. Reuses the
   // same provisioning primitives as `rebuildAgent`, so remote clone/seed/scaffold lives
   // in one place.
@@ -100,6 +108,7 @@ export async function prepareSshLaunch(
     await writeRemoteAgentScaffold(transport, rAgentDir, {
       agentName: agent.name,
       agentId: agent.id,
+      runtime,
     })
     await saveState(repoRoot, state)
     reporter.success('Remote agent initialized')
@@ -111,7 +120,7 @@ export async function prepareSshLaunch(
   // just first-run init above), so fixing the host identity or shipping newer instructions reaches
   // an existing remote agent without a rebuild. Both idempotent and best-effort — a transient
   // remote hiccup must never block attaching.
-  const instructionOpts = { agentName: agent.name, agentId: agent.id }
+  const instructionOpts = { agentName: agent.name, agentId: agent.id, runtime }
   try {
     await configureRemoteAgentIdentity(transport, rRepoDir, agent.name, repoRoot)
     await writeRemoteAgentInstructions(transport, rAgentDir, instructionOpts)
@@ -122,11 +131,6 @@ export async function prepareSshLaunch(
     // Advisory; leave whatever the remote clone already has.
   }
 
-  const config = await loadQuimbyConfig(repoRoot)
-  const { runtime, entrypoint, runtimeLabel, env, requiredTools } = resolveRuntimeSelection({
-    ...opts,
-    config,
-  })
   if (requiredTools.length > 0) await transport.checkCapabilities(requiredTools)
 
   // Build the shell command for the remote machine using the runtime adapter; cwd is

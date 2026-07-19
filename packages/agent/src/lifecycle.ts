@@ -83,7 +83,11 @@ export async function addAgent(
   const repoDir = getAgentRepoDir(repoRoot, agentState.id)
 
   agentState.seedCommit = await cloneAndSeedAgentRepo(repoRoot, repoDir, name, state.sourceRef)
-  await writeAgentScaffold(agentDir, { agentName: name, agentId: agentState.id })
+  await writeAgentScaffold(agentDir, {
+    agentName: name,
+    agentId: agentState.id,
+    runtime: agentState.defaults?.runtime,
+  })
 
   state.agents[name] = agentState
   await saveState(repoRoot, state)
@@ -121,7 +125,11 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
       agentName: name,
       hostRepoRoot: repoRoot,
     })
-    await writeRemoteAgentScaffold(transport, rAgentDir, { agentName: name, agentId: agent.id })
+    await writeRemoteAgentScaffold(transport, rAgentDir, {
+      agentName: name,
+      agentId: agent.id,
+      runtime: agent.defaults?.runtime,
+    })
     await saveState(repoRoot, state)
     return
   }
@@ -142,7 +150,11 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   // handoff. Keeping the inodes stable avoids that window. Re-scaffolding then refreshes the
   // quimby-generated instruction files (overwritten on every launch anyway).
   await clearMailboxContents(agentDir)
-  await writeAgentScaffold(agentDir, { agentName: name, agentId: agent.id })
+  await writeAgentScaffold(agentDir, {
+    agentName: name,
+    agentId: agent.id,
+    runtime: agent.defaults?.runtime,
+  })
 }
 
 export async function removeAgent(repoRoot: string, name: string): Promise<void> {
@@ -243,7 +255,7 @@ export async function cloneAndSeedRemoteAgentRepo(
 export async function writeRemoteAgentScaffold(
   transport: SSHTransport,
   rAgentDir: string,
-  opts: { agentName: string; agentId: string },
+  opts: { agentName: string; agentId: string; runtime?: string },
 ): Promise<void> {
   await transport.ensureDir(`${rAgentDir}/handoff/out/draft`)
   await transport.ensureDir(`${rAgentDir}/handoff/out/queued`)
@@ -263,7 +275,7 @@ export async function writeRemoteAgentScaffold(
 export async function writeRemoteAgentInstructions(
   transport: SSHTransport,
   rAgentDir: string,
-  opts: { agentName: string; agentId: string },
+  opts: { agentName: string; agentId: string; runtime?: string },
 ): Promise<void> {
   await transport.writeFile(`${rAgentDir}/CLAUDE.md`, renderAgentClaudeMd(opts))
   await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd(opts))
@@ -356,7 +368,7 @@ async function cloneAndSeedAgentRepo(
 /** Create a local agent's mailbox tree and baseline files (assignment/status, optional instructions). */
 async function writeAgentScaffold(
   agentDir: string,
-  opts: { agentName: string; agentId: string },
+  opts: { agentName: string; agentId: string; runtime?: string },
 ): Promise<void> {
   // The explicit-lifecycle tree: agents author under out/draft and publish into out/queued;
   // parcels arrive in in/received; status mirrors sit at their own `status/` root.
@@ -378,7 +390,7 @@ async function writeAgentScaffold(
  */
 export async function writeAgentInstructions(
   agentDir: string,
-  opts: { agentName: string; agentId: string },
+  opts: { agentName: string; agentId: string; runtime?: string },
 ): Promise<void> {
   await writeText(join(agentDir, 'CLAUDE.md'), renderAgentClaudeMd(opts))
   await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd(opts))

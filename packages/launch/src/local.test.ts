@@ -110,10 +110,10 @@ describe('prepareLocalTmuxLaunch', () => {
       'builder',
     )
     // The Quimby-tier instruction files are refreshed every launch too.
-    expect(writeAgentInstructions).toHaveBeenCalledWith(expect.stringContaining('agents/a1'), {
-      agentName: 'builder',
-      agentId: 'a1',
-    })
+    expect(writeAgentInstructions).toHaveBeenCalledWith(
+      expect.stringContaining('agents/a1'),
+      expect.objectContaining({ agentName: 'builder', agentId: 'a1' }),
+    )
   })
 
   it('rejects an unknown runtime', async () => {

@@ -45,6 +45,29 @@ describe('renderQuimbyContext', () => {
     expect(out).not.toContain('agent-id-123')
   })
 
+  it('picks the capability clause by runtime — sandboxed runs freely, local/unknown stays conservative', () => {
+    const sandboxed = renderQuimbyContext({ agentName: 'a', agentId: 'id', runtime: 'sbx' })
+    // A real sandbox is told running the code is its job and not to defer to the host.
+    expect(sandboxed).toContain('isolated does not mean read-only')
+    expect(sandboxed).toContain('running the code is your job')
+    expect(sandboxed).not.toContain('running **locally**')
+    expect(sandboxed).not.toContain('{{')
+
+    // openshell is also a sandbox runtime.
+    expect(renderQuimbyContext({ agentName: 'a', agentId: 'id', runtime: 'openshell' })).toContain(
+      'running the code is your job',
+    )
+
+    // A local agent (or an unknown/undefined runtime resolved pre-launch) gets the guarded text.
+    for (const runtime of ['local', undefined, 'weird-future-runtime']) {
+      const out = renderQuimbyContext({ agentName: 'a', agentId: 'id', runtime })
+      expect(out).toContain('running **locally**')
+      expect(out).toContain("without the user's go-ahead")
+      expect(out).not.toContain('running the code is your job')
+      expect(out).not.toContain('{{')
+    }
+  })
+
   it('teaches agent.sh as the normal coordination API and keeps raw layout out of normal usage', () => {
     const out = renderQuimbyContext({ agentName: 'alice', agentId: 'id' })
     expect(out).toContain('./agent.sh help')

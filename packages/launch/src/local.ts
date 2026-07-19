@@ -118,6 +118,7 @@ export async function prepareLocalTmuxLaunch(
     await writeAgentInstructions(getAgentDir(repoRoot, agent.id), {
       agentName: agent.name,
       agentId: agent.id,
+      runtime,
     })
     // Seed this agent's peer roster so `ls status/` is correct even with no server running —
     // a placeholder per current peer, orphans swept. Idempotent; the poller refreshes content.
