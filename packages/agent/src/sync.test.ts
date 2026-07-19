@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -33,8 +33,13 @@ vi.mock('@quimbyhq/transport', async (importOriginal) => ({
 
 const mockedGetSSH = vi.mocked(getSSHTransport)
 
-function fakeSSHTransport(logOut = ''): { transport: SSHTransport; calls: string[] } {
+function fakeSSHTransport(logOut = ''): {
+  transport: SSHTransport
+  calls: string[]
+  files: Record<string, string>
+} {
   const calls: string[] = []
+  const files: Record<string, string> = {}
   const transport = {
     syncProjectTo: vi.fn(async () => {}),
     exec: vi.fn(async (cmd: string) => {
@@ -43,8 +48,11 @@ function fakeSSHTransport(logOut = ''): { transport: SSHTransport; calls: string
       if (cmd.includes('status --porcelain')) return ''
       return ''
     }),
+    writeFile: vi.fn(async (path: string, content: string) => {
+      files[path] = content
+    }),
   } as unknown as SSHTransport
-  return { transport, calls }
+  return { transport, calls, files }
 }
 
 async function registerSSHAgent(name: string, id: string, seedCommit: string): Promise<void> {
@@ -379,5 +387,37 @@ describe('syncAgent', () => {
     expect(calls).toContain('git stash push --include-untracked -m quimby-sync')
     expect(calls).toContain(`git rebase ${head}`)
     expect(calls).toContain('git stash pop')
+  })
+
+  it('refreshes the Quimby-tier scaffold onto the agent dir without clobbering assignment/status', async () => {
+    await registerLocalAgentClone('scaf', 'scaf-id')
+    const agentDir = getAgentDir(dir, 'scaf-id')
+    // pre-existing task/status the refresh must leave untouched
+    await writeFile(join(agentDir, 'assignment.md'), 'MY TASK')
+    await writeFile(join(agentDir, 'status.md'), 'working')
+    await advanceHost('feature')
+
+    await syncAgent(dir, 'scaf')
+
+    // generated instruction + tool files land (or are refreshed) on disk
+    expect(await exists(join(agentDir, 'CLAUDE.md'))).toBe(true)
+    expect(await exists(join(agentDir, 'AGENTS.md'))).toBe(true)
+    expect(await exists(join(agentDir, 'agent.sh'))).toBe(true)
+    // …but the refresh writes only generated files — the agent's task and status survive
+    expect(await readFile(join(agentDir, 'assignment.md'), 'utf8')).toBe('MY TASK')
+    expect(await readFile(join(agentDir, 'status.md'), 'utf8')).toBe('working')
+  })
+
+  it('writes the refreshed scaffold over transport for an SSH agent', async () => {
+    const { transport, files } = fakeSSHTransport('') // no commits past seed
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remote', 'remote-id', 'oldseed0000')
+
+    await syncAgent(dir, 'remote')
+
+    const written = Object.keys(files)
+    expect(written.some((p) => p.endsWith('/CLAUDE.md'))).toBe(true)
+    expect(written.some((p) => p.endsWith('/AGENTS.md'))).toBe(true)
+    expect(written.some((p) => p.endsWith('/agent.sh'))).toBe(true)
   })
 })

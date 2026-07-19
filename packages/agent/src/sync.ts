@@ -3,10 +3,12 @@ import { rm } from 'node:fs/promises'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
+  getAgentDir,
   getAgentHandoffInProcessedDir,
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
   QUIMBY_DIRNAME,
+  remoteAgentDir,
   remoteAgentHandoffInProcessedDir,
   remoteAgentHandoffOutSentDir,
   remoteAgentRepoDir,
@@ -20,6 +22,7 @@ import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { loadState, saveState } from '@quimbyhq/workspace'
 
+import { writeAgentInstructions, writeRemoteAgentInstructions } from './lifecycle'
 import type { RepoSyncOps } from './syncAlgorithm'
 import { runSyncAlgorithm } from './syncAlgorithm'
 
@@ -208,6 +211,11 @@ export async function syncAgent(
   state.agents[name].seedCommit = result.newSeed
   await saveState(repoRoot, state)
 
+  // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
+  // upgrading quimby reaches an in-flight agent without a rebuild or a session kill. Best-effort:
+  // a write failure never fails the sync.
+  await refreshAgentScaffold(repoRoot, state.id, agent).catch(() => {})
+
   // GC the delivery/processing caches now that the agent has advanced — folded into sync per
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
   await pruneAgentMailboxCaches(repoRoot, agent, state.id).catch(() => {})
@@ -236,6 +244,32 @@ export async function pruneAgentMailboxCaches(
   }
   await rm(getAgentHandoffOutSentDir(repoRoot, agent.id), { recursive: true, force: true })
   await rm(getAgentHandoffInProcessedDir(repoRoot, agent.id), { recursive: true, force: true })
+}
+
+/**
+ * Re-render an agent's Quimby-tier scaffold — `CLAUDE.md`/`AGENTS.md` and the `agent.sh`/`.cmd`
+ * coordination tool — onto its current on-disk agent dir (host, or remote over transport). Folded
+ * into `sync` so a `quimby` upgrade reaches an in-flight agent without a rebuild or a session kill:
+ * it rewrites only the generated instruction/tool files — never `assignment.md`, `status.md`, or the
+ * mailbox — and never touches the tmux session or sandbox, so the running agent keeps working and
+ * ingests the new docs at its next context reset. The runtime hint is the agent's stored default; a
+ * later launch re-renders with the fully-resolved runtime.
+ */
+async function refreshAgentScaffold(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<void> {
+  const opts = { agentName: agent.name, agentId: agent.id, runtime: agent.defaults?.runtime }
+  if (isSSH(agent.location)) {
+    await writeRemoteAgentInstructions(
+      getSSHTransport(agent.location),
+      remoteAgentDir(stateId, agent.id, agent.location.base),
+      opts,
+    )
+    return
+  }
+  await writeAgentInstructions(getAgentDir(repoRoot, agent.id), opts)
 }
 
 /** Drive the sync algorithm against a local agent clone via the git CLI. */
