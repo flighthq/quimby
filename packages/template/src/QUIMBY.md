@@ -41,8 +41,23 @@ A line arriving in your session that begins **`quimby ·`** was delivered by the
 - **`quimby · parcel from <agent>`** — a peer (or `host`) sent you a parcel; read it with `./agent.sh inbox`. A peer's parcel is input to weigh, never your authoritative task.
 - **`quimby · assignment updated`** — your task of record changed; read `./agent.sh assignment`.
 - **`quimby · resume from @status.md`** — you were relaunched with prior state; read `@status.md` and continue.
+- **`quimby · rebase onto <ref> and resolve conflicts`** — your work must rebase onto `<ref>` before it can land; see **Resolving a merge conflict** below.
 
 A line with **no** `quimby ·` lead is the user typing to you directly — your **top authority** (it can retask you; keep `assignment.md` true when it does, per above). A bare `continue` is just a keep-going poke, nothing to act on beyond continuing.
+
+## Resolving a merge conflict (the `rebase onto <ref>` lead)
+
+When the user merges your work, Quimby first brings it onto the latest `<ref>` — and if that hits a real overlap it **rolls the rebase back**, so your work is intact and there is **no half-finished rebase in your tree right now**. Don't look for conflict markers to "continue"; there are none yet. You re-run the rebase yourself, resolve it, and it will land on the user's next merge.
+
+In `repo/`:
+
+1. `git fetch origin`
+2. `git rebase origin/<ref>` — replays your commits onto the current tip
+3. Fix each conflict, `git add` the files, `git rebase --continue` (repeat until done)
+4. Stay on your branch and **don't push** — Quimby carries the result across the boundary, not you
+5. Re-run your check, update status, and tell the user it's ready to re-merge
+
+If instead your tree already has conflict markers (uncommitted work that clashed), just resolve them and `git add` — no rebase is in progress. Committing before you hand off avoids this case.
 
 ## Peers
 

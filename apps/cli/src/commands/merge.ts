@@ -19,6 +19,8 @@ import {
   stageParcel,
 } from '@quimbyhq/handoff'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
+import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
+import { renderResolveConflictRequest } from '@quimbyhq/template'
 import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import { loadQuimbyConfig, resolveWorkspace, saveMergeModeDefault } from '@quimbyhq/workspace'
@@ -189,7 +191,26 @@ export async function runMergeCommand({
         await rebaseAgentOntoBase(repoRoot, args.agent, consolaReporter)
       } catch (err) {
         if (err instanceof QuimbyError) {
-          throw new QuimbyError(`${err.message}\nThen re-run \`quimby merge ${args.agent}\`.`)
+          // Pre-sync conflict: the rebase was rolled back (work intact, nothing staged). Ask the
+          // running agent to rebase+resolve on its own clone (where the code context is), and give
+          // the user one clean line instead of the raw sync error.
+          const syncRef = state.agents[args.agent].syncRef ?? state.sourceRef
+          const running = await hasAgentSession(state.agents[args.agent])
+          if (running) {
+            await nudgeAgentSession({
+              agent: state.agents[args.agent],
+              displayName: args.agent,
+              courier: renderResolveConflictRequest(syncRef),
+              reporter: consolaReporter,
+            })
+          }
+          logger.warn(`"${args.agent}" conflicts with ${syncRef} — work is safe, nothing merged.`)
+          logger.info(
+            running
+              ? `Nudged it to rebase; re-run \`quimby merge ${args.agent}\` once it's clean.`
+              : `Start it, then re-run \`quimby merge ${args.agent}\` to have it resolve.`,
+          )
+          process.exit(1)
         }
         throw err
       }

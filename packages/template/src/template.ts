@@ -118,6 +118,16 @@ export function renderResumeRequest(): string {
 }
 
 /**
+ * The courier body for a pre-sync merge conflict: `merge` tried to bring the agent onto its base
+ * before landing and hit a real overlap, so it rolled the rebase back (work intact). Sent as
+ * `quimby · rebase onto <syncRef> and resolve conflicts`; the git steps live in the agent's
+ * AGENTS.md ("Resolving a merge conflict") so the lead itself stays short.
+ */
+export function renderResolveConflictRequest(syncRef: string): string {
+  return `rebase onto ${syncRef} and resolve conflicts`
+}
+
+/**
  * Substitute an agent's identity into the shared {@link QUIMBY_CONTEXT} block. This is the
  * Quimby tier both `CLAUDE.md` and `AGENTS.md` carry; the repo's own instructions are a second
  * tier the tools discover natively under `repo/`.

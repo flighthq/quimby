@@ -4,6 +4,7 @@ import {
   renderAgentAgentsMd,
   renderAgentClaudeMd,
   renderQuimbyContext,
+  renderResolveConflictRequest,
   renderResumeRequest,
   renderTmuxConfig,
   renderVerifyRequest,
@@ -130,6 +131,15 @@ describe('renderQuimbyContext', () => {
 
   it('ends with a newline', () => {
     expect(renderQuimbyContext({ agentName: 'a', agentId: 'b' }).endsWith('\n')).toBe(true)
+  })
+})
+
+describe('renderResolveConflictRequest', () => {
+  it('is a short courier body naming the sync ref, with git steps left to AGENTS.md', () => {
+    expect(renderResolveConflictRequest('main')).toBe('rebase onto main and resolve conflicts')
+    expect(renderResolveConflictRequest('release')).toContain('release')
+    // Kept short — the how lives in the agent context, not the one-line lead.
+    expect(renderResolveConflictRequest('main')).not.toContain('git ')
   })
 })
 

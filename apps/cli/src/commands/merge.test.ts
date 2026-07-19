@@ -283,9 +283,13 @@ describe('runMergeCommand', () => {
       repoRoot: host,
     })
     const { default: cmd } = await import('./merge')
-    await expect(cmd.run!(mergeArgs({ message: 'land it', target: host }))).rejects.toThrow(
-      /rebase conflict|Resolve/i,
-    )
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit')
+    }) as never)
+    // The conflict stops the merge with a clean non-zero exit rather than crossing the boundary.
+    await expect(cmd.run!(mergeArgs({ message: 'land it', target: host }))).rejects.toThrow()
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    exitSpy.mockRestore()
     // The boundary was never crossed: the agent's feature work did not land, and no git merge
     // was left in progress in the host repo — the conflict stayed on the agent's side.
     expect(await exists(join(host, 'feature.txt'))).toBe(false)
