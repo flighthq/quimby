@@ -1,4 +1,4 @@
-import { getAgentWorkSummary } from '@quimbyhq/agent'
+import { getAgentCommitSubjects, getAgentWorkSummary } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getAgentRepoDir, QUIMBY_DIRNAME, remoteAgentRepoDir } from '@quimbyhq/paths'
@@ -54,29 +54,6 @@ async function getDiff(
   // Full working tree (committed + uncommitted + untracked) — the same view a
   // handoff or apply would carry, including their exclusion of Quimby's own state.
   return git.diffWorkingTree(repoPath, 'quimby/seed', { exclude: [QUIMBY_DIRNAME] })
-}
-
-// The agent's commit subjects since its seed (`quimby/seed..HEAD`), newest first, for the
-// diff header. Empty when there are none (uncommitted-only work) or the repo can't be read.
-async function getCommitSubjects(
-  repoRoot: string,
-  stateId: string,
-  agent: { id: string; location?: AgentLocation },
-): Promise<string[]> {
-  try {
-    if (isSSH(agent.location)) {
-      const transport = getTransport(agent.location)
-      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
-      const out = await transport.exec(`git log quimby/seed..HEAD --format=%h %s`, {
-        cwd: rRepoDir,
-      })
-      return out.split('\n').filter(Boolean)
-    }
-    const repoPath = getAgentRepoDir(repoRoot, agent.id)
-    return (await git.log(repoPath, 'quimby/seed..HEAD', '%h %s')).split('\n').filter(Boolean)
-  } catch {
-    return []
-  }
 }
 
 export default defineCommand({
@@ -135,7 +112,7 @@ export async function runDiffCommand({
   const [diff, summary, commits] = await Promise.all([
     getDiff(repoRoot, args.agent, state, args.stat),
     getAgentWorkSummary(repoRoot, state.id, agent),
-    getCommitSubjects(repoRoot, state.id, agent),
+    getAgentCommitSubjects(repoRoot, state.id, agent),
   ])
 
   const header = [

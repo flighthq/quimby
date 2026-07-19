@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { addAgent } from '@quimbyhq/agent'
 import { getAgentDir, getAgentRepoDir, getLocalConfigPath } from '@quimbyhq/paths'
-import { exists, writeYaml } from '@quimbyhq/utils'
+import { exists, logger, writeYaml } from '@quimbyhq/utils'
 import { loadQuimbyConfig, loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -82,6 +82,7 @@ function mergeArgs(overrides: Record<string, unknown>) {
       patch: false,
       squashed: false,
       '3way': false,
+      preview: false,
       rebase: false,
       default: false,
       global: false,
@@ -266,6 +267,26 @@ describe('runMergeCommand', () => {
     expect((await loadState(host)).agents.alice.seedCommit).toBe(headAfterFirst)
     const subjects = (await git(host, 'log', '--format=%s')).split('\n')
     expect(subjects.filter((subject) => subject === 'add feature')).toHaveLength(1)
+  })
+
+  it('--preview reports the commits + check and crosses nothing', async () => {
+    const { host } = await setupHostAndAgent()
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const logSpy = vi.spyOn(logger, 'log').mockImplementation(() => {})
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host, preview: true }))
+    const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    logSpy.mockRestore()
+    // "This agent has one commit — what is it?" — the subject is listed.
+    expect(out).toContain('add feature')
+    expect(out).toContain('1 commit')
+    expect(out).toContain('Preview only — nothing merged.')
+    // The boundary was never crossed: no work landed and no merge was started.
+    expect(await exists(join(host, 'feature.txt'))).toBe(false)
+    expect(await exists(join(host, '.git', 'MERGE_HEAD'))).toBe(false)
   })
 
   it('by default pre-syncs and aborts on a rebase conflict without crossing the boundary', async () => {

@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os'
 
 import {
   getAgentAttestation,
+  getAgentCommitSubjects,
   getAgentHeadHash,
+  getAgentSyncStatus,
+  getAgentWorkSummary,
   rebaseAgentOntoBase,
   syncAgent,
 } from '@quimbyhq/agent'
@@ -32,6 +35,7 @@ import { join, resolve } from 'pathe'
 import { attestationResolver, formatAttestation } from '../attestation'
 import { getQuimbySuccessQuip } from '../quips'
 import { consolaReporter } from '../reporter'
+import { formatWorkSummary } from '../workSummary'
 
 export default defineCommand({
   meta: {
@@ -57,6 +61,12 @@ export default defineCommand({
     '3way': {
       type: 'boolean',
       description: 'Accepted for compatibility (the merge-based flow is always 3-way)',
+      default: false,
+    },
+    preview: {
+      type: 'boolean',
+      description:
+        'Show what would merge (mode, commits, diffstat, self-check, behind-base) without crossing the boundary',
       default: false,
     },
     branch: {
@@ -114,6 +124,7 @@ export async function runMergeCommand({
     patch: boolean
     squashed: boolean
     '3way': boolean
+    preview: boolean
     branch?: string
     target?: string
     message?: string
@@ -130,6 +141,14 @@ export async function runMergeCommand({
   // workspace/user default (git-style, resolved across the config layers); else squashed.
   const config = await loadQuimbyConfig(repoRoot)
   const mode = resolveMergeMode(args, config.mergeMode)
+
+  // `--preview` is a read-only dry run: report what would cross (mode, commits, diffstat, self-check,
+  // behind-base) and stop before any side effect — no `--default` persist, no target-clean gate, no
+  // pre-sync, no staging, no landing.
+  if (args.preview) {
+    await previewMerge({ state, repoRoot, agent: args.agent, mode, args })
+    return
+  }
 
   // `--default` persists the chosen mode as the bare-`merge` default — to this repo, or user
   // config with `--global`. A config-setting side effect, independent of this merge's outcome.
@@ -337,6 +356,52 @@ export async function runMergeCommand({
 
 function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY)
+}
+
+/**
+ * `merge --preview`: report what *would* cross the boundary — resolved mode, the commits that carry
+ * the work, the diffstat, the self-reported check (flagged STALE when HEAD has drifted), and how far
+ * the agent trails its base — without staging, syncing, or landing anything. Read-only decision
+ * support for the integration step: "two commits — what are they?", "is this stale, safe to
+ * force-sync?". The shown work is measured against the current seed, so it reflects a clean pre-sync;
+ * a `behind` count flags that a real pre-sync (or `--no-sync`) may change what lands.
+ */
+async function previewMerge(opts: {
+  state: Readonly<QuimbyState>
+  repoRoot: string
+  agent: string
+  mode: ApplyMode
+  args: Readonly<{ target?: string; branch?: string }>
+}): Promise<void> {
+  const { state, repoRoot, agent: name, mode, args } = opts
+  const src = state.agents[name]
+  if (!src) {
+    throw new QuimbyError(`--preview is for agents; "${name}" is not an agent.`)
+  }
+
+  const [summary, commits, att, liveHash, sync] = await Promise.all([
+    getAgentWorkSummary(repoRoot, state.id, src),
+    getAgentCommitSubjects(repoRoot, state.id, src),
+    getAgentAttestation(repoRoot, state.id, src),
+    getAgentHeadHash(repoRoot, state.id, src),
+    getAgentSyncStatus(repoRoot, src, state.sourceRef),
+  ])
+
+  const targetLabel = args.branch ? `new branch ${args.branch}` : (args.target ?? process.cwd())
+  logger.log(`${colors.bold(name)} → ${targetLabel}  ${colors.dim(`(${mode})`)}`)
+  logger.log(`  work:  ${formatWorkSummary(summary)}`)
+  if (commits.length > 0) {
+    logger.log('  commits:')
+    for (const c of commits) logger.log(`    ${colors.dim(c)}`)
+  }
+  logger.log(`  check: ${formatAttestation(att, liveHash)}`)
+  const behindNote =
+    sync.behind > 0
+      ? `${sync.behind} behind ${sync.syncRef} — a pre-sync rebases onto ${sync.syncRef} first; ` +
+        `\`quimby sync ${name} --current -f\` force-resets.`
+      : `up to date with ${sync.syncRef}`
+  logger.log(`  base:  seed ${src.seedCommit.slice(0, 8) || '—'} · ${behindNote}`)
+  logger.log(colors.dim('  Preview only — nothing merged.'))
 }
 
 /**

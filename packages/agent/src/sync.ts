@@ -120,6 +120,32 @@ export async function getAgentWorkSummary(
 }
 
 /**
+ * The agent's commit subjects since its seed (`quimby/seed..HEAD`), newest first — the one-line
+ * `<sha> <subject>` log that `diff` and `merge --preview` show above the diff. Empty when there are
+ * none (uncommitted-only work) or the repo can't be read (unprovisioned / unreachable SSH host).
+ */
+export async function getAgentCommitSubjects(
+  repoRoot: string,
+  stateId: string,
+  agent: Readonly<AgentState>,
+): Promise<string[]> {
+  try {
+    if (isSSH(agent.location)) {
+      const transport = getSSHTransport(agent.location)
+      const rRepoDir = remoteAgentRepoDir(stateId, agent.id, agent.location.base)
+      const out = await transport.exec(`git log quimby/seed..HEAD --format=%h %s`, {
+        cwd: rRepoDir,
+      })
+      return out.split('\n').filter(Boolean)
+    }
+    const repoDir = getAgentRepoDir(repoRoot, agent.id)
+    return (await git.log(repoDir, 'quimby/seed..HEAD', '%h %s')).split('\n').filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/**
  * Sync an agent onto its base as a pre-packaging step (a `--rebase` before handoff,
  * dispatch, or merge), narrating the outcome. Thin wrapper over {@link syncAgent} that
  * exists so callers in other packages get the friendly progress + result without
