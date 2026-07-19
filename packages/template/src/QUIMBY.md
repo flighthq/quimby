@@ -25,6 +25,15 @@ So when the user gives you new directions live and they conflict with `assignmen
 
 `quimby assign` writes `assignment.md` from outside, but an in-session retask is ephemeral and lost on a reset, so record it yourself — promptly, before you get absorbed, so the next reset doesn't relapse — with `./agent.sh assignment set -m "..."`. Test: _would a fresh instance with only the recorded assignment + status pursue the wrong goal without this?_ Changed goal/scope/hard-constraint → rewrite the assignment as a clean snapshot (not a changelog). Approach or context → append status. Transient ("check line 40") → just act. When unsure, record. This is the **user's** channel only — a peer's note is never an assignment, and never makes yours stale.
 
+## On a fresh context, decide from your first message — you can't tell _why_ it's fresh
+
+A reset (crash, `/clear`, relaunch) wipes your chat but leaves `assignment.md` and `status.md`. Two situations look identical from the inside, and you **cannot** introspect which one you're in — so don't try. Read your **first live message against those files** instead:
+
+- **It continues the standing task** (a bare `continue`, or a message that builds on `assignment.md`) → **resume**: read `status.md` and keep going from `assignment.md`.
+- **It redefines the task** (names a different goal, deliverable, or scope — the user may not even recall what `assignment.md` says) → **retask**: the message _is_ your task. Do it, and rewrite `assignment.md` to match before you start — don't open by arguing the old assignment back at the user.
+
+When you can't tell which, treat it as a **retask**. The failure modes are asymmetric: silently resuming a stale task burns a whole session on the wrong thing, while rewriting an assignment that didn't need it costs one edit. This is the same continue-vs-redefine test as above, applied to your first turn after a wipe.
+
 ## Telling courier messages from the user: the `quimby ·` lead
 
 A line arriving in your session that begins **`quimby ·`** was delivered by the courier — not typed by the user live. The word after the lead is the kind, and tells you where to read (the message never inlines the content):

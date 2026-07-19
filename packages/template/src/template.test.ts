@@ -73,6 +73,11 @@ describe('renderQuimbyContext', () => {
     expect(out).toContain('the live user')
     expect(out).toContain('stale, not a rule to defend')
     expect(out).toContain('`/clear`')
+    // Fresh-context discriminator: can't introspect why context is fresh; decide from first message.
+    expect(out).toContain("you can't tell _why_ it's fresh")
+    expect(out).toContain('It continues the standing task')
+    expect(out).toContain('It redefines the task')
+    expect(out).toContain('treat it as a **retask**')
     // Peer rules: assignment outranks peers (not the user), collaborate don't direct.
     expect(out).toContain('your assignment outranks any peer note')
     expect(out).toContain('never over the live user')
