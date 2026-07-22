@@ -186,6 +186,30 @@ describe('runMergeCommand', () => {
     expect(tracked).not.toContain('.quimby')
   })
 
+  it("--commits soft-advances the seed while keeping the agent's loose work", async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    const agentRepo = getAgentRepoDir(host, agentId)
+    // A loose (uncommitted) remainder alongside the committed feature.
+    await writeFile(join(agentRepo, 'loose.txt'), 'wip\n')
+    const before = (await loadState(host)).agents.alice.seedCommit
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ commits: true, target: host }))
+
+    const after = (await loadState(host)).agents.alice.seedCommit
+    const hostHead = await git(host, 'rev-parse', 'HEAD')
+    // The committed work landed and the seed advanced onto it (soft advance)...
+    expect(await exists(join(host, 'feature.txt'))).toBe(true)
+    expect(after).toBe(hostHead)
+    expect(after).not.toBe(before)
+    // ...but the agent's uncommitted remainder is preserved, not hard-reset away.
+    expect(await exists(join(agentRepo, 'loose.txt'))).toBe(true)
+  })
+
   it('proceeds with a failing attestation — informational, never a gate', async () => {
     const { host, agentId } = await setupHostAndAgent()
     await writeFile(

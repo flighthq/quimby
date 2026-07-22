@@ -302,9 +302,35 @@ export async function runMergeCommand({
         : `Merged "${name}"`,
     )
 
-    // Work left uncommitted (explicit --patch, the no-TTY degrade, or a --commits
-    // remainder): an incomplete landing — no quip, no seed advance. Say what to commit,
-    // and how to catch the agent up afterward so it doesn't drift into conflicts.
+    // `--commits`: a SOFT advance. Pull the committed work onto the base while preserving the
+    // agent's loose (uncommitted) work — so you merge what a worker produced without interrupting
+    // it. It advances even with a loose remainder, because the safe sync keeps that remainder
+    // rather than discarding it (unlike squashed's hard reset).
+    if (isAgent && advanceOn && effectiveMode === 'commits') {
+      await settleAgentSeed({
+        state,
+        repoRoot,
+        agent: state.agents[args.agent],
+        name: args.agent,
+        mergedName: meta.name,
+        targetRepoPath,
+        landedOnBranch: branch !== undefined,
+        retargetRef,
+        soft: true,
+      })
+      if (result.leftUncommitted) {
+        logger.info(
+          "The agent's uncommitted remainder also landed loose in your working tree — commit it " +
+            'when ready, or re-run with `--commits -m "…"`.',
+        )
+      }
+      logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
+      return
+    }
+
+    // Work left uncommitted with no soft advance (explicit --patch, or the no-TTY squashed
+    // degrade): an incomplete landing — no quip, no seed advance. Say what to commit, and how to
+    // catch the agent up afterward so it doesn't drift into conflicts.
     if (result.leftUncommitted) {
       reportUncommittedLanding({
         intendedMode: mode,
@@ -315,8 +341,8 @@ export async function runMergeCommand({
       return
     }
 
-    // A clean base hit: the work is fully committed. Advance the agent's seed when that's
-    // safe (else point at the manual catch-up), then celebrate.
+    // A clean, fully-committed squashed landing: HARD-advance the agent's seed onto what landed
+    // (everything landed, so nothing loose remains to preserve), else point at the catch-up.
     if (isAgent) {
       if (advanceOn) {
         await settleAgentSeed({
@@ -328,6 +354,7 @@ export async function runMergeCommand({
           targetRepoPath,
           landedOnBranch: branch !== undefined,
           retargetRef,
+          soft: false,
         })
       } else {
         logger.info(
@@ -525,9 +552,25 @@ async function settleAgentSeed(opts: {
   landedOnBranch: boolean
   /** `--sync <ref>`: retarget the agent's sync ref to this while advancing (else onto its base). */
   retargetRef?: string
+  /**
+   * Soft advance (safe sync) instead of a hard reset: rebase the agent onto the base while
+   * *preserving* its uncommitted work, so a `--commits` merge pulls down the committed part
+   * without discarding the loose remainder — and, since nothing is dropped, without needing the
+   * agent to be idle. `false` hard-resets (squashed, where everything landed so nothing remains).
+   */
+  soft?: boolean
 }): Promise<void> {
-  const { state, repoRoot, agent, name, mergedName, targetRepoPath, landedOnBranch, retargetRef } =
-    opts
+  const {
+    state,
+    repoRoot,
+    agent,
+    name,
+    mergedName,
+    targetRepoPath,
+    landedOnBranch,
+    retargetRef,
+    soft,
+  } = opts
   const catchUp = `\`quimby sync ${name} --current -f\``
   const syncRef = agent.syncRef ?? state.sourceRef
 
@@ -556,25 +599,32 @@ async function settleAgentSeed(opts: {
     return
   }
 
-  const liveName = await getWorkingParcelName({
-    repoRoot,
-    from: name,
-    codeSourceId: agent.id,
-    location: agent.location,
-    projectId: state.id,
-  })
-  if (liveName !== mergedName) {
-    logger.info(
-      `"${name}" has new work since the merge — left its seed alone. Run ${catchUp} once it's idle.`,
-    )
-    return
+  // A HARD advance discards newer work, so skip it when the agent has moved since the snapshot
+  // we merged (drift) and point at the manual catch-up. A SOFT advance preserves that work (safe
+  // sync stashes and pops it), so it needs no such gate — it can advance a still-active worker.
+  if (!soft) {
+    const liveName = await getWorkingParcelName({
+      repoRoot,
+      from: name,
+      codeSourceId: agent.id,
+      location: agent.location,
+      projectId: state.id,
+    })
+    if (liveName !== mergedName) {
+      logger.info(
+        `"${name}" has new work since the merge — left its seed alone. Run ${catchUp} once it's idle.`,
+      )
+      return
+    }
   }
 
   // A ref retargets the agent's sync ref while advancing (syncAgent persists `base`); without
-  // one the seed advances onto the current base — the branch the merge just landed on.
-  const result = await syncAgent(repoRoot, name, { force: true, base: retargetRef })
+  // one the seed advances onto the current base — the branch the merge just landed on. `force`
+  // hard-resets (squashed); the safe sync (soft) rebases while keeping the agent's loose work.
+  const result = await syncAgent(repoRoot, name, { force: !soft, base: retargetRef })
   const retargeted = retargetRef ? ` (now tracks ${retargetRef})` : ''
-  logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}${retargeted}`)
+  const kept = soft ? ' (kept its loose work)' : ''
+  logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}${retargeted}${kept}`)
 }
 
 /**
