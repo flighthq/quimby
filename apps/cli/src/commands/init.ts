@@ -1,11 +1,13 @@
 import { cancel, intro, isCancel, outro, select, text } from '@clack/prompts'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
+import type { QuimbyConfig, RuntimeProfileConfig } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import type { StarterEngine, StarterName, StarterOptions } from '@quimbyhq/workspace'
 import {
   buildStarterConfig,
   listBoundHostAliases,
+  listRuntimeProfiles,
   listStarters,
   loadQuimbyConfig,
   scaffoldQuimbyConfig,
@@ -78,6 +80,7 @@ async function walkthrough(
   repoRoot: string,
 ): Promise<{ name: StarterName; opts: StarterOptions } | null> {
   intro('Scaffold a quimby.yaml')
+  const config = await loadQuimbyConfig(repoRoot)
 
   const name = await prompt(
     select({
@@ -90,10 +93,10 @@ async function walkthrough(
   )
   if (name === null) return cancelled()
 
-  const engine = await prompt(select({ message: 'Engine', options: ENGINE_CHOICES }))
-  if (engine === null) return cancelled()
+  const engine = await pickEngine(config)
+  if (engine === CANCELLED) return cancelled()
 
-  const opts: StarterOptions = { engine: engine as StarterEngine }
+  const opts: StarterOptions = { ...engine }
 
   if (name !== 'solo') {
     const count = await prompt(
@@ -107,7 +110,7 @@ async function walkthrough(
     if (count.trim()) opts.builderCount = Number.parseInt(count.trim(), 10)
   }
 
-  const hostAlias = await pickHostAlias(repoRoot)
+  const hostAlias = await pickHostAlias(config)
   if (hostAlias === CANCELLED) return cancelled()
   if (hostAlias) opts.hostAlias = hostAlias
 
@@ -115,10 +118,44 @@ async function walkthrough(
   return { name: name as StarterName, opts }
 }
 
+// Offer the built-in engines plus any runtime profile the user already declared (reuse), so an
+// existing `codex-sbx` needs no re-entry. A reused profile is referenced by name with only its
+// shareable shape inlined into the tracked file. Returns starter opts (engine or reuseProfile).
+async function pickEngine(
+  config: Readonly<QuimbyConfig>,
+): Promise<Pick<StarterOptions, 'engine' | 'reuseProfile'> | typeof CANCELLED> {
+  const profiles = listRuntimeProfiles(config)
+  const choice = await prompt(
+    select({
+      message: 'Engine',
+      options: [
+        ...ENGINE_CHOICES,
+        ...profiles.map((p) => ({
+          value: `${REUSE}${p.name}`,
+          label: `Reuse your profile: ${p.name}${profileHint(p.profile)}`,
+        })),
+      ],
+    }),
+  )
+  if (choice === null) return CANCELLED
+  if (choice.startsWith(REUSE)) {
+    const name = choice.slice(REUSE.length)
+    const found = profiles.find((p) => p.name === name)
+    if (found) return { reuseProfile: { name: found.name, profile: found.profile } }
+  }
+  return { engine: choice as StarterEngine }
+}
+
+function profileHint(profile: Readonly<RuntimeProfileConfig>): string {
+  const parts = [profile.runtime, profile.entrypoint].filter(Boolean)
+  return parts.length ? ` (${parts.join(' / ')})` : ''
+}
+
 // Offer host aliases already bound in this machine's config (reuse), a fresh alias declaration, or
 // local. Returns the alias name to reference, undefined for local, or CANCELLED.
-async function pickHostAlias(repoRoot: string): Promise<string | undefined | typeof CANCELLED> {
-  const config = await loadQuimbyConfig(repoRoot)
+async function pickHostAlias(
+  config: Readonly<QuimbyConfig>,
+): Promise<string | undefined | typeof CANCELLED> {
   const bound = listBoundHostAliases(config)
 
   const choice = await prompt(
@@ -171,3 +208,5 @@ function cancelled(): null {
 const CANCELLED = Symbol('cancelled')
 const LOCAL = '(local)'
 const NEW_ALIAS = '(new-alias)'
+// Prefix for reused-profile select values, so a user profile named like a built-in engine can't collide.
+const REUSE = 'reuse:'

@@ -11,8 +11,13 @@ export type StarterEngine = 'claude' | 'codex' | 'sbx-claude' | 'sbx-codex'
 export interface StarterOptions {
   /** Replica count for the builder slot (review-loop / fleet). Defaults to the starter's own. */
   builderCount?: number
-  /** The engine every role runs on, emitted as a runtime profile. Defaults to `claude` (local). */
+  /** A built-in engine emitted as a runtime profile. Defaults to `claude` (local); ignored if `reuseProfile` is set. */
   engine?: StarterEngine
+  /**
+   * Reuse a runtime profile the user already has: reference it by name, inlining only its shareable
+   * shape into the tracked file (private fills stay in the user's config and merge at resolution).
+   */
+  reuseProfile?: { name: string; profile: RuntimeProfileConfig }
   /** An existing host alias to reference (declared unbound in the tracked file, bound privately). */
   hostAlias?: string
 }
@@ -40,8 +45,12 @@ export function buildStarterConfig(
   name: StarterName,
   opts: Readonly<StarterOptions> = {},
 ): QuimbyConfig {
-  const engine = opts.engine ?? 'claude'
-  const profiles: Record<string, RuntimeProfileConfig> = { [engine]: ENGINES[engine] }
+  // Reuse a user profile (name + shareable shape) if given, else a built-in engine.
+  const engineName = opts.reuseProfile ? opts.reuseProfile.name : (opts.engine ?? 'claude')
+  const engineShape = opts.reuseProfile
+    ? shareableProfileShape(opts.reuseProfile.profile)
+    : ENGINES[opts.engine ?? 'claude']
+  const profiles: Record<string, RuntimeProfileConfig> = { [engineName]: engineShape }
   const host = opts.hostAlias
   const hosts = host ? { hosts: { [host]: {} } } : {}
   const agent = (role: string, extra: Readonly<ConfiguredAgent> = {}): ConfiguredAgent => ({
@@ -50,7 +59,7 @@ export function buildStarterConfig(
     ...extra,
   })
   // A fresh object per role — never a shared reference, so the serialized yaml has no anchors/aliases.
-  const role = (): { runtimeProfile: string } => ({ runtimeProfile: engine })
+  const role = (): { runtimeProfile: string } => ({ runtimeProfile: engineName })
 
   if (name === 'solo') {
     return {
@@ -78,6 +87,28 @@ export function buildStarterConfig(
       },
     },
     default: name,
+  }
+}
+
+/** Runtime profiles declared in config, for `init` to offer for reuse (name + a display label). */
+export function listRuntimeProfiles(
+  config: Readonly<QuimbyConfig>,
+): { name: string; profile: RuntimeProfileConfig }[] {
+  return Object.entries(config.runtimeProfiles ?? {}).map(([name, profile]) => ({ name, profile }))
+}
+
+/**
+ * The team-safe subset of a runtime profile to inline into a tracked file: the `runtime`/`entrypoint`
+ * shape that makes it launchable. The machine/secret fills (`env`, `provider`, `model`, `ollama`,
+ * `permissions`, `args`) are deliberately dropped — they stay in the user's private config and merge
+ * back at resolution — so `init` reusing a profile never writes a secret into git.
+ */
+export function shareableProfileShape(
+  profile: Readonly<RuntimeProfileConfig>,
+): RuntimeProfileConfig {
+  return {
+    ...(profile.runtime ? { runtime: profile.runtime } : {}),
+    ...(profile.entrypoint ? { entrypoint: profile.entrypoint } : {}),
   }
 }
 

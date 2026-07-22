@@ -10,8 +10,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildStarterConfig,
   listBoundHostAliases,
+  listRuntimeProfiles,
   listStarters,
   scaffoldQuimbyConfig,
+  shareableProfileShape,
 } from './starters'
 
 let dir: string
@@ -53,6 +55,24 @@ describe('buildStarterConfig', () => {
     const config = buildStarterConfig('fleet')
     expect(config.presets?.fleet?.agents).toMatchObject({ builder: { count: 3 } })
   })
+
+  it('reuses a user profile by reference, inlining only its shareable shape', () => {
+    const config = buildStarterConfig('solo', {
+      reuseProfile: {
+        name: 'my-codex',
+        // Private fills (provider/env/model) must not reach the tracked file.
+        profile: {
+          runtime: 'sbx',
+          entrypoint: 'codex',
+          provider: 'https://secret.internal',
+          env: { API_KEY: 'shh' },
+          model: 'gpt-5',
+        },
+      },
+    })
+    expect(config.roles?.dev).toEqual({ runtimeProfile: 'my-codex' })
+    expect(config.runtimeProfiles).toEqual({ 'my-codex': { runtime: 'sbx', entrypoint: 'codex' } })
+  })
 })
 
 describe('listBoundHostAliases', () => {
@@ -61,6 +81,16 @@ describe('listBoundHostAliases', () => {
       hosts: { gpu: { host: 'me@gpu', port: 2222 }, remote: {}, self: { host: 'self' } },
     }
     expect(listBoundHostAliases(config)).toEqual([{ name: 'gpu', host: 'me@gpu', port: 2222 }])
+  })
+})
+
+describe('listRuntimeProfiles', () => {
+  it('lists declared runtime profiles with their configs', () => {
+    expect(
+      listRuntimeProfiles({
+        runtimeProfiles: { 'codex-sbx': { runtime: 'sbx', entrypoint: 'codex' } },
+      }),
+    ).toEqual([{ name: 'codex-sbx', profile: { runtime: 'sbx', entrypoint: 'codex' } }])
   })
 })
 
@@ -90,5 +120,20 @@ describe('scaffoldQuimbyConfig', () => {
     await scaffoldQuimbyConfig(dir, buildStarterConfig('solo'))
     const path = await scaffoldQuimbyConfig(dir, buildStarterConfig('fleet'), { force: true })
     expect((await readYaml<QuimbyConfig>(path)).default).toBe('fleet')
+  })
+})
+
+describe('shareableProfileShape', () => {
+  it('keeps runtime and entrypoint, dropping secret/machine fills', () => {
+    expect(
+      shareableProfileShape({
+        runtime: 'sbx',
+        entrypoint: 'codex',
+        provider: 'https://secret',
+        env: { API_KEY: 'shh' },
+        model: 'gpt-5',
+        ollama: { host: 'http://gpu:11434' },
+      }),
+    ).toEqual({ runtime: 'sbx', entrypoint: 'codex' })
   })
 })

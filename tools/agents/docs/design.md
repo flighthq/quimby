@@ -338,7 +338,7 @@ quimby init --list          # list the built-in starters (solo, review-loop, fle
 quimby init --force         # overwrite an existing quimby.yaml (otherwise refused)
 ```
 
-Starters live in `@quimbyhq/workspace` (`buildStarterConfig`), and the interactive path **reuses your existing config**: it scans host aliases already bound in your user/local config and offers them, writing a _reference_ (`hostAlias: remote`, with `remote` declared unbound in the tracked file) so an alias you already configured needs no re-entry and its address stays out of git.
+Starters live in `@quimbyhq/workspace` (`buildStarterConfig`), and the interactive path **reuses your existing config** two ways. **Host aliases**: it scans aliases already bound in your user/local config and offers them, writing a _reference_ (`hostAlias: remote`, with `remote` declared unbound in the tracked file) so an alias you already configured needs no re-entry and its address stays out of git. **Runtime profiles**: it offers profiles you already declared (`listRuntimeProfiles`) as engine choices — picking one references it by name and inlines only its **shareable shape** (`runtime`/`entrypoint`, via `shareableProfileShape`), while the machine/secret fills (`env`, `provider`, `model`, `ollama`, `permissions`) stay in your private config and merge back at resolution. So reuse is uniform: aliases by pure reference, profiles by shape-inline + secret-reuse — the tracked file never carries a secret.
 
 ## Communication Model
 
