@@ -12,6 +12,7 @@ All commands follow `verb target [qualifiers]`. The first positional is the targ
 - **in**, you → an agent's task: `assign`
 
 ```
+quimby init [<starter>] [--list] [--force]          Scaffold a tracked quimby.yaml (roles/profiles/preset/layout) from a built-in starter (solo, review-loop, fleet); flag-less runs an interactive walkthrough that reuses host aliases already bound in your config; refuses to overwrite without --force
 quimby add <agent> [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>]   Create an agent; flag-less runs the interactive walkthrough (flags skip it, staying scriptable)
 quimby up [<preset>] [--default]                    Create missing agents from a configured preset; bare/--default uses the configured default preset
 quimby config <agent>                                Interactively (re)configure an agent (runtime, entrypoint, local/remote, tmux, sync)

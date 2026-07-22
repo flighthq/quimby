@@ -1,6 +1,7 @@
 export * from './config'
 export * from './registry'
 export * from './remoteAdopt'
+export * from './starters'
 export * from './state'
 export * from './storage'
 export * from './workspace'

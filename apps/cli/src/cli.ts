@@ -11,6 +11,7 @@ const main = defineCommand({
     description: 'Dispatch AI agents, review their work, merge what works',
   },
   subCommands: {
+    init: () => import('./commands/init').then((m) => m.default),
     add: () => import('./commands/add').then((m) => m.default),
     up: () => import('./commands/up').then((m) => m.default),
     config: () => import('./commands/config').then((m) => m.default),

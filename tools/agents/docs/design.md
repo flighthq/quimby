@@ -325,9 +325,20 @@ The VS Code extension then renders that plan:
 
 This can reproduce the common dashboard workflow well: "open the review layout, show builder and reviewer beside a host/service pane, with stable names." Exact tmux parity is not the goal. VS Code terminal APIs can create named terminals and split a terminal beside another, but they are not a deterministic tmux layout engine; weights such as `:70` should be best-effort hints in VS Code, while tmux remains the exact renderer for weighted panel dashboards.
 
-## No Init Command
+## No Init for Workspace Bootstrap
 
-There is no `quimby init`. The first `quimby add` creates the workspace. The `.quimby/` directory is added to `.gitignore` automatically.
+Workspace **state** is never bootstrapped by a mandatory step: the first `quimby add`/`up`/`run` creates `.quimby/` lazily (UUIDs, seeds, agents), and the directory is added to `.gitignore` automatically. You never _have_ to initialize to start.
+
+`quimby init` exists, but for a different concern — **config scaffolding**, not workspace bootstrap. It authors a tracked `quimby.yaml` (roles, runtime profiles, a preset, a layout, a default) from a built-in **starter** so you stop copying config between projects, then `up`/`run` take over. It is the shared-config counterpart to the per-agent `config` walkthrough (which writes an agent's private state), and it is the one command whose job is to _author the tracked file_ — everywhere else the tools auto-write only to ignored config.
+
+```
+quimby init                 # interactive: pick a starter, customize engine / builder count / location
+quimby init review-loop     # scaffold a named starter non-interactively
+quimby init --list          # list the built-in starters (solo, review-loop, fleet)
+quimby init --force         # overwrite an existing quimby.yaml (otherwise refused)
+```
+
+Starters live in `@quimbyhq/workspace` (`buildStarterConfig`), and the interactive path **reuses your existing config**: it scans host aliases already bound in your user/local config and offers them, writing a _reference_ (`hostAlias: remote`, with `remote` declared unbound in the tracked file) so an alias you already configured needs no re-entry and its address stays out of git.
 
 ## Communication Model
 
