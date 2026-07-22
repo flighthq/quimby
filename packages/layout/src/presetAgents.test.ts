@@ -64,6 +64,17 @@ const config = vi.hoisted(() => ({
       roleundeclared: {
         layout: 'roleundeclared',
       },
+      fleet: {
+        agents: {
+          builder: { role: 'builder', count: 3 },
+        },
+      },
+      mixedfleet: {
+        agents: {
+          builder: { role: 'builder', count: 2 },
+          'builder-fast': { role: 'builder', runtimeProfile: 'codex-sbx', count: 1 },
+        },
+      },
     },
     services: { server: 'quimby serve' },
   },
@@ -83,9 +94,40 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   loadState: vi.fn(async () => state.value),
 }))
 
-import { createMissingPresetAgents } from './presetAgents'
+import { createMissingPresetAgents, replicaNames } from './presetAgents'
 
 describe('createMissingPresetAgents', () => {
+  it('expands a count into replica agents named base, base-2, base-3', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await createMissingPresetAgents('/repo', config.value, 'fleet')
+
+    const created = addAgent.mock.calls.map((c) => c[1])
+    expect(created).toEqual(['builder', 'builder-2', 'builder-3'])
+  })
+
+  it('carries an entry profile override onto every replica as a pin', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await createMissingPresetAgents('/repo', config.value, 'mixedfleet')
+
+    const created = addAgent.mock.calls.map((c) => c[1])
+    expect(created).toEqual(['builder', 'builder-2', 'builder-fast'])
+    // The plain builders inherit the role engine (no pin); builder-fast pins the override.
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      'builder-fast',
+      expect.objectContaining({ role: 'builder', runtimeProfile: 'codex-sbx' }),
+    )
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      'builder',
+      expect.not.objectContaining({ runtimeProfile: expect.anything() }),
+    )
+  })
+
   it('creates missing agents with resolved role defaults', async () => {
     state.value.agents = {}
     addAgent.mockClear()
@@ -186,5 +228,16 @@ describe('createMissingPresetAgents', () => {
       'layout references agent "missing"',
     )
     expect(addAgent).not.toHaveBeenCalled()
+  })
+})
+
+describe('replicaNames', () => {
+  it('names the first replica bare and the rest -N, from 2', () => {
+    expect(replicaNames('builder', 3)).toEqual(['builder', 'builder-2', 'builder-3'])
+  })
+
+  it('treats a count of 1 or less as a single bare instance', () => {
+    expect(replicaNames('builder', 1)).toEqual(['builder'])
+    expect(replicaNames('builder', 0)).toEqual(['builder'])
   })
 })

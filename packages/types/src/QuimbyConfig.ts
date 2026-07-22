@@ -26,6 +26,12 @@ export interface ConfiguredAgent {
   tmux?: boolean
   hostAlias?: string
   location?: AgentLocation
+  /**
+   * How many instances of this entry to create — a replica count. `up` reconciles to it, naming
+   * them `<entry>`, `<entry>-2`, … `<entry>-N`, each sharing the entry's config. Omitted or ≤ 1 is
+   * a single agent. Combine with a `@role` layout slot to place a whole fleet in one pane.
+   */
+  count?: number
 }
 
 export interface LayoutConfig {

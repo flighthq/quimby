@@ -38,6 +38,9 @@ export async function createMissingPresetAgents(
       (configured.hostAlias ? { type: 'ssh' as const, alias: configured.hostAlias } : undefined)
     await addAgent(repoRoot, name, {
       ...(configured.role ? { role: configured.role } : {}),
+      // An explicit profile override on the entry is stored as the per-instance pin, so a replica
+      // (not a named preset entry, so not found by name at launch) keeps its engine over the role.
+      ...(configured.runtimeProfile ? { runtimeProfile: configured.runtimeProfile } : {}),
       defaults:
         role.runtimeProfile || role.runtime || role.entrypoint
           ? {
@@ -62,7 +65,12 @@ export function resolvePresetAgentEntries(
 ): [string, PresetAgentConfig][] {
   const preset = resolvePreset(config, presetName)
   const explicit = preset.agents ?? {}
-  const entries = new Map<string, PresetAgentConfig>(Object.entries(explicit))
+  const entries = new Map<string, PresetAgentConfig>()
+  for (const [name, rawAgent] of Object.entries(explicit)) {
+    for (const [replicaName, replicaConfig] of expandReplicas(name, rawAgent)) {
+      entries.set(replicaName, replicaConfig)
+    }
+  }
   if (!preset.layout) return [...entries.entries()]
 
   for (const name of collectLayoutAgents(parseLayout(resolvePresetLayout(config, presetName)))) {
@@ -97,4 +105,22 @@ export function resolvePresetAgentEntries(
 
 export function isHostLayoutToken(name: string): boolean {
   return name === 'host' || name === '$'
+}
+
+// The replica names for a `count: N` entry: `<base>`, `<base>-2`, … `<base>-N`. count ≤ 1 is the
+// bare base. Deterministic (not "next free"), so `up` fills exactly this set and reconciles idempotently.
+export function replicaNames(base: string, count: number): string[] {
+  const n = Math.max(1, Math.floor(count))
+  return Array.from({ length: n }, (_, i) => (i === 0 ? base : `${base}-${i + 1}`))
+}
+
+// A preset entry with `count: N` becomes N replica entries (config minus the count); anything else
+// is a single entry. The count lives on the entry, not each replica, so the replicas share config.
+function expandReplicas(name: string, rawAgent: PresetAgentConfig): [string, PresetAgentConfig][] {
+  if (typeof rawAgent !== 'object' || rawAgent === null || !rawAgent.count || rawAgent.count <= 1) {
+    return [[name, rawAgent]]
+  }
+  const rest: ConfiguredAgent = { ...rawAgent }
+  delete rest.count
+  return replicaNames(name, rawAgent.count).map((replicaName) => [replicaName, rest])
 }
