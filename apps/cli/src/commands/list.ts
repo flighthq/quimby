@@ -1,12 +1,13 @@
 import { getAgentPendingWork, getAgentSyncStatus } from '@quimbyhq/agent'
 import { readOutboxRecipients } from '@quimbyhq/handoff'
+import { resolveRuntimeSelection } from '@quimbyhq/launch'
 import { tmuxSessionName } from '@quimbyhq/paths'
 import { getServerInfo } from '@quimbyhq/server'
 import { getAgentSessionState } from '@quimbyhq/session'
 import type { AgentSessionState, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { bold, cyan, dim, green, yellow } from '../colors'
@@ -22,6 +23,9 @@ export default defineCommand({
 
 export async function runListCommand() {
   const { state, repoRoot } = await resolveWorkspace()
+  // Load config once so the engine column reflects the *resolved* launch command (role +
+  // per-instance profile pin, config-fresh) rather than the stale stored `defaults` snapshot.
+  const quimbyConfig = await loadQuimbyConfig(repoRoot).catch(() => undefined)
 
   const agentNames = Object.keys(state.agents)
 
@@ -75,9 +79,17 @@ export async function runListCommand() {
         locationStr = `  ${cyan(`[ssh: ${target}]`)} ${dim(`tmux: ${session}`)}`
       }
 
-      const config = defaults
-        ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
-        : dim('no defaults — run `quimby set`')
+      // The resolved engine (role + profile pin) is the truth of what a launch runs; fall back
+      // to the stored snapshot only if resolution fails (e.g. a bad runtime in config).
+      let config: string
+      try {
+        const sel = resolveRuntimeSelection({ agent, config: quimbyConfig })
+        config = dim(`${sel.runtime} / ${sel.entrypoint}`)
+      } catch {
+        config = defaults
+          ? dim(`${defaults.runtime ?? 'local'} / ${defaults.entrypoint ?? 'claude'}`)
+          : dim('no defaults — run `quimby set`')
+      }
 
       const outboxStr = outboxDrafts > 0 ? `  ${cyan(`queued: ${outboxDrafts}`)}` : ''
 

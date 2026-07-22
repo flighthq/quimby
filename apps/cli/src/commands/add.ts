@@ -23,8 +23,9 @@ export default defineCommand({
   args: {
     agent: {
       type: 'positional',
-      description: 'Name for the agent',
-      required: true,
+      description:
+        'Name for the agent (omit with --role to auto-label the next <role>/<role>-N slot)',
+      required: false,
     },
     runtime: {
       type: 'string',
@@ -55,7 +56,9 @@ export default defineCommand({
     },
     runtimeProfile: {
       type: 'string',
-      description: 'Runtime profile from quimby config',
+      alias: 'profile',
+      description:
+        'Runtime profile from quimby config (with --role, pins this instance to that engine)',
     },
     hostAlias: {
       type: 'string',
@@ -69,7 +72,7 @@ export async function runAddCommand({
   args,
 }: {
   args: {
-    agent: string
+    agent?: string
     runtime?: string
     cmd?: string
     host?: string
@@ -138,6 +141,11 @@ export async function runAddCommand({
     check = checkConfig?.command
     verifyByDefault = checkConfig?.verifyByDefault ?? role?.verifyByDefault
   } else {
+    if (!args.agent) {
+      throw new QuimbyError(
+        'Provide an agent name (e.g. `quimby add builder`), or flags to skip the walkthrough.',
+      )
+    }
     const config = await runAgentWalkthrough(args.agent)
     if (!config) return
     defaults = { runtime: config.runtime, entrypoint: config.entrypoint }
@@ -146,8 +154,13 @@ export async function runAddCommand({
     tmux = config.tmux
   }
 
+  // An explicit --profile with a --role pins this instance to that engine, overriding the
+  // role's default — so a same-role +1 (a Codex `builder` beside Claude ones) actually runs it.
+  const profilePin = args.role && args.runtimeProfile ? args.runtimeProfile : undefined
+
   const agentState = await addAgent(repoRoot, args.agent, {
     ...(args.role ? { role: args.role } : {}),
+    ...(profilePin ? { runtimeProfile: profilePin } : {}),
     defaults,
     location,
     ...(syncRef ? { syncRef } : {}),
@@ -157,12 +170,15 @@ export async function runAddCommand({
   })
 
   const locationHint = location ? ` [ssh: ${location.host ?? `@${location.alias ?? '?'}`}]` : ''
-  const defaultsHint = defaults
-    ? ` (${[defaults.runtime, defaults.entrypoint].filter(Boolean).join(', ')})`
-    : ''
+  // The pin is the launch-time engine, so it leads the hint; otherwise show the flattened defaults.
+  const defaultsHint = profilePin
+    ? ` (profile: ${profilePin}${args.role ? `, role: ${args.role}` : ''})`
+    : defaults
+      ? ` (${[defaults.runtime, defaults.entrypoint].filter(Boolean).join(', ')})`
+      : ''
 
   logger.success(
-    `Agent "${args.agent}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
+    `Agent "${agentState.name}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
   )
   if (location) {
     logger.info('Remote agent created — run `quimby run` to sync and initialize.')

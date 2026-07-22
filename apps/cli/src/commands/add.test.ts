@@ -101,6 +101,30 @@ describe('runAddCommand', () => {
     )
   })
 
+  it('passes an undefined name through so addAgent auto-labels the role slot', async () => {
+    findRoot.mockResolvedValueOnce('/repo')
+    await cmd.run!({ args: { role: 'builder' } } as never)
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      undefined,
+      expect.objectContaining({ role: 'builder' }),
+    )
+  })
+
+  it('pins a per-instance profile override when --profile is given with a role', async () => {
+    findRoot.mockResolvedValueOnce('/repo')
+    await cmd.run!({ args: { role: 'builder', runtimeProfile: 'codex' } } as never)
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      undefined,
+      expect.objectContaining({ role: 'builder', runtimeProfile: 'codex' }),
+    )
+  })
+
+  it('exposes --profile as an alias of --runtime-profile', () => {
+    expect((cmd.args as Record<string, { alias?: string }>).runtimeProfile.alias).toBe('profile')
+  })
+
   it('does not alias --cmd to -c, keeping -c reserved for --clear', () => {
     expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()
   })

@@ -60,17 +60,34 @@ export function resolveAgentLaunchDefaults(
   config: Readonly<QuimbyConfig> | undefined,
 ): AgentDefaults | undefined {
   const presetAgent = resolvePresetAgentLaunchDefaults(config, agent.name)
-  if (presetAgent) return presetAgent
+  if (presetAgent) return applyProfilePin(presetAgent, agent.runtimeProfile)
 
   const roleName = agent.role ?? agent.name
   if (config?.roles?.[roleName]) {
     try {
-      return launchDefaultsFromRole(resolveAgentRoleConfig(config, { role: roleName }))
+      return applyProfilePin(
+        launchDefaultsFromRole(resolveAgentRoleConfig(config, { role: roleName })),
+        agent.runtimeProfile,
+      )
     } catch {
       // Role no longer in config — fall through to the agent's stored defaults.
     }
   }
-  return agent.defaults
+  return applyProfilePin(agent.defaults, agent.runtimeProfile)
+}
+
+/**
+ * A deliberate per-instance profile pin (`AgentState.runtimeProfile`) overrides the role/preset
+ * engine entirely: the pinned profile determines runtime + entrypoint at launch, so the role's
+ * own engine (and any raw runtime/entrypoint it carried) is dropped. This is what lets a
+ * `--profile codex` +1 of a Claude `builder` role actually run Codex. No pin ⇒ base unchanged.
+ */
+function applyProfilePin(
+  base: AgentDefaults | undefined,
+  pin: string | undefined,
+): AgentDefaults | undefined {
+  if (!pin) return base
+  return { runtimeProfile: pin }
 }
 
 function resolvePresetAgentLaunchDefaults(

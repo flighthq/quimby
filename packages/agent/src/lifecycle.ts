@@ -21,7 +21,7 @@ import {
 } from '@quimbyhq/template'
 import type { SSHTransport, Transport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
-import type { AgentDefaults, AgentLocation, AgentState } from '@quimbyhq/types'
+import type { AgentDefaults, AgentLocation, AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
 import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
@@ -30,9 +30,10 @@ import { join } from 'pathe'
 
 export async function addAgent(
   repoRoot: string,
-  name: string,
+  explicitName: string | undefined,
   opts?: {
     role?: string
+    runtimeProfile?: string
     defaults?: AgentDefaults
     location?: AgentLocation
     syncRef?: string
@@ -41,9 +42,13 @@ export async function addAgent(
     verifyByDefault?: boolean
   },
 ): Promise<AgentState> {
-  validateAgentName(name)
-
   const state = await ensureWorkspace(repoRoot)
+
+  // A bare name is taken verbatim; omitting it auto-labels the next free `<role>` /
+  // `<role>-N` slot, so a same-role +1 needs no invented name (the friendly name is a
+  // pure display label — identity is the UUID below).
+  const name = explicitName ?? autoAgentName(state, opts?.role)
+  validateAgentName(name)
 
   if (Object.hasOwn(state.agents, name)) {
     throw new QuimbyError(`Agent "${name}" already exists`)
@@ -61,6 +66,7 @@ export async function addAgent(
     syncRef,
     createdAt: new Date().toISOString(),
     ...(opts?.role ? { role: opts.role } : {}),
+    ...(opts?.runtimeProfile ? { runtimeProfile: opts.runtimeProfile } : {}),
     ...(opts?.defaults ? { defaults: opts.defaults } : {}),
     ...(opts?.location ? { location: opts.location } : {}),
     ...(opts?.tmux ? { tmux: true } : {}),
@@ -93,6 +99,19 @@ export async function addAgent(
   await saveState(repoRoot, state)
 
   return agentState
+}
+
+/**
+ * The next free agent label for a `<base>` slot: `base` itself when unused, else the lowest
+ * `base-N` (N ≥ 2) not already taken. Lets a same-role +1 be minted without inventing a name —
+ * the label is display-only, so `builder`, `builder-2`, `builder-3` all tab into one role slot.
+ */
+export function generateAgentName(taken: ReadonlySet<string>, base: string): string {
+  if (!taken.has(base)) return base
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`
+    if (!taken.has(candidate)) return candidate
+  }
 }
 
 export async function rebuildAgent(repoRoot: string, name: string): Promise<void> {
@@ -436,6 +455,17 @@ async function clearMailboxContents(agentDir: string): Promise<void> {
     }
     await Promise.all(entries.map((e) => rm(join(dir, e), { recursive: true, force: true })))
   }
+}
+
+// Derive an agent label when `add` is called with no name: auto-label from the role's slot.
+// Without a role there is nothing to auto-name from, so this is a user error, not a silent guess.
+function autoAgentName(state: Readonly<QuimbyState>, role: string | undefined): string {
+  if (!role) {
+    throw new QuimbyError(
+      'Provide an agent name, or a --role to auto-name from (e.g. `quimby add --role builder`).',
+    )
+  }
+  return generateAgentName(new Set(Object.keys(state.agents)), role)
 }
 
 function validateAgentName(name: string): void {

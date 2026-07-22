@@ -11,7 +11,7 @@ import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { addAgent, rebuildAgent, removeAgent, renameAgent } from './lifecycle'
+import { addAgent, generateAgentName, rebuildAgent, removeAgent, renameAgent } from './lifecycle'
 
 vi.mock('@quimbyhq/git', async (importOriginal) => {
   const actual = await importOriginal()
@@ -123,6 +123,27 @@ describe('addAgent', () => {
     await expect(addAgent(dir, 'charlie')).rejects.toThrow('already exists')
   })
 
+  it('auto-labels the next role slot when no name is given', async () => {
+    const first = await addAgent(dir, undefined, { role: 'builder' })
+    expect(first.name).toBe('builder')
+    const second = await addAgent(dir, undefined, { role: 'builder' })
+    expect(second.name).toBe('builder-2')
+    const third = await addAgent(dir, undefined, { role: 'builder' })
+    expect(third.name).toBe('builder-3')
+    expect(first.id).not.toBe(second.id)
+  })
+
+  it('stores a per-instance runtime-profile pin distinct from the role', async () => {
+    const agent = await addAgent(dir, undefined, { role: 'builder', runtimeProfile: 'codex' })
+    expect(agent.name).toBe('builder')
+    expect(agent.role).toBe('builder')
+    expect(agent.runtimeProfile).toBe('codex')
+  })
+
+  it('throws when no name and no role is given (nothing to auto-name from)', async () => {
+    await expect(addAgent(dir, undefined)).rejects.toThrow('--role')
+  })
+
   // The existence check uses Object.hasOwn, so a name that collides with an Object.prototype
   // key (constructor, toString, __proto__, …) is not mistaken for an already-registered agent.
   it('allows an agent named after an Object.prototype key', async () => {
@@ -198,6 +219,20 @@ describe('addAgent', () => {
     await rm(join(dir, '.git'), { recursive: true, force: true })
     const agent = await addAgent(dir, 'orphan')
     expect(agent.syncRef).toBe('main')
+  })
+})
+
+describe('generateAgentName', () => {
+  it('returns the base name when the slot is free', () => {
+    expect(generateAgentName(new Set(), 'builder')).toBe('builder')
+    expect(generateAgentName(new Set(['review']), 'builder')).toBe('builder')
+  })
+
+  it('suffixes the lowest free -N when the base is taken', () => {
+    expect(generateAgentName(new Set(['builder']), 'builder')).toBe('builder-2')
+    expect(generateAgentName(new Set(['builder', 'builder-2']), 'builder')).toBe('builder-3')
+    // Gaps are filled from the lowest, not the highest.
+    expect(generateAgentName(new Set(['builder', 'builder-3']), 'builder')).toBe('builder-2')
   })
 })
 

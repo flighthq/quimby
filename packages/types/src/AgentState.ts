@@ -28,6 +28,14 @@ export interface AgentState {
    * `defaults` is the fallback when no role is recorded (e.g. created from explicit flags).
    */
   role?: string
+  /**
+   * A deliberate per-instance runtime-profile pin that OVERRIDES the agent's role engine at
+   * launch — unlike `defaults.runtimeProfile`, which is a stale snapshot the role beats (see
+   * `resolveAgentLaunchDefaults`). Set by `quimby add --role X --profile Y` so a same-role +1
+   * can run a different engine (a Codex `builder` beside Claude `builder`s). The pinned profile
+   * fully determines runtime + entrypoint, so the role's own engine is dropped when this is set.
+   */
+  runtimeProfile?: string
   defaults?: AgentDefaults
   /**
    * Fingerprint of the resolved launch command (runtime + entrypoint) the agent's live tmux

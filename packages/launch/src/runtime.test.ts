@@ -101,6 +101,19 @@ describe('resolveAgentLaunchDefaults', () => {
       runtimeProfile: 'claude-sbx',
     })
   })
+
+  it('lets a per-instance profile pin override the role engine (a Codex +1 of a Claude role)', () => {
+    // role `builder` resolves to `claude-sbx`; the pin overrides it entirely, and the pinned
+    // profile alone determines the engine (the role's own runtime/entrypoint are dropped).
+    expect(
+      resolveAgentLaunchDefaults(
+        { ...agent({}, 'builder'), name: 'builder-4', runtimeProfile: 'codex-sbx' } as AgentState,
+        trackedProjectConfig,
+      ),
+    ).toEqual({
+      runtimeProfile: 'codex-sbx',
+    })
+  })
 })
 
 describe('resolveRuntimeSelection', () => {
