@@ -12,7 +12,7 @@ import {
   resolvePresetLayout,
 } from '@quimbyhq/workspace'
 
-import { collectLayoutAgents, isServiceToken, parseLayout } from './layout'
+import { collectLayoutAgents, isRoleToken, isServiceToken, parseLayout, roleNameOf } from './layout'
 
 type PresetAgentConfig = ConfiguredAgent | string | undefined
 
@@ -66,7 +66,24 @@ export function resolvePresetAgentEntries(
   if (!preset.layout) return [...entries.entries()]
 
   for (const name of collectLayoutAgents(parseLayout(resolvePresetLayout(config, presetName)))) {
-    if (isHostLayoutToken(name) || isServiceToken(name) || entries.has(name)) continue
+    if (isHostLayoutToken(name) || isServiceToken(name)) continue
+    // A `@role` slot expands to *existing* instances at plan time; here at creation it only needs
+    // to guarantee at least one exists, so it is satisfied by any explicit agent of that role and
+    // otherwise seeds a single `<role>` agent. (Replica counts from a preset are a separate feature.)
+    if (isRoleToken(name)) {
+      const role = roleNameOf(name)
+      if (!config.roles?.[role]) {
+        throw new QuimbyError(
+          `Preset "${presetName}" layout references role "${name}", but no role "${role}" is defined under \`roles:\`.`,
+        )
+      }
+      const hasInstance = [...entries.values()].some(
+        (agent) => resolveConfiguredAgent(config, agent).role === role,
+      )
+      if (!hasInstance && !entries.has(role)) entries.set(role, { role })
+      continue
+    }
+    if (entries.has(name)) continue
     if (config.roles?.[name]) entries.set(name, { role: name })
     else if (config.defaults) entries.set(name, undefined)
     else {

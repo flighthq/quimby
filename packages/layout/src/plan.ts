@@ -19,7 +19,13 @@ import {
 } from '@quimbyhq/workspace'
 
 import type { LayoutNode } from './layout'
-import { collectLayoutAgents, isServiceToken, parseLayout, serviceNameOf } from './layout'
+import {
+  collectLayoutAgents,
+  expandRoleSlots,
+  isServiceToken,
+  parseLayout,
+  serviceNameOf,
+} from './layout'
 import { createMissingPresetAgents, isHostLayoutToken } from './presetAgents'
 
 export type LayoutPlanCommandMode = 'cli' | 'direct'
@@ -93,7 +99,10 @@ export async function buildResolvedLayoutPlan({
 }: BuildLayoutPlanOptions): Promise<LayoutPlan> {
   const resolvedName = targetName(config, name, useDefault)
   const expr = resolveLayoutPlanExpr(config, resolvedName)
-  const parsed = parseLayout(expr)
+  // Expand `@role` slots to concrete instances up front, so validation, planning, and the
+  // tmux-marking below all operate on real agent names — and `quimby layout --json` (the VS Code
+  // viewport) receives already-resolved terminals, keeping quimby the single layout resolver.
+  const parsed = expandRoleSlots(parseLayout(expr), roleInstanceResolver(state))
   validateLayoutPlan(parsed, config, state)
   const root = await planNode(parsed, { config, state, repoRoot, commandMode })
   if (commandMode === 'direct' && markLocalAgentsTmux(state, parsed)) {
@@ -286,6 +295,14 @@ async function directAgentCommand(
   const launch = await prepareLocalTmuxLaunch({ state, repoRoot, agent })
   const argv = ['tmux', ...localNewSessionArgs(launch, { detached: false })]
   return { argv, string: argv.map(shellArg).join(' ') }
+}
+
+// A `@role` slot resolves to every agent whose `role` is that role, plus a legacy agent literally
+// named after it (mirroring `resolveAgentLaunchDefaults`'s `agent.role ?? agent.name` fallback),
+// in creation order — so `builder`, `builder-2`, `builder-3` tab in the order they were made.
+function roleInstanceResolver(state: Readonly<QuimbyState>): (role: string) => string[] {
+  return (role) =>
+    Object.keys(state.agents).filter((name) => state.agents[name].role === role || name === role)
 }
 
 function markLocalAgentsTmux(state: QuimbyState, node: Readonly<LayoutNode>): boolean {

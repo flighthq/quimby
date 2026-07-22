@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { LayoutNode } from './layout'
 import {
   collectLayoutAgents,
+  expandRoleSlots,
   isLayoutExpr,
+  isRoleToken,
   isServiceToken,
   layoutWeights,
   parseLayout,
+  roleNameOf,
   serviceNameOf,
 } from './layout'
 
@@ -20,6 +23,60 @@ describe('collectLayoutAgents', () => {
 
   it('includes host as an ordinary name', () => {
     expect(collectLayoutAgents(parseLayout('host | a'))).toEqual(['host', 'a'])
+  })
+})
+
+describe('expandRoleSlots', () => {
+  // Two builders and an integration; the fake resolver returns them in "creation" order.
+  const resolve = (role: string): string[] =>
+    role === 'builder' ? ['builder', 'builder-2'] : role === 'integration' ? ['integration'] : []
+
+  it('expands a @role leaf to all its instances, tabbed into one pane', () => {
+    expect(expandRoleSlots(parseLayout('@builder'), resolve)).toEqual({
+      type: 'tabs',
+      names: ['builder', 'builder-2'],
+    })
+  })
+
+  it('expands @role leaves inside a split, preserving structure', () => {
+    expect(expandRoleSlots(parseLayout('@builder | @integration'), resolve)).toEqual({
+      type: 'cols',
+      children: [
+        { type: 'tabs', names: ['builder', 'builder-2'] },
+        { type: 'tabs', names: ['integration'] },
+      ],
+    })
+  })
+
+  it('leaves concrete names and host/service tokens untouched', () => {
+    expect(expandRoleSlots(parseLayout('@builder | host $server'), resolve)).toEqual({
+      type: 'cols',
+      children: [
+        { type: 'tabs', names: ['builder', 'builder-2'] },
+        { type: 'tabs', names: ['host', '$server'] },
+      ],
+    })
+  })
+
+  it('keeps a pane weight on the expanded role slot', () => {
+    expect(expandRoleSlots(parseLayout('@builder:70 / other:30'), resolve)).toEqual({
+      type: 'rows',
+      children: [
+        { type: 'tabs', names: ['builder', 'builder-2'], weight: 70 },
+        { type: 'tabs', names: ['other'], weight: 30 },
+      ],
+    })
+  })
+
+  it('dedupes within a pane so @role plus an explicit instance shows one tab', () => {
+    expect(expandRoleSlots(parseLayout('@builder builder'), resolve)).toEqual({
+      type: 'tabs',
+      names: ['builder', 'builder-2'],
+    })
+  })
+
+  it('throws for a role slot with no instances', () => {
+    expect(() => expandRoleSlots(parseLayout('@ghost'), resolve)).toThrow('no agent has role "ghost"') // prettier-ignore
   })
 })
 
@@ -38,6 +95,23 @@ describe('isLayoutExpr', () => {
   it('is false for a bare name or a space-separated list', () => {
     expect(isLayoutExpr('alice')).toBe(false)
     expect(isLayoutExpr('alice bob')).toBe(false)
+  })
+})
+
+describe('isRoleToken', () => {
+  it('is true for `@name` and false for a bare `@`, a service, host, or an agent name', () => {
+    expect(isRoleToken('@builder')).toBe(true)
+    expect(isRoleToken('@')).toBe(false)
+    expect(isRoleToken('$server')).toBe(false)
+    expect(isRoleToken('builder')).toBe(false)
+  })
+
+  it('tokenizes `@name` as one tab member', () => {
+    expect(collectLayoutAgents(parseLayout('@review | @builder / @integration'))).toEqual([
+      '@review',
+      '@builder',
+      '@integration',
+    ])
   })
 })
 
@@ -238,6 +312,12 @@ describe('parseLayout', () => {
 
   it('throws on a non-positive weight', () => {
     expect(() => parseLayout('a:0 | b')).toThrow(/positive/i)
+  })
+})
+
+describe('roleNameOf', () => {
+  it('strips the leading `@`', () => {
+    expect(roleNameOf('@builder')).toBe('builder')
   })
 })
 

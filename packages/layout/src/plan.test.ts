@@ -201,6 +201,53 @@ describe('buildResolvedLayoutPlan', () => {
     ])
   })
 
+  it('expands a @role slot to every instance of that role, in creation order', async () => {
+    const roleState: QuimbyState = structuredClone(state)
+    roleState.agents.builder.role = 'builder'
+    roleState.agents['builder-2'] = {
+      id: 'agent-builder-2',
+      name: 'builder-2',
+      seedCommit: 'seed-builder-2',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      location: { type: 'local' },
+      role: 'builder',
+      runtimeProfile: 'codex-sbx',
+      defaults: {},
+    }
+
+    const plan = await buildResolvedLayoutPlan({
+      name: 'fleet',
+      repoRoot,
+      config: { ...config, layouts: { fleet: '@builder | reviewer' } },
+      state: roleState,
+    })
+
+    expect(plan.root).toMatchObject({
+      type: 'cols',
+      children: [
+        {
+          type: 'tabs',
+          terminals: [
+            { kind: 'agent', name: 'builder' },
+            { kind: 'agent', name: 'builder-2' },
+          ],
+        },
+        { type: 'tabs', terminals: [{ kind: 'agent', name: 'reviewer' }] },
+      ],
+    })
+  })
+
+  it('throws for a @role slot with no matching instances', async () => {
+    await expect(
+      buildResolvedLayoutPlan({
+        name: 'ghost',
+        repoRoot,
+        config: { ...config, layouts: { ghost: '@ghost' } },
+        state: structuredClone(state),
+      }),
+    ).rejects.toThrow(/no agent has role "ghost"/i)
+  })
+
   it('validates referenced services and agents', async () => {
     await expect(
       buildResolvedLayoutPlan({

@@ -47,6 +47,57 @@ export function serviceNameOf(name: string): string {
   return name.slice(1)
 }
 
+// A `@role` layout token is a role slot: it expands at plan time to every instance of `role`
+// (see `expandRoleSlots`), tabbed into one pane. `roleNameOf` strips the leading `@`. A bare
+// `@` (nothing after it) is not a role token — it falls through to an ordinary "not found".
+export function isRoleToken(name: string): boolean {
+  return name.length > 1 && name.startsWith('@')
+}
+
+export function roleNameOf(name: string): string {
+  return name.slice(1)
+}
+
+// Rewrite a parsed layout, replacing each `@role` leaf token with that role's concrete instance
+// names (tabbed into the same pane), so downstream validation/planning sees only real agents plus
+// host/service tokens. `resolveRole` returns a role's instances in tab order; an empty result is
+// a user error — a role slot with nothing to show — surfaced here rather than rendering a blank
+// pane. Names are deduped within a pane (so `@builder builder` shows one tab), never across panes.
+export function expandRoleSlots(
+  node: Readonly<LayoutNode>,
+  resolveRole: (role: string) => readonly string[],
+): LayoutNode {
+  if (node.type === 'tabs') {
+    const names: string[] = []
+    const seen = new Set<string>()
+    const push = (name: string): void => {
+      if (!seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    for (const name of node.names) {
+      if (!isRoleToken(name)) {
+        push(name)
+        continue
+      }
+      const role = roleNameOf(name)
+      const instances = resolveRole(role)
+      if (instances.length === 0) {
+        throw new QuimbyError(
+          `Layout references role "${name}", but no agent has role "${role}" (create one with \`quimby add --role ${role}\`).`,
+        )
+      }
+      for (const instance of instances) push(instance)
+    }
+    return node.weight !== undefined ? { type: 'tabs', names, weight: node.weight } : { type: 'tabs', names } // prettier-ignore
+  }
+  const children = node.children.map((child) => expandRoleSlots(child, resolveRole))
+  return node.weight !== undefined
+    ? { type: node.type, children, weight: node.weight }
+    : { type: node.type, children }
+}
+
 // True when a string uses layout operators (`|` `/` `(` `)`) or a `:N` size weight. A bare
 // name or a space-separated list without operators is not a layout expression — the caller
 // treats those as a single agent / the flat tabbed dashboard, so the panel path is purely
@@ -114,6 +165,17 @@ function tokenize(expr: string): Token[] {
     // runs `services.server`). The trailing name chars fold into the one `$…` token so it never
     // splits into `$` + `name`; the caller maps `$`/`host` to a shell and `$name` to its command.
     if (c === '$') {
+      let j = i + 1
+      while (j < expr.length && NAME_CHAR.test(expr[j])) j++
+      tokens.push({ kind: 'name', value: expr.slice(i, j) })
+      i = j
+      continue
+    }
+    // `@name` is a role slot: a leaf that expands at plan time to every instance of role `name`,
+    // tabbed into one pane (see `expandRoleSlots`). The trailing name chars fold into the one
+    // `@…` token so it never splits into `@` + `name`; expansion is deferred, so the parser here
+    // treats it as any other name and the weight/precedence rules apply to the single token.
+    if (c === '@') {
       let j = i + 1
       while (j < expr.length && NAME_CHAR.test(expr[j])) j++
       tokens.push({ kind: 'name', value: expr.slice(i, j) })

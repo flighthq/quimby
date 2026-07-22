@@ -32,6 +32,8 @@ const config = vi.hoisted(() => ({
     layouts: {
       expanded: 'builder review3 | host $server',
       typo: 'missing',
+      roleslot: '@reviewer | host',
+      roleundeclared: '@ghostrole',
     },
     presets: {
       loop: {
@@ -48,6 +50,19 @@ const config = vi.hoisted(() => ({
       },
       typo: {
         layout: 'typo',
+      },
+      roleslot: {
+        layout: 'roleslot',
+      },
+      rolepreset: {
+        layout: 'roleslot',
+        agents: {
+          reviewer: 'reviewer',
+          'reviewer-2': 'reviewer',
+        },
+      },
+      roleundeclared: {
+        layout: 'roleundeclared',
       },
     },
     services: { server: 'quimby serve' },
@@ -126,6 +141,41 @@ describe('createMissingPresetAgents', () => {
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(addAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it('seeds one instance for a @role slot when the preset declares none', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await createMissingPresetAgents('/repo', config.value, 'roleslot')
+
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', {
+      role: 'reviewer',
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+    })
+    expect(addAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a @role slot alone when the preset already declares instances of that role', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await createMissingPresetAgents('/repo', config.value, 'rolepreset')
+
+    // The two explicit reviewer instances satisfy `@reviewer`; no extra `reviewer` is seeded.
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer', expect.objectContaining({ role: 'reviewer' })) // prettier-ignore
+    expect(addAgent).toHaveBeenCalledWith('/repo', 'reviewer-2', expect.objectContaining({ role: 'reviewer' })) // prettier-ignore
+    expect(addAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws when a @role slot names a role not defined under roles:', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+
+    await expect(
+      createMissingPresetAgents('/repo', config.value, 'roleundeclared'),
+    ).rejects.toThrow('no role "ghostrole" is defined')
+    expect(addAgent).not.toHaveBeenCalled()
   })
 
   it('throws clearly when a layout-only agent cannot be inferred', async () => {
