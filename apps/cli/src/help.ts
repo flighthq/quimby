@@ -13,10 +13,25 @@ interface CommandGroup {
 // Curated grouping for the root help. Grouping is the only thing curated here;
 // each command's one-liner is read from its own meta, so descriptions never drift.
 const COMMAND_GROUPS: readonly CommandGroup[] = [
-  { title: 'Manage Agents', names: ['add', 'up', 'config', 'set', 'rename', 'remove', 'rebuild'] },
+  {
+    title: 'Manage Agents',
+    names: ['add', 'up', 'config', 'set', 'host', 'rename', 'remove', 'rebuild'],
+  },
   {
     title: 'Run & Inspect',
-    names: ['run', 'start', 'stop', 'layout', 'list', 'status', 'diff', 'sync', 'doctor'],
+    names: [
+      'run',
+      'start',
+      'stop',
+      'restart',
+      'layout',
+      'list',
+      'status',
+      'log',
+      'diff',
+      'sync',
+      'doctor',
+    ],
   },
   { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge', 'merge-mode'] },
   { title: 'Storage', names: ['restore', 'storage'] },
