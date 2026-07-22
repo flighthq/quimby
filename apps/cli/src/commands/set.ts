@@ -3,6 +3,7 @@ import {
   setAgentDefaults,
   setAgentLocation,
   setAgentRole,
+  setAgentRuntimeProfile,
   setAgentSyncRef,
   setAgentVerifyByDefault,
 } from '@quimbyhq/agent'
@@ -128,12 +129,18 @@ export async function runSetCommand({
     )
   }
 
-  if (args.runtime || args.runtimeProfile !== undefined || args.cmd) {
-    const updates: { runtimeProfile?: string; runtime?: string; entrypoint?: string } = {}
-    if (args.runtimeProfile !== undefined) updates.runtimeProfile = args.runtimeProfile || undefined
+  if (args.runtime || args.cmd) {
+    const updates: { runtime?: string; entrypoint?: string } = {}
     if (args.runtime) updates.runtime = args.runtime
     if (args.cmd) updates.entrypoint = args.cmd
     await setAgentDefaults(repoRoot, args.agent, updates)
+  }
+
+  if (args.runtimeProfile !== undefined) {
+    // The profile is a per-instance pin (it overrides the role at launch), mirroring `add --profile`.
+    // Clear any legacy flattened profile in `defaults` too, so there is a single engine authority.
+    await setAgentRuntimeProfile(repoRoot, args.agent, args.runtimeProfile || undefined)
+    await setAgentDefaults(repoRoot, args.agent, { runtimeProfile: undefined })
   }
 
   if (args.role !== undefined) {

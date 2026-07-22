@@ -85,6 +85,26 @@ export async function setAgentRole(
   await saveState(repoRoot, state)
 }
 
+/**
+ * Set (or, with `undefined`, clear) the per-instance runtime-profile pin — the deliberate engine
+ * override that beats the agent's role at launch (see `resolveAgentLaunchDefaults`/`applyProfilePin`).
+ * The state twin of `add --profile` / `set --runtime-profile`, distinct from `defaults.runtimeProfile`
+ * (a stale snapshot the role subordinates).
+ */
+export async function setAgentRuntimeProfile(
+  repoRoot: string,
+  name: string,
+  runtimeProfile: string | undefined,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!Object.hasOwn(state.agents, name)) {
+    throw new QuimbyError(`Agent "${name}" not found`)
+  }
+  if (runtimeProfile) state.agents[name].runtimeProfile = runtimeProfile
+  else delete state.agents[name].runtimeProfile
+  await saveState(repoRoot, state)
+}
+
 export async function setAgentSyncRef(
   repoRoot: string,
   name: string,

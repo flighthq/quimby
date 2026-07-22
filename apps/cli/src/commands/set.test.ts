@@ -7,6 +7,7 @@ const setAgentSyncRef = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentCheckCommand = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentVerifyByDefault = vi.hoisted(() => vi.fn(async () => {}))
 const setAgentRole = vi.hoisted(() => vi.fn(async () => {}))
+const setAgentRuntimeProfile = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('@quimbyhq/agent', () => ({
   setAgentLocation,
@@ -15,6 +16,7 @@ vi.mock('@quimbyhq/agent', () => ({
   setAgentCheckCommand,
   setAgentVerifyByDefault,
   setAgentRole,
+  setAgentRuntimeProfile,
 }))
 
 let resolved: {
@@ -87,24 +89,24 @@ describe('runSetCommand', () => {
     expect(setAgentVerifyByDefault).toHaveBeenCalledWith('/fake/root', 'builder', true)
   })
 
-  it('--runtime-profile updates the saved runtime profile reference', async () => {
+  it('--runtime-profile pins the profile (overriding the role) and clears any flattened defaults', async () => {
     resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentRuntimeProfile.mockClear()
     setAgentDefaults.mockClear()
     const { default: cmd } = await import('./set')
     await cmd.run!({ args: { agent: 'builder', runtimeProfile: 'openshellOllama' } } as never)
-    expect(setAgentDefaults).toHaveBeenCalledWith('/fake/root', 'builder', {
-      runtimeProfile: 'openshellOllama',
-    })
-  })
-
-  it('--runtime-profile "" clears the saved runtime profile reference', async () => {
-    resolved = workspace({ builder: { location: { type: 'local' } } })
-    setAgentDefaults.mockClear()
-    const { default: cmd } = await import('./set')
-    await cmd.run!({ args: { agent: 'builder', runtimeProfile: '' } } as never)
+    expect(setAgentRuntimeProfile).toHaveBeenCalledWith('/fake/root', 'builder', 'openshellOllama')
     expect(setAgentDefaults).toHaveBeenCalledWith('/fake/root', 'builder', {
       runtimeProfile: undefined,
     })
+  })
+
+  it('--runtime-profile "" clears the pin', async () => {
+    resolved = workspace({ builder: { location: { type: 'local' } } })
+    setAgentRuntimeProfile.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'builder', runtimeProfile: '' } } as never)
+    expect(setAgentRuntimeProfile).toHaveBeenCalledWith('/fake/root', 'builder', undefined)
   })
 
   it('--local errors clearly when the agent is already local', async () => {

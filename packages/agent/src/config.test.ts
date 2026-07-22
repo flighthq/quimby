@@ -11,6 +11,7 @@ import {
   setAgentCheckCommand,
   setAgentDefaults,
   setAgentLocation,
+  setAgentRuntimeProfile,
   setAgentSyncRef,
   setAgentTmux,
 } from './config'
@@ -93,6 +94,20 @@ describe('setAgentLocation', () => {
     await setAgentLocation(dir, 'alice', { type: 'local' })
     const state = await loadState(dir)
     expect(state.agents.alice.location).toEqual({ type: 'local' })
+  })
+})
+
+describe('setAgentRuntimeProfile', () => {
+  it('sets and clears the per-instance profile pin', async () => {
+    await addAgent(dir, 'alice')
+    await setAgentRuntimeProfile(dir, 'alice', 'codex-sbx')
+    expect((await loadState(dir)).agents.alice.runtimeProfile).toBe('codex-sbx')
+    await setAgentRuntimeProfile(dir, 'alice', undefined)
+    expect((await loadState(dir)).agents.alice.runtimeProfile).toBeUndefined()
+  })
+
+  it('throws QuimbyError when the agent does not exist', async () => {
+    await expect(setAgentRuntimeProfile(dir, 'ghost', 'codex-sbx')).rejects.toThrow('not found')
   })
 })
 
