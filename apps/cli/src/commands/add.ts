@@ -3,7 +3,7 @@ import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { runtimeTypes } from '@quimbyhq/runtimes'
 import { buildSSHLocation } from '@quimbyhq/transport'
-import type { RuntimeType, SSHLocation } from '@quimbyhq/types'
+import type { AgentDefaults, AgentLocation, RuntimeType } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
@@ -13,7 +13,7 @@ import {
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { runAgentWalkthrough } from '../walkthrough'
+import { resolveWalkthroughConfig, runAgentWalkthrough } from '../walkthrough'
 
 export default defineCommand({
   meta: {
@@ -101,8 +101,10 @@ export async function runAddCommand({
     args.hostAlias,
   )
 
-  let defaults: { runtimeProfile?: string; runtime?: string; entrypoint?: string } | undefined
-  let location: SSHLocation | undefined
+  let role: string | undefined
+  let runtimeProfilePin: string | undefined
+  let defaults: AgentDefaults | undefined
+  let location: AgentLocation | undefined
   let syncRef: string | undefined
   let tmux: boolean | undefined
   let check: string | undefined
@@ -110,20 +112,20 @@ export async function runAddCommand({
 
   if (hasFlags) {
     const config = await loadQuimbyConfig(repoRoot)
-    const role = args.role ? resolveRole(config, args.role) : config.defaults
+    const roleCfg = args.role ? resolveRole(config, args.role) : config.defaults
     const runtimeProfile =
-      args.runtimeProfile ?? (args.runtime || args.cmd ? undefined : role?.runtimeProfile)
+      args.runtimeProfile ?? (args.runtime || args.cmd ? undefined : roleCfg?.runtimeProfile)
     if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
       throw new QuimbyError(
         `Unknown runtime "${args.runtime}". Available: ${runtimeTypes.join(', ')}`,
       )
     }
     defaults =
-      runtimeProfile || role?.runtime || role?.entrypoint || args.runtime || args.cmd
+      runtimeProfile || roleCfg?.runtime || roleCfg?.entrypoint || args.runtime || args.cmd
         ? {
             ...(runtimeProfile ? { runtimeProfile } : {}),
-            runtime: args.runtime ?? role?.runtime,
-            entrypoint: args.cmd ?? role?.entrypoint,
+            runtime: args.runtime ?? roleCfg?.runtime,
+            entrypoint: args.cmd ?? roleCfg?.entrypoint,
           }
         : undefined
     if (args.host) {
@@ -135,32 +137,38 @@ export async function runAddCommand({
       resolveHostAlias(config, args.hostAlias)
       location = { type: 'ssh', alias: args.hostAlias }
     }
-    syncRef = args.sync ?? role?.syncRef
-    tmux = role?.tmux
-    const checkConfig = normalizeCheck(role?.check)
+    syncRef = args.sync ?? roleCfg?.syncRef
+    tmux = roleCfg?.tmux
+    const checkConfig = normalizeCheck(roleCfg?.check)
     check = checkConfig?.command
-    verifyByDefault = checkConfig?.verifyByDefault ?? role?.verifyByDefault
+    verifyByDefault = checkConfig?.verifyByDefault ?? roleCfg?.verifyByDefault
+    role = args.role
+    // An explicit --profile with a --role pins this instance to that engine, overriding the
+    // role's default — so a same-role +1 (a Codex `builder` beside Claude ones) actually runs it.
+    runtimeProfilePin = args.role && args.runtimeProfile ? args.runtimeProfile : undefined
   } else {
     if (!args.agent) {
       throw new QuimbyError(
         'Provide an agent name (e.g. `quimby add builder`), or flags to skip the walkthrough.',
       )
     }
-    const config = await runAgentWalkthrough(args.agent)
-    if (!config) return
-    defaults = { runtime: config.runtime, entrypoint: config.entrypoint }
-    location = config.location
-    syncRef = config.syncRef
-    tmux = config.tmux
+    // Flag-less: the config-aware walkthrough returns references (role / profile pin / alias),
+    // which resolveWalkthroughConfig normalizes into one coherent engine authority.
+    const walkConfig = await loadQuimbyConfig(repoRoot)
+    const result = await runAgentWalkthrough(args.agent, walkConfig, repoRoot)
+    if (!result) return
+    const resolved = resolveWalkthroughConfig(result)
+    role = resolved.role
+    runtimeProfilePin = resolved.runtimeProfile
+    defaults = resolved.defaults
+    location = resolved.location.type === 'ssh' ? resolved.location : undefined
+    syncRef = resolved.syncRef
+    tmux = resolved.tmux
   }
 
-  // An explicit --profile with a --role pins this instance to that engine, overriding the
-  // role's default — so a same-role +1 (a Codex `builder` beside Claude ones) actually runs it.
-  const profilePin = args.role && args.runtimeProfile ? args.runtimeProfile : undefined
-
   const agentState = await addAgent(repoRoot, args.agent, {
-    ...(args.role ? { role: args.role } : {}),
-    ...(profilePin ? { runtimeProfile: profilePin } : {}),
+    ...(role ? { role } : {}),
+    ...(runtimeProfilePin ? { runtimeProfile: runtimeProfilePin } : {}),
     defaults,
     location,
     ...(syncRef ? { syncRef } : {}),
@@ -169,18 +177,21 @@ export async function runAddCommand({
     ...(verifyByDefault ? { verifyByDefault: true } : {}),
   })
 
-  const locationHint = location ? ` [ssh: ${location.host ?? `@${location.alias ?? '?'}`}]` : ''
-  // The pin is the launch-time engine, so it leads the hint; otherwise show the flattened defaults.
-  const defaultsHint = profilePin
-    ? ` (profile: ${profilePin}${args.role ? `, role: ${args.role}` : ''})`
+  const locationHint =
+    location?.type === 'ssh' ? ` [ssh: ${location.host ?? `@${location.alias ?? '?'}`}]` : ''
+  // The pin is the launch-time engine, so it leads the hint; else the flattened defaults, else the role.
+  const defaultsHint = runtimeProfilePin
+    ? ` (profile: ${runtimeProfilePin}${role ? `, role: ${role}` : ''})`
     : defaults
       ? ` (${[defaults.runtime, defaults.entrypoint].filter(Boolean).join(', ')})`
-      : ''
+      : role
+        ? ` (role: ${role})`
+        : ''
 
   logger.success(
     `Agent "${agentState.name}" created (seed: ${agentState.seedCommit.slice(0, 8)})${locationHint}${defaultsHint}`,
   )
-  if (location) {
+  if (location?.type === 'ssh') {
     logger.info('Remote agent created — run `quimby run` to sync and initialize.')
   }
 }
