@@ -67,20 +67,47 @@ export async function renderRootHelp(
     '',
   ]
 
+  // Wrap descriptions to the terminal (capped for readability) with a hanging indent aligned under
+  // the description column, so a long one-liner stays legible and never breaks the two-column layout.
+  const wrapWidth = Math.min(process.stdout.columns || 80, 100)
+
   for (const { title, names } of COMMAND_GROUPS) {
     // Pad to the group's own longest name, not the global maximum, so a long
     // outlier only widens its own group instead of every row.
     const width = Math.max(...names.map((name) => name.length))
+    const indent = 2 + width + 2
     lines.push(colors.bold(colors.cyan(title)))
     lines.push('')
     for (const name of names) {
-      lines.push(`  ${colors.bold(name.padEnd(width))}  ${descriptions.get(name) ?? ''}`)
+      const wrapped = wrapText(descriptions.get(name) ?? '', wrapWidth - indent)
+      const head = `  ${colors.bold(name.padEnd(width))}  ${wrapped[0] ?? ''}`
+      lines.push(head)
+      for (const cont of wrapped.slice(1)) lines.push(`${' '.repeat(indent)}${cont}`)
     }
     lines.push('')
   }
 
   lines.push(colors.dim('Run `quimby help <command>` for details on a command.'))
   return lines.join('\n')
+}
+
+// Greedy word-wrap to `width` columns; a single word longer than `width` is left intact rather
+// than split. Returns at least one line (empty string for empty input) so callers can index [0].
+function wrapText(text: string, width: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ['']
+  const lines: string[] = []
+  let line = ''
+  for (const word of words) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
 }
 
 async function resolveDescription(loader: CommandLoader | undefined): Promise<string> {

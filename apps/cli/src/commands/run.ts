@@ -72,14 +72,15 @@ import { withRemoteProbeTimeout } from '../remoteProbe'
 export default defineCommand({
   meta: {
     name: 'run',
-    description:
-      'Launch an agent interactively (multiple names opens a tabbed dashboard; a layout ' +
-      'expression like "a b | c d" opens a multi-panel dashboard)',
+    description: 'Open an agent, a dashboard, or a layout in an interactive tmux session',
   },
   args: {
     agent: {
       type: 'positional',
-      description: 'Agent name(s)',
+      description:
+        'Agent name(s). One name opens an interactive session; several open a tabbed dashboard; ' +
+        'a layout expression like "a b | c d" opens a multi-panel dashboard. Omit (with a ' +
+        'configured default preset) to open that.',
       required: false,
     },
     cmd: {

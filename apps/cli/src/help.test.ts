@@ -37,4 +37,18 @@ describe('renderRootHelp', () => {
     const help = await renderRootHelp('desc', '9.9.9', subCommands)
     expect(help).toContain('Show help for quimby or a specific command')
   })
+
+  it('wraps a long description with a hanging indent instead of overflowing the row', async () => {
+    const long = Array.from({ length: 40 }, () => 'word').join(' ')
+    const subs = {
+      add: defineCommand({ meta: { name: 'add', description: long } }),
+    }
+    const help = await renderRootHelp('desc', '9.9.9', subs)
+    // A continuation line appears, indented under the description column (width of "rebuild" + 4).
+    expect(help).toMatch(/\n {11}word/)
+    // No rendered line runs past the 100-col readability cap.
+    for (const line of help.split('\n')) {
+      expect(line.replace(/\[[0-9;]*m/g, '').length).toBeLessThanOrEqual(100)
+    }
+  })
 })
