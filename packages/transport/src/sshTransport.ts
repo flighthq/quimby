@@ -75,12 +75,28 @@ function sshFailureMessage(tool: 'ssh' | 'scp' | 'rsync', host: string, err: unk
     return `${noun} not found locally. Install ${tool === 'rsync' ? 'rsync' : 'OpenSSH'} before using SSH agents.`
   }
   if (SSH_CONNECTIVITY_FAILURE.test(detail)) {
-    return `Could not reach SSH host ${host}: ${detail.trim()}`
+    return withDetail(`Could not reach SSH host ${host}`, detail)
   }
   if (tool === 'rsync') {
-    return `rsync failed while communicating with SSH host ${host}: ${detail.trim()}`
+    return withDetail(`rsync failed while communicating with SSH host ${host}`, detail)
   }
-  return `SSH command failed for ${host}: ${detail.trim()}`
+  return withDetail(`SSH command failed for ${host}`, detail)
+}
+
+/**
+ * Join a summary with a command's captured output. Single-line output stays inline
+ * (`<summary>: <detail>`); multi-line output (e.g. git's per-file `needs merge` list) drops
+ * onto its own indented block below the summary, so the reporter's badge/tag share a clean
+ * first line instead of colliding with the first line of remote output.
+ */
+function withDetail(summary: string, detail: string): string {
+  const d = detail.trim()
+  if (!d.includes('\n')) return `${summary}: ${d}`
+  const indented = d
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n')
+  return `${summary}:\n${indented}`
 }
 
 async function remoteCall<T>(

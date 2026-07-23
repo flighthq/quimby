@@ -139,6 +139,19 @@ describe('SSHTransport', () => {
     )
   })
 
+  it('exec drops multi-line remote output onto its own indented block', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed with exit code 1'), {
+        shortMessage: 'Command failed with exit code 1',
+        all: 'a.ts: needs merge\nb.ts: needs merge',
+        exitCode: 1,
+      }),
+    )
+    await expect(new SSHTransport(LOC).exec('git stash', { cwd: '/work' })).rejects.toThrow(
+      'SSH command failed for user@box:\n  a.ts: needs merge\n  b.ts: needs merge',
+    )
+  })
+
   it('exec runs the raw command when no cwd is given', async () => {
     await new SSHTransport(LOC).exec('whoami')
     const [, args] = callsTo('ssh')[0] as [string, string[]]
