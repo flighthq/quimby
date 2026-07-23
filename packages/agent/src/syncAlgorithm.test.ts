@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RepoSyncOps } from './syncAlgorithm'
+import type { RepoSyncOps, SyncConflictState } from './syncAlgorithm'
 import { runSyncAlgorithm } from './syncAlgorithm'
 
 interface FakeConfig {
@@ -8,6 +8,10 @@ interface FakeConfig {
   dirty?: boolean
   rebaseThrows?: boolean
   stashPopThrows?: boolean
+  /** A pre-existing conflicted state blocking the safe sync's auto-stash. */
+  conflict?: SyncConflictState
+  /** Simulate a rebase abort that fails to clear the mid-rebase state. */
+  abortFails?: boolean
 }
 
 function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
@@ -17,6 +21,7 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
       calls.push('fetch')
     },
     countCommitsSinceSeed: async () => cfg.commits ?? 0,
+    pendingConflictState: async () => cfg.conflict ?? null,
     isDirty: async () => cfg.dirty ?? false,
     stash: async () => {
       calls.push('stash')
@@ -30,6 +35,7 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
     },
     rebaseAbort: async () => {
       calls.push('rebaseAbort')
+      return !cfg.abortFails
     },
     tagSeed: async (c) => {
       calls.push(`tag:${c}`)
@@ -111,6 +117,54 @@ describe('runSyncAlgorithm', () => {
       runSyncAlgorithm(ops, { hostHead: 'abcdef12', seedCommit: 'old', name: 'alice' }),
     ).rejects.toThrow(/synced onto abcdef12, but restoring its uncommitted work hit conflicts/)
     expect(calls).toContain('tag:abcdef12')
+  })
+
+  it('fails up front with an actionable error when the repo is mid-rebase, before stashing', async () => {
+    const { ops, calls } = fakeOps({ commits: 2, dirty: true, conflict: 'rebase' })
+    await expect(
+      runSyncAlgorithm(ops, { hostHead: 'abcdef12', seedCommit: 'old', name: 'alice' }),
+    ).rejects.toThrow(
+      /its repo has a rebase in progress.*quimby sync alice -f.*quimby nudge alice/s,
+    )
+    // Bailed before the auto-stash — the cryptic "git stash: needs merge" never runs.
+    expect(calls).toEqual(['fetch'])
+  })
+
+  it('names a merge in progress and unmerged paths distinctly in the up-front error', async () => {
+    await expect(
+      runSyncAlgorithm(fakeOps({ dirty: true, conflict: 'merge' }).ops, {
+        hostHead: 'H',
+        seedCommit: 'old',
+        name: 'a',
+      }),
+    ).rejects.toThrow(/a merge in progress/)
+    await expect(
+      runSyncAlgorithm(fakeOps({ dirty: true, conflict: 'unmerged' }).ops, {
+        hostHead: 'H',
+        seedCommit: 'old',
+        name: 'a',
+      }),
+    ).rejects.toThrow(/unmerged paths/)
+  })
+
+  it('reports loudly when the rebase abort itself fails, leaving the repo mid-rebase', async () => {
+    const { ops } = fakeOps({ commits: 1, dirty: true, rebaseThrows: true, abortFails: true })
+    await expect(
+      runSyncAlgorithm(ops, { hostHead: 'abcdef12', seedCommit: 'old', name: 'alice' }),
+    ).rejects.toThrow(/the automatic abort failed — its repo is left mid-rebase/)
+  })
+
+  it('does not pop the stash when the abort failed (tree is still mid-rebase)', async () => {
+    const { ops, calls } = fakeOps({
+      commits: 1,
+      dirty: true,
+      rebaseThrows: true,
+      abortFails: true,
+    })
+    await expect(
+      runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a' }),
+    ).rejects.toThrow(/abort failed/)
+    expect(calls).not.toContain('stashPop')
   })
 
   it('does not stash a clean tree', async () => {

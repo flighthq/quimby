@@ -207,6 +207,13 @@ export async function init(cwd: string): Promise<void> {
   await git(['init'], cwd)
 }
 
+export async function hasUnmergedPaths(cwd: string): Promise<boolean> {
+  // Unmerged index entries (a conflict from an in-progress merge/rebase) — `git stash` refuses
+  // to run while they exist, so the safe sync must detect them before its auto-stash step.
+  const stdout = await git(['ls-files', '--unmerged'], cwd)
+  return stdout.trim() !== ''
+}
+
 export async function isClean(cwd: string): Promise<boolean> {
   const stdout = await git(['status', '--porcelain'], cwd)
   return stdout.trim() === ''

@@ -278,13 +278,22 @@ function localSyncOps(repoDir: string): RepoSyncOps {
     fetch: () => git.fetch(repoDir, 'origin'),
     countCommitsSinceSeed: async () =>
       (await git.log(repoDir, 'quimby/seed..HEAD', '%H')).split('\n').filter(Boolean).length,
+    pendingConflictState: async () => {
+      if (await git.isRebaseOrAmInProgress(repoDir)) return 'rebase'
+      if (await git.isMergeInProgress(repoDir)) return 'merge'
+      if (await git.hasUnmergedPaths(repoDir)) return 'unmerged'
+      return null
+    },
     isDirty: async () => !(await git.isClean(repoDir)),
     stash: async () => {
       await git.stash(repoDir)
     },
     resetHardTo: (commit) => git.resetHard(repoDir, commit),
     rebaseOnto: (commit) => git.rebase(repoDir, commit),
-    rebaseAbort: () => git.rebaseAbort(repoDir),
+    rebaseAbort: async () => {
+      await git.rebaseAbort(repoDir)
+      return !(await git.isRebaseOrAmInProgress(repoDir))
+    },
     tagSeed: (commit) => git.tagForce(repoDir, 'quimby/seed', commit),
     stashPop: () => git.stashPop(repoDir),
   }
@@ -293,6 +302,10 @@ function localSyncOps(repoDir: string): RepoSyncOps {
 /** Drive the sync algorithm against an SSH agent's remote clone via `git` over transport. */
 function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
   const cwd = { cwd: rRepoDir }
+  // Mirrors git.isRebaseOrAmInProgress: a rebase marks progress with a rebase-merge/rebase-apply
+  // dir (resolved via --git-path so it holds for worktrees), neither being a single ref to verify.
+  const rebaseInProgress =
+    '[ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]'
   return {
     fetch: async () => {
       await transport.exec(`git fetch origin`, cwd)
@@ -301,6 +314,17 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
       (await transport.exec(`git log quimby/seed..HEAD --format=%H`, cwd))
         .split('\n')
         .filter(Boolean).length,
+    pendingConflictState: async () => {
+      const out = await transport.exec(
+        `if ${rebaseInProgress}; then echo rebase; ` +
+          `elif git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then echo merge; ` +
+          `elif [ -n "$(git ls-files --unmerged)" ]; then echo unmerged; ` +
+          `else echo clean; fi`,
+        cwd,
+      )
+      const s = out.trim()
+      return s === 'rebase' || s === 'merge' || s === 'unmerged' ? s : null
+    },
     isDirty: async () => (await transport.exec(`git status --porcelain`, cwd)).trim().length > 0,
     stash: async () => {
       await transport.exec(`git stash push --include-untracked -m quimby-sync`, cwd)
@@ -313,6 +337,10 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
     },
     rebaseAbort: async () => {
       await transport.exec(`git rebase --abort`, cwd).catch(() => {})
+      const out = await transport
+        .exec(`if ${rebaseInProgress}; then echo yes; else echo no; fi`, cwd)
+        .catch(() => 'yes')
+      return out.trim() === 'no'
     },
     tagSeed: async (commit) => {
       await transport.exec(`git tag -f quimby/seed ${commit}`, cwd)

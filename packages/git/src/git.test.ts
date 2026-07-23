@@ -24,6 +24,7 @@ import {
   getRemoteUrl,
   hasCommitsSince,
   hasRemote,
+  hasUnmergedPaths,
   init,
   isClean,
   isMergeInProgress,
@@ -389,6 +390,29 @@ describe('hasRemote', () => {
     await makeCommit(dir, 'file.txt', 'content', 'initial')
     await addRemote(dir, 'origin', 'https://example.com/repo.git')
     expect(await hasRemote(dir, 'origin')).toBe(true)
+  })
+})
+
+describe('hasUnmergedPaths', () => {
+  it('is false in a clean repo', async () => {
+    await makeCommit(dir, 'file.txt', 'content', 'initial')
+    expect(await hasUnmergedPaths(dir)).toBe(false)
+  })
+
+  it('is true while a conflicted merge leaves unmerged entries, false again after abort', async () => {
+    await makeCommit(dir, 'file.txt', 'base\n', 'initial')
+    const { stdout: branch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+    })
+    const defaultBranch = branch.trim()
+    await createBranch(dir, 'feature')
+    await makeCommit(dir, 'file.txt', 'feature change\n', 'feature edit')
+    await checkout(dir, defaultBranch)
+    await makeCommit(dir, 'file.txt', 'main change\n', 'main edit')
+    await expect(merge(dir, 'feature')).rejects.toThrow() // conflict → unmerged index entry
+    expect(await hasUnmergedPaths(dir)).toBe(true)
+    await mergeAbort(dir)
+    expect(await hasUnmergedPaths(dir)).toBe(false)
   })
 })
 
