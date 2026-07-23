@@ -17,6 +17,10 @@ import {
   createOutboxDispatchTracker,
 } from './autodispatch'
 
+const nudgeAgentSession = vi.hoisted(() => vi.fn(async () => {}))
+
+vi.mock('@quimbyhq/session', () => ({ nudgeAgentSession }))
+
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   getSSHTransport: vi.fn(() => ({
@@ -109,6 +113,14 @@ describe('autoDispatchOutboxes', () => {
     // drained from the outbox = it was carried to the recipient
     expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
     expect(events.some((e) => e.level === 'success' && /delivered/.test(e.message))).toBe(true)
+    const inbox = join(getAgentDir(dir, 'builder'), 'handoff', 'in', 'received')
+    const [parcelName] = await readdir(inbox)
+    expect(nudgeAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayName: 'builder',
+        courier: `parcel ${parcelName} from review`,
+      }),
+    )
   })
 
   it('embeds the sender attestation in the auto-dispatched parcel meta', async () => {

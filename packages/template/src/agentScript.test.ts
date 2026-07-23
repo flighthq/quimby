@@ -144,6 +144,21 @@ describe('renderAgentScript', () => {
     ).toThrow()
   })
 
+  it.runIf(posix)('handoff --delegate marks an explicit user-delegated task', () => {
+    const root = makeAgentWorkspace()
+    runSh(root, ['handoff', 'worker', '--delegate', '-m', 'review the new API'])
+    const readme = readFileSync(
+      join(root, 'handoff', 'out', 'queued', 'worker', 'README.md'),
+      'utf-8',
+    )
+    expect(readme).toBe('User-delegated task: review the new API\n')
+  })
+
+  it.runIf(posix)('handoff --delegate requires a task message', () => {
+    const root = makeAgentWorkspace()
+    expect(() => runSh(root, ['handoff', 'worker', '--delegate'])).toThrow()
+  })
+
   it.runIf(posix)(
     'handoff works when invoked from inside repo/ (root is resolved by walking up)',
     () => {
@@ -231,6 +246,8 @@ describe('renderAgentScriptCmd', () => {
     expect(cmd).toContain(':attest')
     expect(cmd).toContain(':inbox')
     expect(cmd).toContain(':peers')
+    expect(cmd).toContain('--delegate')
+    expect(cmd).toContain('User-delegated task:')
     expect(cmd).toContain('--file')
     expect(cmd).toContain('```quimby-attest')
   })

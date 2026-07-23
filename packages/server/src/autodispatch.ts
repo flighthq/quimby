@@ -74,7 +74,7 @@ export async function autoDispatchOutboxes(
           await nudgeAgentSession({
             agent: recip,
             displayName: result.recipient,
-            courier: `parcel from ${sender}`,
+            courier: `parcel ${result.parcelName} from ${sender}`,
             reporter,
           })
         }

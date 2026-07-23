@@ -26,7 +26,8 @@ const CLEAR_SETTLE_MS = 600
 const SUBMIT_SETTLE_MS = 150
 
 // A courier-injected message leads with this so the agent can tell it from text the user typed
-// live: `quimby · <label>` (e.g. `parcel from review`, `assignment updated`, `resume …`). The
+// live: `quimby · <label>` (e.g. `parcel review-abc123 from review`, `assignment updated`,
+// `resume …`). The
 // interpunct is the only separator; where to read (inbox / assignment / status) is taught once in
 // the agent's AGENTS.md rather than repeated on every line. Absence of the lead means the user is
 // typing directly — the agent's top authority.

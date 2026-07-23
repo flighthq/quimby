@@ -160,7 +160,7 @@ describe('nudgeAgentSession', () => {
     await nudgeAgentSession({
       agent: localWithTmux,
       displayName: 'builder',
-      courier: 'parcel from review',
+      courier: 'parcel review-abc123 from review',
       reporter,
     })
 
@@ -168,11 +168,15 @@ describe('nudgeAgentSession', () => {
     // The literal typed is `quimby · <label>`, never the bare label.
     const literal = argvs.find(
       (a) =>
-        a.includes('send-keys') && a.includes('-l') && a.includes('quimby · parcel from review'),
+        a.includes('send-keys') &&
+        a.includes('-l') &&
+        a.includes('quimby · parcel review-abc123 from review'),
     )
     expect(literal).toBeDefined()
     // `courier` supersedes any `text`; no bare label is typed.
-    expect(argvs.some((a) => a.includes('-l') && a.at(-1) === 'parcel from review')).toBe(false)
+    expect(
+      argvs.some((a) => a.includes('-l') && a.at(-1) === 'parcel review-abc123 from review'),
+    ).toBe(false)
   })
 
   it('types /clear before the nudge text when clear is set', async () => {

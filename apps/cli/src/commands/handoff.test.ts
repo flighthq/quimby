@@ -70,15 +70,16 @@ describe('runHandoffCommand', () => {
     handoffWork.mockResolvedValueOnce({
       from: 'host',
       to: 'review',
+      parcelName: 'host-abc123',
       nudgeText: 'inbox: review this',
     } as never)
     const { default: cmd } = await import('./handoff')
     await cmd.run!({ args: { from: 'review', rebase: false, clear: false } } as never)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
-    // nudgeText being non-null is the gate; the typed message is the courier label from `from`.
+    // nudgeText being non-null is the gate; the courier names the exact parcel to open first.
     expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
       displayName: 'review',
-      courier: 'parcel from host',
+      courier: 'parcel host-abc123 from host',
     })
     // The reporter is threaded through to the session layer.
     expect((nudgeAgentSession.mock.calls[0][0] as { reporter: unknown }).reporter).toBeDefined()
