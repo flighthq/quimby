@@ -5,6 +5,7 @@ import {
   getAgentAttestation,
   getAgentCommitSubjects,
   getAgentHeadHash,
+  getAgentPendingWork,
   getAgentSyncStatus,
   getAgentWorkSummary,
   rebaseAgentOntoBase,
@@ -97,7 +98,12 @@ export default defineCommand({
     squashed: {
       type: 'boolean',
       description:
-        'Squash into one commit — the built-in default, spelled out to override a configured commits/patch default',
+        'Squash into one commit, spelled out to override a configured commits/auto default',
+      default: false,
+    },
+    auto: {
+      type: 'boolean',
+      description: 'Pick commits when the agent has committed work, else squashed',
       default: false,
     },
     default: {
@@ -123,6 +129,7 @@ export async function runMergeCommand({
     commits: boolean
     patch: boolean
     squashed: boolean
+    auto: boolean
     '3way': boolean
     preview: boolean
     branch?: string
@@ -137,10 +144,13 @@ export async function runMergeCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
 
-  // Mode precedence: an explicit --commits/--patch/--squashed wins; else the configured
-  // workspace/user default (git-style, resolved across the config layers); else squashed.
+  // Mode precedence: an explicit --commits/--patch/--squashed/--auto wins; else the configured
+  // workspace/user default (git-style, resolved across the config layers); else commits.
   const config = await loadQuimbyConfig(repoRoot)
-  const mode = resolveMergeMode(args, config.mergeMode)
+  const modeChoice = resolveMergeMode(args, config.mergeMode)
+  // `auto` resolves to commits when the agent has committed work, else squashed.
+  const mode: ApplyMode =
+    modeChoice === 'auto' ? await resolveAutoMode(repoRoot, state, args.agent) : modeChoice
 
   // `--preview` is a read-only dry run: report what would cross (mode, commits, diffstat, self-check,
   // behind-base) and stop before any side effect — no `--default` persist, no target-clean gate, no
@@ -151,10 +161,11 @@ export async function runMergeCommand({
   }
 
   // `--default` persists the chosen mode as the bare-`merge` default — to this repo, or user
-  // config with `--global`. A config-setting side effect, independent of this merge's outcome.
+  // config with `--global`. Persist the *choice* (so `--auto --default` saves "auto", staying
+  // adaptive), not the mode `auto` resolved to for this one merge.
   if (args.default) {
-    const path = await saveMergeModeDefault(repoRoot, mode, { global: args.global })
-    logger.info(`Default merge mode set to "${mode}" (${path})`)
+    const path = await saveMergeModeDefault(repoRoot, modeChoice, { global: args.global })
+    logger.info(`Default merge mode set to "${modeChoice}" (${path})`)
   }
   // Uniform `--sync`: --no-sync (false) skips the seed advance; a ref string advances *and*
   // retargets the agent's sync ref to it; bare `--sync`/absent advances onto the landed branch.
@@ -302,35 +313,9 @@ export async function runMergeCommand({
         : `Merged "${name}"`,
     )
 
-    // `--commits`: a SOFT advance. Pull the committed work onto the base while preserving the
-    // agent's loose (uncommitted) work — so you merge what a worker produced without interrupting
-    // it. It advances even with a loose remainder, because the safe sync keeps that remainder
-    // rather than discarding it (unlike squashed's hard reset).
-    if (isAgent && advanceOn && effectiveMode === 'commits') {
-      await settleAgentSeed({
-        state,
-        repoRoot,
-        agent: state.agents[args.agent],
-        name: args.agent,
-        mergedName: meta.name,
-        targetRepoPath,
-        landedOnBranch: branch !== undefined,
-        retargetRef,
-        soft: true,
-      })
-      if (result.leftUncommitted) {
-        logger.info(
-          "The agent's uncommitted remainder also landed loose in your working tree — commit it " +
-            'when ready, or re-run with `--commits -m "…"`.',
-        )
-      }
-      logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
-      return
-    }
-
-    // Work left uncommitted with no soft advance (explicit --patch, or the no-TTY squashed
-    // degrade): an incomplete landing — no quip, no seed advance. Say what to commit, and how to
-    // catch the agent up afterward so it doesn't drift into conflicts.
+    // Loose landing on the HOST with nothing committed to advance past (explicit --patch, or the
+    // no-TTY squashed degrade): an incomplete landing — no quip, no seed advance. Say what to
+    // commit, and how to catch the agent up so it doesn't drift into conflicts.
     if (result.leftUncommitted) {
       reportUncommittedLanding({
         intendedMode: mode,
@@ -341,10 +326,13 @@ export async function runMergeCommand({
       return
     }
 
-    // A clean, fully-committed squashed landing: HARD-advance the agent's seed onto what landed
-    // (everything landed, so nothing loose remains to preserve), else point at the catch-up.
+    // Committed work landed → advance the agent's seed. SOFT when `--commits` left uncommitted work
+    // on the agent (its loose remainder was not pulled) — a safe sync keeps that work while pulling
+    // the committed part, so a still-working agent isn't interrupted. HARD otherwise: everything
+    // landed (squashed, or `--commits` with nothing loose / a `-m` sweep), so a reset loses nothing.
     if (isAgent) {
       if (advanceOn) {
+        const keptLoose = result.unpulledRemainderFiles > 0
         await settleAgentSeed({
           state,
           repoRoot,
@@ -354,8 +342,14 @@ export async function runMergeCommand({
           targetRepoPath,
           landedOnBranch: branch !== undefined,
           retargetRef,
-          soft: false,
+          soft: keptLoose,
         })
+        if (keptLoose) {
+          logger.info(
+            `${result.unpulledRemainderFiles} uncommitted file(s) left on "${args.agent}" — not ` +
+              'pulled. Grab them with `--patch`, `--squashed`, or `--commits -m "…"`.',
+          )
+        }
       } else {
         logger.info(
           `Seed left unchanged (--no-sync) — catch "${args.agent}" up with ` +
@@ -436,28 +430,49 @@ async function previewMerge(opts: {
  * then the configured workspace/user default (resolved across the config layers, validated here
  * since YAML is untyped at load), then the built-in `squashed`.
  */
+// Resolve `auto` to a concrete mode: commits when the agent has committed work since its seed
+// (so its curated history is preserved), else squashed (a no-commit worker's whole tree becomes
+// one commit). A non-agent source has no commits, so it squashes.
+async function resolveAutoMode(
+  repoRoot: string,
+  state: Readonly<QuimbyState>,
+  agentName: string,
+): Promise<ApplyMode> {
+  const agent = state.agents[agentName]
+  if (!agent) return 'squashed'
+  const pending = await getAgentPendingWork(repoRoot, state.id, agent)
+  return (pending?.commits ?? 0) > 0 ? 'commits' : 'squashed'
+}
+
+type MergeModeChoice = ApplyMode | 'auto'
+
+// Resolve the requested mode, which may be `auto` (resolved to commits/squashed later, once the
+// agent's commit count is known). The built-in default is **`commits`**: its failure mode (loose
+// files you commit yourself) is recoverable, where squashed's (silently collapsing curated history
+// into one mislabeled commit) is not — so a fresh repo with no config never surprise-squashes.
 function resolveMergeMode(
-  args: Readonly<{ commits: boolean; patch: boolean; squashed: boolean }>,
+  args: Readonly<{ commits: boolean; patch: boolean; squashed: boolean; auto: boolean }>,
   configured: string | undefined,
-): ApplyMode {
+): MergeModeChoice {
   const explicit = [
     args.commits ? 'commits' : undefined,
     args.patch ? 'patch' : undefined,
     args.squashed ? 'squashed' : undefined,
-  ].filter(Boolean) as ApplyMode[]
+    args.auto ? 'auto' : undefined,
+  ].filter(Boolean) as MergeModeChoice[]
   if (explicit.length > 1) {
-    throw new QuimbyError('Choose at most one of --commits, --patch, --squashed')
+    throw new QuimbyError('Choose at most one of --commits, --patch, --squashed, --auto')
   }
   if (explicit.length === 1) return explicit[0]
   if (configured !== undefined) {
-    if (configured !== 'squashed' && configured !== 'commits' && configured !== 'patch') {
+    if (!['squashed', 'commits', 'patch', 'auto'].includes(configured)) {
       throw new QuimbyError(
-        `Config mergeMode "${configured}" is invalid — use "squashed", "commits", or "patch".`,
+        `Config mergeMode "${configured}" is invalid — use "commits", "squashed", "patch", or "auto".`,
       )
     }
-    return configured
+    return configured as MergeModeChoice
   }
-  return 'squashed'
+  return 'commits'
 }
 
 /**

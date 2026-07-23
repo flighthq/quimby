@@ -81,6 +81,7 @@ function mergeArgs(overrides: Record<string, unknown>) {
       commits: false,
       patch: false,
       squashed: false,
+      auto: false,
       '3way': false,
       preview: false,
       rebase: false,
@@ -186,6 +187,44 @@ describe('runMergeCommand', () => {
     expect(tracked).not.toContain('.quimby')
   })
 
+  it('defaults to commits mode (no flag, no config), preserving the agent history', async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    // A second commit makes commits-vs-squashed unambiguous: squashed collapses to one.
+    const agentRepo = getAgentRepoDir(host, agentId)
+    await writeFile(join(agentRepo, 'feature2.txt'), 'more\n')
+    await git(agentRepo, 'add', '-A')
+    await git(agentRepo, 'commit', '-m', 'second feature')
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host })) // no mode flag, fresh repo → built-in default
+
+    const subjects = await git(host, 'log', '--format=%s')
+    expect(subjects).toContain('add feature')
+    expect(subjects).toContain('second feature')
+  })
+
+  it('--auto picks commits when the agent has committed work', async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    const agentRepo = getAgentRepoDir(host, agentId)
+    await writeFile(join(agentRepo, 'feature2.txt'), 'more\n')
+    await git(agentRepo, 'add', '-A')
+    await git(agentRepo, 'commit', '-m', 'second feature')
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ auto: true, target: host }))
+
+    const subjects = await git(host, 'log', '--format=%s')
+    expect(subjects).toContain('second feature') // resolved to commits → history preserved
+  })
+
   it("--commits soft-advances the seed while keeping the agent's loose work", async () => {
     const { host, agentId } = await setupHostAndAgent()
     const agentRepo = getAgentRepoDir(host, agentId)
@@ -206,8 +245,10 @@ describe('runMergeCommand', () => {
     expect(await exists(join(host, 'feature.txt'))).toBe(true)
     expect(after).toBe(hostHead)
     expect(after).not.toBe(before)
-    // ...but the agent's uncommitted remainder is preserved, not hard-reset away.
+    // ...but the agent's uncommitted remainder is preserved, not hard-reset away...
     expect(await exists(join(agentRepo, 'loose.txt'))).toBe(true)
+    // ...and it was NOT pulled to the host (commits-only keeps --commits idempotent).
+    expect(await exists(join(host, 'loose.txt'))).toBe(false)
   })
 
   it('proceeds with a failing attestation — informational, never a gate', async () => {

@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 
 import { ConflictError, QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -28,6 +28,13 @@ export interface ApplyResult {
    * the retry path after an interrupted post-apply cleanup/seed sync.
    */
   alreadyApplied: boolean
+  /**
+   * `commits` mode with no `-m`: the number of files in the agent's uncommitted remainder, which
+   * is deliberately **not** pulled — it stays on the agent (keeping `--commits` idempotent, so a
+   * re-gather only carries newly-committed work). The caller reports the count and points at the
+   * modes that would grab it (`--patch`/`--squashed`, or `--commits -m`). Zero otherwise.
+   */
+  unpulledRemainderFiles: number
 }
 
 /**
@@ -95,9 +102,10 @@ export async function applyHandoff(opts: {
   }
 
   let leftUncommitted = mode === 'patch'
-  // The `commits`-mode uncommitted remainder is deferred until after the merge, so it can
-  // land in the target's working tree (mirroring the agent's own committed/uncommitted
-  // split) rather than being fabricated into a commit on the temp branch.
+  let unpulledRemainderFiles = 0
+  // The `commits`-mode uncommitted remainder is handled after the merge: with `-m` it is swept
+  // into one commit, otherwise it is deliberately left on the agent (not pulled), so `--commits`
+  // carries only committed work and stays idempotent across re-gathers.
   let remainderPath: string | undefined
 
   try {
@@ -149,13 +157,19 @@ export async function applyHandoff(opts: {
           const rp = join(dir, 'uncommitted.diff')
           if (await exists(rp)) remainderPath = rp
         } else {
+          // No commits to replay: the whole delta is uncommitted. With `-m`, sweep it into one
+          // commit; without, pull nothing and count it. `commits` mode never synthesizes a commit
+          // from uncommitted work — that keeps it idempotent (a re-gather lands nothing new) and
+          // never stamps a generic message. Grab it deliberately with --squashed/--patch/-m.
           const squashedPath = join(dir, 'squashed.diff')
           if (await exists(squashedPath)) {
-            await git.apply(targetRepoPath, squashedPath)
-            await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
-            await git.commit(targetRepoPath, opts.message ?? meta.suggestedMessage, {
-              skipHooks: true,
-            })
+            if (opts.message) {
+              await git.apply(targetRepoPath, squashedPath)
+              await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
+              await git.commit(targetRepoPath, opts.message, { skipHooks: true })
+            } else {
+              unpulledRemainderFiles = await countDiffFiles(squashedPath)
+            }
           }
         }
         break
@@ -172,7 +186,14 @@ export async function applyHandoff(opts: {
     ) {
       await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
       if (landingBranch) await git.checkout(targetRepoPath, previousRef)
-      return { mode, tempBranch, conflicts: [], leftUncommitted: false, alreadyApplied: true }
+      return {
+        mode,
+        tempBranch,
+        conflicts: [],
+        leftUncommitted: false,
+        alreadyApplied: true,
+        unpulledRemainderFiles,
+      }
     }
 
     // Step 3: Merge the temp branch in. No --no-ff: when the target is still at the seed
@@ -200,24 +221,25 @@ export async function applyHandoff(opts: {
       throw new QuimbyError(`Merge failed:\n${detail}`)
     }
 
-    // Step 3b: `commits`-mode remainder. The agent's committed history is now merged, so
-    // the loose remainder applies cleanly onto it. With a message it becomes one commit;
-    // without, it stays uncommitted in the working tree — the agent didn't commit it, so
-    // quimby doesn't either.
+    // Step 3b: `commits`-mode remainder. With an explicit `-m`, sweep the agent's uncommitted
+    // remainder into one trailing commit (it applies cleanly onto the just-merged history). With
+    // no `-m`, the remainder is **not pulled** — it stays on the agent, so `--commits` carries
+    // only committed work and re-gathering is idempotent (the raw-diff apply that used to
+    // re-conflict on a re-run is gone). We only count its files, for the caller to report.
     if (mode === 'commits' && remainderPath) {
-      try {
-        await git.apply(targetRepoPath, remainderPath)
-      } catch (err) {
-        throw new QuimbyError(
-          `The agent's commits merged, but its uncommitted remainder didn't apply cleanly — ` +
-            `resolve it by hand. ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
       if (opts.message) {
+        try {
+          await git.apply(targetRepoPath, remainderPath)
+        } catch (err) {
+          throw new QuimbyError(
+            `The agent's commits merged, but its uncommitted remainder didn't apply cleanly — ` +
+              `resolve it by hand. ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
         await git.addAll(targetRepoPath, { exclude: ['.quimby'] })
         await git.commit(targetRepoPath, opts.message, { skipHooks: true })
       } else {
-        leftUncommitted = true
+        unpulledRemainderFiles = await countDiffFiles(remainderPath)
       }
     }
 
@@ -229,7 +251,14 @@ export async function applyHandoff(opts: {
     // (Without `-b` the merge already happened on previousRef, so there is nothing to undo.)
     if (landingBranch) await git.checkout(targetRepoPath, previousRef)
 
-    return { mode, tempBranch, conflicts: [], leftUncommitted, alreadyApplied: false }
+    return {
+      mode,
+      tempBranch,
+      conflicts: [],
+      leftUncommitted,
+      alreadyApplied: false,
+      unpulledRemainderFiles,
+    }
   } catch (err) {
     if (err instanceof ConflictError) throw err
     // On unexpected failure, try to restore the user to where they were.
@@ -241,6 +270,13 @@ export async function applyHandoff(opts: {
       `Failed to apply handoff "${name}" in ${mode} mode: ${err instanceof Error ? err.message : err}`,
     )
   }
+}
+
+// The number of files in a unified diff — one `diff --git` header per file. Used to report how
+// many uncommitted files `--commits` left on the agent without reading them into the target.
+async function countDiffFiles(diffPath: string): Promise<number> {
+  const content = await readFile(diffPath, 'utf8')
+  return (content.match(/^diff --git /gm) ?? []).length
 }
 
 async function alreadyContainsCommittedPatches(

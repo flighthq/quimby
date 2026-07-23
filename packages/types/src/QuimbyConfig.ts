@@ -103,5 +103,5 @@ export interface QuimbyConfig {
    * `@quimbyhq/handoff`'s `ApplyMode`. Set per-repo or user-global with
    * `quimby merge <agent> --<mode> --default [--global]`, mirroring the git config model.
    */
-  mergeMode?: 'squashed' | 'commits' | 'patch'
+  mergeMode?: 'squashed' | 'commits' | 'patch' | 'auto'
 }
