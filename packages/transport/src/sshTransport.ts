@@ -12,10 +12,15 @@ export function sq(s: string): string {
   return `'${s.replace(/'/g, `'"'"'`)}'`
 }
 
-/** Quote a remote shell path while preserving leading ~/ expansion on the remote host. */
+/**
+ * Quote a remote shell path while preserving leading ~/ expansion on the remote host.
+ * Only the leading `~` must stay unquoted for the remote shell to expand it; the rest is
+ * quoted as one unit (single quotes span slashes), which keeps the emitted command legible
+ * (`~/'.quimby/workspaces/<id>/repo'`) rather than quoting every segment separately.
+ */
 export function sp(path: string): string {
   if (path === '~') return '~'
-  if (path.startsWith('~/')) return `~/${path.slice(2).split('/').map(sq).join('/')}`
+  if (path.startsWith('~/')) return `~/${sq(path.slice(2))}`
   return sq(path)
 }
 
@@ -52,8 +57,19 @@ const SSH_CONNECTIVITY_FAILURE =
   /connect timed out|connection timed out|connection refused|could not resolve hostname|no route to host|network is unreachable|permission denied|connection closed/i
 
 function sshFailureMessage(tool: 'ssh' | 'scp' | 'rsync', host: string, err: unknown): string {
-  const e = err as { code?: string; stderr?: string; shortMessage?: string; message?: string }
-  const detail = e.stderr || e.shortMessage || e.message || String(err)
+  const e = err as {
+    code?: string
+    all?: string
+    stderr?: string
+    stdout?: string
+    shortMessage?: string
+    message?: string
+  }
+  // Prefer the remote command's captured output — `all` (interleaved stdout+stderr, present
+  // when exec sets `all: true`), then either stream — so git's actual complaint surfaces even
+  // when it wrote to stdout. Fall back to execa's generic short/long message otherwise.
+  const captured = (e.all ?? e.stderr ?? e.stdout ?? '').trim()
+  const detail = captured || e.shortMessage || e.message || String(err)
   if (e.code === 'ENOENT') {
     const noun = tool === 'ssh' ? 'SSH client' : tool === 'scp' ? 'scp client' : 'rsync'
     return `${noun} not found locally. Install ${tool === 'rsync' ? 'rsync' : 'OpenSSH'} before using SSH agents.`
@@ -158,6 +174,9 @@ export class SSHTransport implements Transport {
       execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
         maxBuffer: 256 * 1024 * 1024,
         stripFinalNewline: false,
+        // Interleave stdout+stderr so a failing remote command's real error (which git often
+        // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
+        all: true,
       }),
     )
     return stdout

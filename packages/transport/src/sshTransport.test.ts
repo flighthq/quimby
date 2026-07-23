@@ -40,8 +40,8 @@ describe('sp', () => {
     expect(sp('/remote dir/f.txt')).toBe("'/remote dir/f.txt'")
   })
 
-  it('preserves leading tilde expansion while quoting path segments', () => {
-    expect(sp('~/work spaces/proj')).toBe("~/'work spaces'/'proj'")
+  it('preserves leading tilde expansion while quoting the rest as one legible unit', () => {
+    expect(sp('~/work spaces/proj')).toBe("~/'work spaces/proj'")
   })
 })
 
@@ -117,7 +117,25 @@ describe('SSHTransport', () => {
     const [, args, opts] = callsTo('ssh')[0] as [string, string[], object]
     expect(args[args.length - 1]).toBe("cd '/work' && ls -la")
     expect(opts).toEqual(
-      expect.objectContaining({ maxBuffer: 256 * 1024 * 1024, stripFinalNewline: false }),
+      expect.objectContaining({
+        maxBuffer: 256 * 1024 * 1024,
+        stripFinalNewline: false,
+        all: true,
+      }),
+    )
+  })
+
+  it('exec surfaces the failed remote command output instead of the generic exec message', async () => {
+    // git often writes its real complaint to stdout, captured by execa as `all` when all:true.
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed with exit code 1'), {
+        shortMessage: 'Command failed with exit code 1: ssh ... git stash',
+        all: 'No local changes to save',
+        exitCode: 1,
+      }),
+    )
+    await expect(new SSHTransport(LOC).exec('git stash', { cwd: '/work' })).rejects.toThrow(
+      'SSH command failed for user@box: No local changes to save',
     )
   })
 
