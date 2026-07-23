@@ -184,9 +184,25 @@ describe('assembleHostHandoff', () => {
     })
     expect(meta.from).toBe('host')
     expect(meta.to).toBe('review')
+    expect(meta.userDirected).toBe(true)
     const parcel = getStagingHandoffDir(dir, meta.name)
     expect(await exists(join(parcel, 'squashed.diff'))).toBe(true)
     expect(await exists(join(parcel, 'README.md'))).toBe(true)
+  })
+
+  it('can stage a note-only delegated task without carrying unrelated host changes', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    await writeFile(join(dir, 'README.md'), '# unrelated host change')
+    const meta = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      note: 'review the API',
+      noteOnly: true,
+    })
+    const parcel = getStagingHandoffDir(dir, meta.name)
+    expect(meta.userDirected).toBe(true)
+    expect(await exists(join(parcel, 'squashed.diff'))).toBe(false)
   })
 
   it('throws when the host has no changes and no note', async () => {

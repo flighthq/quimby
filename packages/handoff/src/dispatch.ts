@@ -23,6 +23,7 @@ export interface DispatchOutboxResult {
   hasNote?: boolean
   /** Extra files the sender attached (via `agent.sh handoff --file`) that were carried along. */
   files?: string[]
+  userDirected?: boolean
   error?: string
 }
 
@@ -132,6 +133,7 @@ export async function dispatchOutbox(opts: {
             projectId: state.id,
             to: recipient,
             note: draft.note || undefined,
+            userDirected: draft.delegated,
             resolveAttestation: opts.resolveAttestation,
           })
         : await assembleHandoff({
@@ -141,6 +143,7 @@ export async function dispatchOutbox(opts: {
             codeSourceId: codeSource.id,
             to: recipient,
             note: draft.note || undefined,
+            userDirected: draft.delegated,
             resolveAttestation: opts.resolveAttestation,
           })
 
@@ -171,6 +174,7 @@ export async function dispatchOutbox(opts: {
         parcelName: meta.name,
         hasNote: Boolean(draft.note),
         files: files.length > 0 ? files : undefined,
+        userDirected: meta.userDirected,
       })
     } catch (err) {
       results.push({

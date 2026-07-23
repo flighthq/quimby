@@ -13,6 +13,8 @@ export interface HandoffMeta {
   seedCommit?: string
   /** The parcel's note (README.md), when it carries one. */
   note?: string
+  /** Host-stamped signal that the note carries user-directed work rather than peer advice. */
+  userDirected?: boolean
   description: string
   suggestedMessage: string
   createdAt: string

@@ -10,6 +10,7 @@ export interface StageParcelOptions {
   from: string
   to?: string
   note?: string
+  userDirected?: boolean
   attach?: string
   message?: string
   name?: string
@@ -57,6 +58,7 @@ export async function stageParcel(opts: Readonly<StageParcelOptions>): Promise<H
       projectId: state.id,
       to: opts.to,
       note: opts.note,
+      userDirected: opts.userDirected,
       suggestedMessage: opts.message,
       name: opts.name,
       resolveAttestation: opts.resolveAttestation,
@@ -70,6 +72,7 @@ export async function stageParcel(opts: Readonly<StageParcelOptions>): Promise<H
     codeSourceId: codeSource.id,
     to: opts.to,
     note: opts.note,
+    userDirected: opts.userDirected,
     suggestedMessage: opts.message,
     name: opts.name,
     resolveAttestation: opts.resolveAttestation,

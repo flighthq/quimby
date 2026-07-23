@@ -76,7 +76,14 @@ describe('runDispatchCommand', () => {
       senders: [
         {
           sender: 'review',
-          results: [{ status: 'delivered', recipient: 'builder', parcelName: 'review-abc' }],
+          results: [
+            {
+              status: 'delivered',
+              recipient: 'builder',
+              parcelName: 'review-abc',
+              userDirected: true,
+            },
+          ],
         },
       ],
       totalQueued: 1,
@@ -88,7 +95,7 @@ describe('runDispatchCommand', () => {
     // Courier notice names the exact parcel and sender; the session layer prepends `quimby ·`.
     expect(nudgeAgentSession.mock.calls[0][0]).toMatchObject({
       displayName: 'builder',
-      courier: 'parcel review-abc from review',
+      courier: 'delegated task review-abc from review',
     })
   })
 

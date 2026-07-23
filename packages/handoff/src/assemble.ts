@@ -64,6 +64,7 @@ export async function assembleHostHandoff(opts: {
   base: string
   note?: string
   name?: string
+  noteOnly?: boolean
 }): Promise<HandoffMeta> {
   const { repoRoot, to } = opts
 
@@ -76,16 +77,23 @@ export async function assembleHostHandoff(opts: {
     base = 'HEAD'
   }
 
-  const squashedDiff = await git.diffWorkingTree(repoRoot, base, {
-    binary: true,
-    exclude: CAPTURE_EXCLUDE,
-  })
+  const squashedDiff = opts.noteOnly
+    ? ''
+    : await git.diffWorkingTree(repoRoot, base, {
+        binary: true,
+        exclude: CAPTURE_EXCLUDE,
+      })
   const hasCode = squashedDiff.trim().length > 0
   if (!hasCode && !opts.note) {
     throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
   }
 
-  const name = opts.name ?? parcelName(HOST_SENDER, contentDigest([squashedDiff, opts.note ?? '']))
+  const name =
+    opts.name ??
+    parcelName(
+      HOST_SENDER,
+      contentDigest([squashedDiff, opts.note ?? '', opts.note ? 'user-directed' : 'ordinary']),
+    )
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
   await ensureDir(dir)
@@ -99,6 +107,7 @@ export async function assembleHostHandoff(opts: {
     from: HOST_SENDER,
     to,
     note: opts.note,
+    userDirected: Boolean(opts.note) || undefined,
     description: firstLine,
     suggestedMessage: firstLine,
     createdAt: new Date().toISOString(),
@@ -129,14 +138,14 @@ export async function getWorkingParcelName(opts: {
       const transport = getSSHTransport(opts.location)
       const rRepoDir = remoteAgentRepoDir(opts.projectId, opts.codeSourceId, opts.location.base)
       const diff = await remoteWorkingTreeDiff(transport, rRepoDir, 'quimby/seed')
-      return parcelName(opts.from, contentDigest([diff, '']))
+      return parcelName(opts.from, contentDigest([diff, '', 'ordinary']))
     }
     const repoDir = getAgentRepoDir(opts.repoRoot, opts.codeSourceId)
     const diff = await git.diffWorkingTree(repoDir, 'quimby/seed', {
       binary: true,
       exclude: CAPTURE_EXCLUDE,
     })
-    return parcelName(opts.from, contentDigest([diff, '']))
+    return parcelName(opts.from, contentDigest([diff, '', 'ordinary']))
   } catch {
     return null
   }

@@ -11,7 +11,7 @@ import {
   getAgentRepoDir,
 } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
-import { exists } from '@quimbyhq/utils'
+import { exists, readYaml } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -149,6 +149,24 @@ describe('dispatchOutbox', () => {
     const received = getAgentHandoffInReceivedParcelDir(dir, 'builder', results[0].parcelName!)
     expect(await exists(join(received, 'brief.md'))).toBe(true)
     expect(await exists(join(received, 'README.md'))).toBe(true)
+  })
+
+  it('promotes an agent delegation claim into host-stamped parcel metadata', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await stageDraft(dir, 'review', 'builder', '---\ndelegated: true\n---\nreview the new API')
+
+    const [result] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+
+    expect(result.userDirected).toBe(true)
+    const meta = await readYaml<{ userDirected?: boolean }>(
+      join(getAgentHandoffInReceivedParcelDir(dir, 'builder', result.parcelName!), 'meta.yaml'),
+    )
+    expect(meta.userDirected).toBe(true)
   })
 
   it('fails when attach references a nonexistent code source', async () => {

@@ -378,6 +378,7 @@ It is written and regenerated exactly like the agent's `CLAUDE.md`/`AGENTS.md` (
 agent.sh assignment [set -m msg|--file path|-]
 agent.sh status [set|append|done -m msg|--file path|-]
 agent.sh handoff <recipient> [-m msg] [--attach agent] [--file path] [--draft]
+agent.sh delegate <recipient> -m msg [--attach agent] [--file path] [--draft]
 agent.sh publish <recipient>          # publish a parcel drafted with --draft
 agent.sh inbox [list | show <p> | done <p>]  # list / read / mark-processed delivered parcels
 agent.sh attest --command CMD --result pass|fail [--summary S]   # append a quimby-attest block, atCommit auto-filled from HEAD

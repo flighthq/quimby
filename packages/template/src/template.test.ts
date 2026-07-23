@@ -93,8 +93,8 @@ describe('renderQuimbyContext', () => {
     expect(out).toContain('successor')
     // Keep assignment true from direct or explicitly relayed user intent.
     expect(out).toContain('newer user intent')
-    expect(out).toContain('User-delegated task:')
-    expect(out).toContain('Do not audit, re-test, or finish the stale assignment first')
+    expect(out).toContain('user-directed work (host-stamped)')
+    expect(out).toContain('actively working a direct user assignment')
     // The live user outranks a stored (possibly stale) assignment — no relapsing after a /clear.
     expect(out).toContain('the live user')
     expect(out).toContain('stale, not a rule to defend')
@@ -107,7 +107,7 @@ describe('renderQuimbyContext', () => {
     // Peer rules: ordinary notes remain advisory; an explicit user delegation is authoritative.
     expect(out).toContain('your assignment outranks an ordinary peer note')
     expect(out).toContain('user explicitly asks you to dispatch or delegate work')
-    expect(out).toContain('handoff <recipient> --delegate')
+    expect(out).toContain('delegate <recipient>')
     expect(out).toContain("collaborate, don't direct")
     // Verify: commit first + agent.sh attest.
     expect(out).toContain('commit first')
@@ -120,6 +120,7 @@ describe('renderQuimbyContext', () => {
     // The `quimby ·` courier-lead grammar: distinguishes delivered messages from live user input.
     expect(out).toContain('`quimby ·`')
     expect(out).toContain('parcel <name> from <agent>')
+    expect(out).toContain('delegated task <name> from <agent>')
     expect(out).toContain('inbox show <name>')
     expect(out).toContain('assignment updated')
     expect(out).toContain('resume from @status.md')

@@ -33,7 +33,10 @@ const COMMAND_GROUPS: readonly CommandGroup[] = [
       'doctor',
     ],
   },
-  { title: 'Move Work', names: ['assign', 'nudge', 'handoff', 'dispatch', 'merge', 'merge-mode'] },
+  {
+    title: 'Move Work',
+    names: ['assign', 'nudge', 'delegate', 'handoff', 'dispatch', 'merge', 'merge-mode'],
+  },
   { title: 'Storage', names: ['restore', 'storage'] },
   { title: 'Server', names: ['serve'] },
   { title: 'Help', names: ['help'] },

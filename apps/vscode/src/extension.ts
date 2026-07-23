@@ -413,7 +413,7 @@ async function handoffAgentWork(agentName: string): Promise<void> {
           agent: state.agents[result.to],
           displayName: result.to,
           reporter: vscodeReporter(),
-          text: result.nudgeText,
+          courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${result.from}`,
         })
       }
     },

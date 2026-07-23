@@ -96,6 +96,26 @@ describe('assembleParcel', () => {
     expect(await readText(join(staged, 'README.md'))).toBe('please fix Y')
   })
 
+  it('writes a host-promoted user-directed signal into parcel metadata', async () => {
+    const meta = await assembleParcel(
+      { repoRoot: dir, from: 'supervisor', note: 'review Y', userDirected: true },
+      fakeOps(),
+    )
+    expect(meta.userDirected).toBe(true)
+  })
+
+  it('gives ordinary and user-directed copies of the same note distinct parcel identities', async () => {
+    const ordinary = await assembleParcel(
+      { repoRoot: dir, from: 'supervisor', note: 'review Y' },
+      fakeOps(),
+    )
+    const directed = await assembleParcel(
+      { repoRoot: dir, from: 'supervisor', note: 'review Y', userDirected: true },
+      fakeOps(),
+    )
+    expect(directed.name).not.toBe(ordinary.name)
+  })
+
   it('writes patches and the uncommitted remainder when the agent has commits', async () => {
     const meta = await assembleParcel(
       { repoRoot: dir, from: 'builder' },

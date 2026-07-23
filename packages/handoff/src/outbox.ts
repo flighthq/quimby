@@ -104,7 +104,7 @@ export async function readOutboxDraft(
   repoRoot: string,
   fromId: string,
   recipient: string,
-): Promise<{ note: string; attach?: string }> {
+): Promise<{ note: string; attach?: string; delegated?: boolean }> {
   const readmePath = join(
     getAgentHandoffOutQueuedRecipientDir(repoRoot, fromId, recipient),
     'README.md',
@@ -133,12 +133,13 @@ const RESERVED_PARCEL_FILES = new Set([
   'meta.yaml',
 ])
 
-function parseDraft(content: string): { note: string; attach?: string } {
+function parseDraft(content: string): { note: string; attach?: string; delegated?: boolean } {
   if (!content.startsWith('---')) return { note: content }
   const end = content.indexOf('\n---', 3)
   if (end === -1) return { note: content }
   const frontmatter = content.slice(3, end)
   const note = content.slice(end + 4).replace(/^\r?\n/, '')
-  const match = frontmatter.match(/^\s*attach:\s*(\S+)\s*$/m)
-  return match ? { note, attach: match[1] } : { note }
+  const attach = frontmatter.match(/^\s*attach:\s*(\S+)\s*$/m)?.[1]
+  const delegated = /^\s*delegated:\s*true\s*$/im.test(frontmatter) || undefined
+  return { note, attach, delegated }
 }

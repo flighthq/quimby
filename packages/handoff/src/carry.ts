@@ -15,6 +15,8 @@ export interface HandoffWorkOptions {
   from: string
   to?: string
   message?: string
+  userDirected?: boolean
+  noteOnly?: boolean
   attach?: string
   /** Force the nudge on/off; when omitted the note's presence decides (data-only → no nudge). */
   nudge?: boolean
@@ -31,6 +33,7 @@ export interface HandoffWorkResult {
   parcelName: string
   /** Text to type into the recipient's session, or `null` when no nudge should fire. */
   nudgeText: string | null
+  userDirected?: boolean
 }
 
 /**
@@ -59,18 +62,22 @@ export async function handoffWork(
   }
 
   const shouldNudge = opts.nudge ?? Boolean(opts.message)
+  const requestedUserDirected = opts.userDirected ?? Boolean(opts.message)
 
   let parcelName: string
   let sender: string
+  let userDirected: boolean | undefined
   if (fromHost) {
     const meta = await assembleHostHandoff({
       repoRoot,
       to: recipient,
       base: recip.seedCommit,
       note: opts.message,
+      noteOnly: opts.noteOnly,
     })
     parcelName = meta.name
     sender = HOST_SENDER
+    userDirected = meta.userDirected
   } else {
     if (!Object.hasOwn(state.agents, opts.from)) {
       throw new QuimbyError(`Agent "${opts.from}" not found`)
@@ -81,12 +88,14 @@ export async function handoffWork(
       from: opts.from,
       to: recipient,
       note: opts.message,
+      userDirected: requestedUserDirected,
       attach: opts.attach,
       beforeStage: opts.beforeStage,
       resolveAttestation: opts.resolveAttestation,
     })
     parcelName = meta.name
     sender = opts.from
+    userDirected = meta.userDirected
   }
 
   await deliverHandoff({
@@ -111,6 +120,7 @@ export async function handoffWork(
     to: recipient,
     parcelName,
     nudgeText: shouldNudge ? inboxNoticeText(parcelName, opts.message) : null,
+    userDirected,
   }
 }
 

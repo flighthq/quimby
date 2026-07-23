@@ -87,6 +87,7 @@ export async function runHandoffCommand({
       from: args.from,
       to: args.to,
       message: args.message,
+      userDirected: Boolean(args.message),
       attach: args.attach,
       nudge: args.nudge,
       beforeStage: args.rebase
@@ -102,7 +103,7 @@ export async function runHandoffCommand({
       agent: state.agents[result.to],
       clear: args.clear,
       displayName: result.to,
-      courier: `parcel ${result.parcelName} from ${result.from}`,
+      courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${result.from}`,
       reporter: consolaReporter,
     })
   }

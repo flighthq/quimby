@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./assemble', () => ({
   HOST_SENDER: 'host',
-  assembleHostHandoff: vi.fn(async () => ({ name: 'host-xyz789' })),
+  assembleHostHandoff: vi.fn(async () => ({ name: 'host-xyz789', userDirected: true })),
 }))
 vi.mock('./stage', () => ({
   stageParcel: vi.fn(async () => ({ name: 'builder-abc123' })),
@@ -56,6 +56,7 @@ describe('handoffWork', () => {
     expect(result.from).toBe('host')
     expect(result.to).toBe('builder')
     expect(result.parcelName).toBe('host-xyz789')
+    expect(result.userDirected).toBe(true)
     expect(mockedDeliver).toHaveBeenCalledOnce()
     expect(mockedDiscard).toHaveBeenCalledOnce()
   })

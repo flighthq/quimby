@@ -32,6 +32,7 @@ export interface AssembleParcelOptions {
   codeSource?: string
   to?: string
   note?: string
+  userDirected?: boolean
   description?: string
   suggestedMessage?: string
   name?: string
@@ -65,7 +66,16 @@ export async function assembleParcel(
     throw new HandoffError(`Nothing to hand off from "${from}" — no changes since seed and no note`)
   }
 
-  const name = opts.name ?? parcelName(from, contentDigest([squashedDiff, opts.note ?? '']))
+  const name =
+    opts.name ??
+    parcelName(
+      from,
+      contentDigest([
+        squashedDiff,
+        opts.note ?? '',
+        opts.userDirected ? 'user-directed' : 'ordinary',
+      ]),
+    )
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
   await ensureDir(dir)
@@ -94,7 +104,7 @@ export async function assembleParcel(
 
 /**
  * A parcel's name is its origin and contents: `<from>-<short-hash>`, where the hash is
- * over the payload (diff + note) — content-derived, so it needs no counter, dedupes
+ * over the payload (diff + note + authority class) — content-derived, so it needs no counter, dedupes
  * identical sends, and reads back as "from whom".
  */
 export function parcelName(from: string, hash: string): string {
@@ -120,6 +130,7 @@ function buildMeta(opts: {
   codeSource: string
   to?: string
   note?: string
+  userDirected?: boolean
   name: string
   seedCommit?: string
   subjects: readonly string[]
@@ -149,6 +160,7 @@ function buildMeta(opts: {
     codeSource: codeSource !== from ? codeSource : undefined,
     seedCommit: opts.seedCommit,
     note,
+    userDirected: opts.userDirected || undefined,
     description,
     suggestedMessage,
     createdAt: new Date().toISOString(),

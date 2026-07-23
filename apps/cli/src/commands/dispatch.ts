@@ -73,7 +73,7 @@ export async function runDispatchCommand({
             await nudgeAgentSession({
               agent: recip,
               displayName: result.recipient,
-              courier: `parcel ${result.parcelName} from ${sender}`,
+              courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${sender}`,
               reporter: consolaReporter,
             })
           }

@@ -29,6 +29,7 @@ const main = defineCommand({
     diff: () => import('./commands/diff').then((m) => m.default),
     log: () => import('./commands/log').then((m) => m.default),
     handoff: () => import('./commands/handoff').then((m) => m.default),
+    delegate: () => import('./commands/delegate').then((m) => m.default),
     dispatch: () => import('./commands/dispatch').then((m) => m.default),
     merge: () => import('./commands/merge').then((m) => m.default),
     'merge-mode': () => import('./commands/merge-mode').then((m) => m.default),

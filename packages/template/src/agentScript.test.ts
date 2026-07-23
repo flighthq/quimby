@@ -144,19 +144,19 @@ describe('renderAgentScript', () => {
     ).toThrow()
   })
 
-  it.runIf(posix)('handoff --delegate marks an explicit user-delegated task', () => {
+  it.runIf(posix)('delegate marks an explicit user-delegated task for host promotion', () => {
     const root = makeAgentWorkspace()
-    runSh(root, ['handoff', 'worker', '--delegate', '-m', 'review the new API'])
+    runSh(root, ['delegate', 'worker', '-m', 'review the new API'])
     const readme = readFileSync(
       join(root, 'handoff', 'out', 'queued', 'worker', 'README.md'),
       'utf-8',
     )
-    expect(readme).toBe('User-delegated task: review the new API\n')
+    expect(readme).toBe('---\ndelegated: true\n---\nreview the new API\n')
   })
 
-  it.runIf(posix)('handoff --delegate requires a task message', () => {
+  it.runIf(posix)('delegate requires a task message', () => {
     const root = makeAgentWorkspace()
-    expect(() => runSh(root, ['handoff', 'worker', '--delegate'])).toThrow()
+    expect(() => runSh(root, ['delegate', 'worker'])).toThrow()
   })
 
   it.runIf(posix)(
@@ -217,7 +217,11 @@ describe('renderAgentScript', () => {
     const parcel = join(root, 'handoff', 'in', 'received', 'builder-abc123')
     mkdirSync(parcel, { recursive: true })
     writeFileSync(join(parcel, 'README.md'), 'fix the null case')
-    expect(runSh(root, ['inbox'])).toContain('builder-abc123')
+    writeFileSync(join(parcel, 'meta.yaml'), 'userDirected: true\n')
+    expect(runSh(root, ['inbox'])).toContain('builder-abc123 [user-directed]')
+    expect(runSh(root, ['inbox', 'show', 'builder-abc123'])).toContain(
+      'user-directed work (host-stamped)',
+    )
     runSh(root, ['inbox', 'done', 'builder-abc123'])
     expect(() => readFileSync(join(parcel, 'README.md'))).toThrow()
     expect(
@@ -246,8 +250,8 @@ describe('renderAgentScriptCmd', () => {
     expect(cmd).toContain(':attest')
     expect(cmd).toContain(':inbox')
     expect(cmd).toContain(':peers')
-    expect(cmd).toContain('--delegate')
-    expect(cmd).toContain('User-delegated task:')
+    expect(cmd).toContain('"delegate"')
+    expect(cmd).toContain('delegated: true')
     expect(cmd).toContain('--file')
     expect(cmd).toContain('```quimby-attest')
   })

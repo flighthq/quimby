@@ -83,6 +83,7 @@ quimby set <agent> [-r <rt>] [-c <cmd>] [-H <host>] [-s <ref>]  Update agent con
 quimby list                                               Show agents and subscriptions
 quimby status [agent]                                     Show agent-written status
 quimby assign <agent> -m "..." [--no-nudge]               Set the agent's current task
+quimby delegate <agent> -m "..." [-c]                     Send a conditional user-directed task
 quimby diff <agent> [agent2]                              Show live diff against seed
 quimby nudge <agent> [-m <msg>] | --all [-m <msg>]        Wake a running agent via tmux
 quimby sync <agent...> [--all] [-f] [--base <ref>]        Sync agent(s) to their base
@@ -98,6 +99,7 @@ quimby storage <path|list|prune|remove>                    Inspect and clean dur
 ```
 quimby handoff <from> <to> [-m <note>] [--attach <w>]    Carry work between agents
 quimby handoff <to> [-m <note>]                           Carry host's work to an agent
+quimby delegate <to> -m <task> [-c]                       Send host-stamped user-directed work
 quimby dispatch <agent> [--no-nudge]                      Deliver agent's outbox parcels
 quimby merge <agent> [--commits|--patch] [--3way] [-b]    Merge agent work to your repo
 ```
@@ -237,6 +239,8 @@ quimby handoff builder reviewer -m "Review this"     # builder → reviewer
 quimby handoff reviewer builder -m "Fix the null case"  # reviewer → builder
 quimby handoff reviewer -m "Look at my local tweak"   # host → reviewer
 ```
+
+**Delegation** — when a supervisor should relay the user's task rather than ordinary peer advice, it uses `agent.sh delegate`; the host stamps the delivered parcel as user-directed. From the host, use `quimby delegate <agent> -m "..."`.
 
 **Agent-authored routing** — agents stage parcels in their outbox addressed by recipient. `quimby dispatch` carries them all:
 

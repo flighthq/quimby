@@ -254,6 +254,19 @@ describe('readOutboxDraft', () => {
     expect(parsed.note).toBe('clean up the null case')
   })
 
+  it('reads an agent-side delegation claim separately from note text', async () => {
+    await setupAgentRepo(dir, 'review')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(draft, { recursive: true })
+    await writeFile(join(draft, 'README.md'), '---\ndelegated: true\n---\nreview the API')
+    const parsed = await readOutboxDraft(dir, 'review', 'builder')
+    expect(parsed).toEqual({
+      note: 'review the API',
+      attach: undefined,
+      delegated: true,
+    })
+  })
+
   it('returns the raw note when there is no frontmatter', async () => {
     await setupAgentRepo(dir, 'review')
     const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
