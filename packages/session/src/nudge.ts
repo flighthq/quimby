@@ -89,7 +89,7 @@ export async function nudgeAgentSession(opts: {
   agent: Readonly<AgentState>
   clear?: boolean
   displayName: string
-  /** Raw text typed verbatim — a bare poke ("continue") or the user's own `nudge -m` words. */
+  /** Raw text typed verbatim — a bare poke ("continue") or an explicit `nudge --raw -m`. */
   text?: string
   /**
    * A courier label. When set, the message typed is `quimby · <courier>` rather than `text`, and

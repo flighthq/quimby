@@ -85,7 +85,8 @@ quimby status [agent]                                     Show agent-written sta
 quimby assign <agent> -m "..." [--no-nudge]               Set the agent's current task
 quimby delegate <agent> -m "..." [-c]                     Send a conditional user-directed task
 quimby diff <agent> [agent2]                              Show live diff against seed
-quimby nudge <agent> [-m <msg>] | --all [-m <msg>]        Wake a running agent via tmux
+quimby nudge <agent> [-m <task>]                          Wake an agent; -m durably assigns first
+quimby nudge <agent> --raw -m <text> | --all --raw -m <text>  Type ephemeral session text
 quimby sync <agent...> [--all] [-f] [--base <ref>]        Sync agent(s) to their base
 quimby rebuild <agent> --force                            Recreate agent from scratch
 quimby rename <agent> <new-name>                          Rename agent
@@ -241,6 +242,8 @@ quimby handoff reviewer -m "Look at my local tweak"   # host → reviewer
 ```
 
 **Delegation** — when a supervisor should relay the user's task rather than ordinary peer advice, it uses `agent.sh delegate`; the host stamps the delivered parcel as user-directed. From the host, use `quimby delegate <agent> -m "..."`.
+
+**Nudging** — a bare `quimby nudge <agent>` wakes the agent with `continue`. Adding `-m` is an ergonomic alias for `quimby assign`: Quimby persists the new assignment, performs the normal sync, then wakes the agent. Use `quimby nudge <agent> --raw -m "..."` only for intentional ephemeral session input such as a CLI control command. Durable `-m` assignments cannot be broadcast with `--all`; explicit raw session input can.
 
 **Agent-authored routing** — agents stage parcels in their outbox addressed by recipient. `quimby dispatch` carries them all:
 

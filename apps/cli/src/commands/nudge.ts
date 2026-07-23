@@ -1,3 +1,4 @@
+import { assignAgentTask } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
 import { dashboardSessionName } from '@quimbyhq/paths'
 import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
@@ -17,7 +18,7 @@ const DEFAULT_NUDGE = 'continue'
 export default defineCommand({
   meta: {
     name: 'nudge',
-    description: 'Wake a running agent by typing a message into its tmux session',
+    description: 'Wake an agent, or set its durable assignment with -m',
   },
   args: {
     agent: {
@@ -29,7 +30,12 @@ export default defineCommand({
       type: 'string',
       alias: 'm',
       description:
-        'Text to type into the agent (defaults to "continue"); also carries CLI control commands like "/clear" or "/model …"',
+        'Durable assignment text (or @file); use --raw to type ephemeral session text instead',
+    },
+    raw: {
+      type: 'boolean',
+      description: 'Type -m verbatim into the live session instead of changing the assignment',
+      default: false,
     },
     clear: {
       type: 'boolean',
@@ -55,13 +61,65 @@ export default defineCommand({
 export async function runNudgeCommand({
   args,
 }: {
-  args: { agent?: string; message?: string; clear: boolean; all: boolean; verify: boolean }
+  args: {
+    agent?: string
+    message?: string
+    raw: boolean
+    clear: boolean
+    all: boolean
+    verify?: boolean
+  }
 }) {
-  const { state } = await resolveWorkspace()
+  const { state, repoRoot } = await resolveWorkspace()
 
-  // `--verify` types the canned self-verify request (named to the agent's own `check`); otherwise
-  // the message is sent verbatim — an `@path` there is Claude's file-reference syntax to pass
-  // through, not a file to read (unlike `assign`, whose @file reads task content).
+  if (args.raw && args.message === undefined) {
+    throw new QuimbyError('The --raw option requires a message with -m.')
+  }
+  if (args.raw && args.verify) {
+    throw new QuimbyError('Use either --raw -m or --verify, not both.')
+  }
+  if (args.all && args.message !== undefined && !args.raw) {
+    throw new QuimbyError(
+      'Refusing to replace every agent assignment through nudge --all -m; assign agents individually, or add --raw for an intentional session broadcast.',
+    )
+  }
+
+  // A task-bearing nudge is an ergonomic alias for assign: persist the user's intent
+  // before waking the agent so a clear/relaunch cannot revive a stale assignment.
+  if (args.message !== undefined && !args.raw) {
+    if (!args.agent) {
+      throw new QuimbyError('Provide an agent name for a durable assignment.')
+    }
+    const agent = state.agents[args.agent]
+    if (!agent) {
+      throw new QuimbyError(`Agent "${args.agent}" not found`)
+    }
+    const result = await assignAgentTask(
+      {
+        state,
+        repoRoot,
+        name: args.agent,
+        message: args.message,
+        sync: true,
+        nudge: true,
+        verify: args.verify ?? agent.verifyByDefault ?? false,
+      },
+      consolaReporter,
+    )
+    if (result.nudgeText !== null) {
+      await nudgeAgentSession({
+        agent,
+        clear: args.clear,
+        displayName: args.agent,
+        courier: 'assignment updated',
+        reporter: consolaReporter,
+      })
+    }
+    return
+  }
+
+  // `--verify` types the canned self-verify request (named to the agent's own `check`);
+  // an explicit `--raw -m` is the only arbitrary text passed through verbatim.
   const textFor = (agent: Readonly<AgentState>): string =>
     args.verify ? renderVerifyRequest(agent.check) : (args.message ?? DEFAULT_NUDGE)
   const dashSession = dashboardSessionName(state.id)
