@@ -3,14 +3,16 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 
 import { getQuimbyDir } from '@quimbyhq/paths'
+import { getPoolIdleTimeoutMs } from '@quimbyhq/pool'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { reconcileAgentStatusMirror } from '@quimbyhq/status'
-import { writeText } from '@quimbyhq/utils'
-import { loadState } from '@quimbyhq/workspace'
+import { formatDuration, writeText } from '@quimbyhq/utils'
+import { loadQuimbyConfig, loadState } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
+import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
 import { routeRequest } from './router'
@@ -43,6 +45,11 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   const outboxTracker = createOutboxDispatchTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
+  // Read once at startup: auto-reaping is a standing policy, so a config edit takes effect on the
+  // next `quimby serve` rather than mid-run. Unset (the default) means the server never reaps.
+  const idleTimeoutMs = getPoolIdleTimeoutMs(
+    await loadQuimbyConfig(repoRoot).catch(() => undefined),
+  )
   // The actual bound port, set once the server is listening (see bindServer below).
   let boundPort = 0
 
@@ -92,6 +99,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
         }
       }
       if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter)
+      if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
       reporter.error(`Poll error: ${err}`)
     }
@@ -114,6 +122,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
   reporter.info('Mirroring status to every agent')
   if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
+  if (idleTimeoutMs) {
+    reporter.info(`Reaping agent sessions idle over ${formatDuration(idleTimeoutMs)}`)
+  }
 
   await writeServerInfo(repoRoot, boundPort)
 

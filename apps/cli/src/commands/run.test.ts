@@ -54,7 +54,8 @@ const config = vi.hoisted(() => ({
       weighted: 'a:80 / b:20',
     },
     presets: {
-      inferred: { layout: 'inferred', agents: { a: 'builder' } },
+      inferred: { layout: 'inferred', agents: { a: 'builder', c: 'c' } },
+      stalelayout: { layout: 'inferred', agents: { a: 'builder' } },
       loop: { layout: 'review', agents: { a: 'builder', b: 'builder' } },
       solo: { layout: { expr: 'a' }, agents: { a: 'builder' } },
       tabbed: { layout: 'tabs', agents: { a: 'builder', b: 'builder' } },
@@ -410,7 +411,7 @@ describe('runRunCommand', () => {
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
   })
 
-  it('creates missing layout-only preset agents before running the default layout', async () => {
+  it('creates every declared preset agent before running the default layout', async () => {
     const { default: cmd } = await import('./run')
     state.value.agents = {}
     config.value.default = 'inferred'
@@ -427,6 +428,18 @@ describe('runRunCommand', () => {
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(h.calls.some((c) => c.includes('split-window'))).toBe(true)
+  })
+
+  it('refuses the default layout when it names an agent the preset does not declare', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents = {}
+    config.value.default = 'stalelayout'
+    addAgent.mockClear()
+
+    await expect(cmd.run!({ args: {} } as never)).rejects.toThrow('layout places agent "c"')
+    expect(addAgent).not.toHaveBeenCalled()
+
+    config.value.default = 'loop'
   })
 
   it('creates missing named preset agents before running its layout', async () => {

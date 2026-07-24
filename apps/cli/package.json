@@ -35,6 +35,7 @@
     "@quimbyhq/layout": "*",
     "@quimbyhq/launch": "*",
     "@quimbyhq/paths": "*",
+    "@quimbyhq/pool": "*",
     "@quimbyhq/reporter": "*",
     "@quimbyhq/runtime-profile": "*",
     "@quimbyhq/runtimes": "*",

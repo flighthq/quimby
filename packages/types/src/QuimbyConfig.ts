@@ -104,4 +104,21 @@ export interface QuimbyConfig {
    * `quimby merge <agent> --<mode> --default [--global]`, mirroring the git config model.
    */
   mergeMode?: 'squashed' | 'commits' | 'patch' | 'auto'
+  /** Machine-wide agent-pool limits. Agents compete for one machine, so both keys count
+   * sessions across *every* quimby project on the tmux socket, not just this workspace. */
+  pool?: PoolConfig
+}
+
+export interface PoolConfig {
+  /**
+   * Live agent sessions this machine should hold. Advisory: launching past it warns and names
+   * the idlest sessions, but never refuses — the ceiling is a budget, not a lock.
+   */
+  maxLive?: number
+  /**
+   * How long an unattached agent session may sit idle before a running `quimby serve` reaps it
+   * (`30s`/`45m`/`2h`/`1d`, or a bare number of minutes). Unset means never — auto-reaping is
+   * opt-in, since it ends a live session's context (the work on disk is untouched).
+   */
+  idleTimeout?: string | number
 }

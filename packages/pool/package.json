@@ -1,5 +1,5 @@
 {
-  "name": "@quimbyhq/server",
+  "name": "@quimbyhq/pool",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,14 +19,8 @@
     "clean": "tsc -b --clean"
   },
   "dependencies": {
-    "@quimbyhq/agent": "*",
-    "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
-    "@quimbyhq/pool": "*",
-    "@quimbyhq/reporter": "*",
     "@quimbyhq/session": "*",
-    "@quimbyhq/status": "*",
-    "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",
     "@quimbyhq/workspace": "*",

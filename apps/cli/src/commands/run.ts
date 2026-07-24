@@ -71,6 +71,7 @@ import { join } from 'pathe'
 
 import { ensureAgentConnections } from '../hostAlias'
 import { launchDrift, recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
+import { warnIfPoolAtCapacity } from '../poolWarning'
 import { withRemoteProbeTimeout } from '../remoteProbe'
 
 export default defineCommand({
@@ -244,6 +245,8 @@ export async function runRunCommand({
     runtimeProfile: args.runtimeProfile,
   }
   const existing = await getAgentSessionState(agent)
+  // Creating a session (rather than attaching to a live one) is what adds pool load.
+  if (existing === 'stopped') await warnIfPoolAtCapacity(runConfig, state)
   let shouldRecordLaunch = existing === 'stopped'
   if (existing !== 'stopped' && launchDrift(agent, runConfig, launchOpts)) {
     warnIfLaunchDrifted(agent, runConfig, launchOpts)

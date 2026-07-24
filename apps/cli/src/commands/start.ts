@@ -25,6 +25,7 @@ import { execa } from 'execa'
 
 import { ensureAgentConnections } from '../hostAlias'
 import { recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
+import { warnIfPoolAtCapacity } from '../poolWarning'
 import { consolaReporter } from '../reporter'
 
 // A freshly-launched agent needs a beat to bring up its prompt before the resume nudge is typed,
@@ -120,6 +121,9 @@ export async function runStartCommand({
     warnIfLaunchDrifted(agent, config, launchOpts)
     return
   }
+
+  // A new session is about to join the pool — say so if the machine is already at its ceiling.
+  await warnIfPoolAtCapacity(config, state)
 
   // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
   await ensureAgentConnections(repoRoot, state, [args.agent])

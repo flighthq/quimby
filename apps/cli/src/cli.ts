@@ -23,6 +23,7 @@ const main = defineCommand({
     restart: () => import('./commands/restart').then((m) => m.default),
     stop: () => import('./commands/stop').then((m) => m.default),
     list: () => import('./commands/list').then((m) => m.default),
+    sessions: () => import('./commands/sessions').then((m) => m.default),
     status: () => import('./commands/status').then((m) => m.default),
     assign: () => import('./commands/assign').then((m) => m.default),
     nudge: () => import('./commands/nudge').then((m) => m.default),

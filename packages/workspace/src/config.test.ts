@@ -151,6 +151,19 @@ describe('loadQuimbyConfig', () => {
 })
 
 describe('mergeConfigs', () => {
+  it('layers pool keys per-key so a project ceiling and a user reap threshold coexist', () => {
+    const merged = mergeConfigs({ pool: { idleTimeout: '2h' } }, { pool: { maxLive: 3 } })
+    expect(merged.pool).toEqual({ idleTimeout: '2h', maxLive: 3 })
+  })
+
+  it('lets a later layer override one pool key without dropping the other', () => {
+    const merged = mergeConfigs(
+      { pool: { maxLive: 3, idleTimeout: '2h' } },
+      { pool: { maxLive: 6 } },
+    )
+    expect(merged.pool).toEqual({ maxLive: 6, idleTimeout: '2h' })
+  })
+
   it('layers runtime profile machine settings without replacing tracked launch defaults', () => {
     expect(
       mergeConfigs(

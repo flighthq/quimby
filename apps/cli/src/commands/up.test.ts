@@ -37,6 +37,13 @@ const config = vi.hoisted(() => ({
         layout: 'inferred',
         agents: {
           reviewer: 'reviewer',
+          c: 'c',
+        },
+      },
+      stalelayout: {
+        layout: 'inferred',
+        agents: {
+          reviewer: 'reviewer',
         },
       },
       loop: {
@@ -103,7 +110,7 @@ describe('runUpCommand', () => {
     })
   })
 
-  it('creates missing layout-only agents from the default preset with no arguments', async () => {
+  it('creates every declared agent of the default preset with no arguments', async () => {
     state.value.agents = {}
     config.value.default = 'inferred'
     addAgent.mockClear()
@@ -119,6 +126,17 @@ describe('runUpCommand', () => {
       defaults: { runtime: 'local', entrypoint: 'codex' },
     })
     expect(addAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses a preset whose layout names an agent it does not declare, creating nothing', async () => {
+    state.value.agents = {}
+    config.value.default = 'stalelayout'
+    addAgent.mockClear()
+
+    await expect(cmd.run!({ args: { preset: 'stalelayout' } } as never)).rejects.toThrow(
+      'layout places agent "c"',
+    )
+    expect(addAgent).not.toHaveBeenCalled()
   })
 
   it('creates missing agents from preset roles', async () => {

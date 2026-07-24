@@ -26,6 +26,7 @@ const COMMAND_GROUPS: readonly CommandGroup[] = [
       'restart',
       'layout',
       'list',
+      'sessions',
       'status',
       'log',
       'diff',

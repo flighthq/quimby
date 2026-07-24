@@ -6,28 +6,10 @@
   },
   "references": [
     {
-      "path": "../agent"
-    },
-    {
-      "path": "../handoff"
-    },
-    {
       "path": "../paths"
     },
     {
-      "path": "../pool"
-    },
-    {
-      "path": "../reporter"
-    },
-    {
       "path": "../session"
-    },
-    {
-      "path": "../status"
-    },
-    {
-      "path": "../transport"
     },
     {
       "path": "../types"

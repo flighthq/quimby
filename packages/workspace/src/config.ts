@@ -275,6 +275,8 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
     if (config.default !== undefined) out.default = config.default
     if (config.mergeMode !== undefined) out.mergeMode = config.mergeMode
+    // Per-key so a project can set a ceiling while user config keeps the reap threshold.
+    if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
   }
   return out
 }

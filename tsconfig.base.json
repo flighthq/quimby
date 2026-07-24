@@ -43,6 +43,8 @@
       "@quimbyhq/status/*": ["./packages/status/src/*"],
       "@quimbyhq/workspace": ["./packages/workspace/src/index.ts"],
       "@quimbyhq/workspace/*": ["./packages/workspace/src/*"],
+      "@quimbyhq/pool": ["./packages/pool/src/index.ts"],
+      "@quimbyhq/pool/*": ["./packages/pool/src/*"],
       "@quimbyhq/agent": ["./packages/agent/src/index.ts"],
       "@quimbyhq/agent/*": ["./packages/agent/src/*"],
       "@quimbyhq/handoff": ["./packages/handoff/src/index.ts"],

@@ -26,6 +26,8 @@ quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SS
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
 quimby layout <name-or-preset> --json | --default --json   Resolve a saved layout or default preset into renderer-neutral JSON for external viewports such as the VS Code extension
 quimby list                                           Show agents (with each agent's live session state: running / attached / stopped)
+quimby sessions                                       Show every live quimby tmux session ACROSS ALL PROJECTS on the shared socket (the agent pool), grouped by project with attached/idle/orphan state + idle age; the one cross-project view (`list` sees only this workspace); shows `pool: N/max` when a ceiling is configured
+quimby sessions prune [--idle <2h>] [--orphans] [--here] [-f]   Close idle (--idle) and/or unclaimed (--orphans) agent sessions; attached sessions are never touched; --here scopes to this project (default: every project); previews without --force. Work on disk is untouched — only the live session ends
 quimby status [agent] [--to <agent>] [-i]            Inspect agents: no-arg overview (session state, received/queued counts, merge-state, behind-base); with an agent, a digest (assignment, base, work summary, received/queued, status.md excerpt); -i pages the full status.md; `status <from> --to <agent>` pushes <from>'s status snapshot to <agent>'s status mirror
 quimby log <agent> [-f]                              Show an agent's live tmux output (visible screen + scrollback), ANSI-stripped and paged; -f/--follow streams the durable transcript (session.log) as it grows
 quimby assign <agent> -m "..." | @file [--sync <ref>] [--no-sync] [--no-nudge] [-c] [--verify|--no-verify]  Set an agent's current task; syncs the agent to its base first (--sync <ref> retargets to <ref> first; --no-sync to skip), then writes assignment.md and wakes a running agent via its tmux session (--no-nudge to skip); -c/--clear types /clear before the nudge; --verify appends an advisory self-check request
@@ -40,7 +42,7 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) t
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms + best-effort remote cleanup, tolerating an unreachable SSH host)
-quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits; auto-reaps this project's idle agent sessions when `pool.idleTimeout` is configured (never touches attached sessions)
 ```
 
 ## Planned (not yet implemented)
@@ -118,3 +120,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)
 - `--dispatch` / `--no-dispatch` (serve — auto-carry settled outbox drafts, on by default)
 - `--stop` (serve — stop the running server for this workspace: reads `server.json`, signals the pid, removes the pidfile; a clean message when none is running)
+- `--idle` (sessions, sessions prune — a duration `30s`/`45m`/`2h`/`1d`, or a bare number of minutes; on `sessions` it flags what a sweep would take, on `prune` it selects idle agent sessions to close)
+- `--orphans` (sessions prune — close agent sessions no workspace claims, at any idle age)
+- `--here` (sessions prune — scope the sweep to the current project; default is every project on the socket)
+- `-f` / `--force` (sessions prune — actually close the selected sessions; without it, preview only)
