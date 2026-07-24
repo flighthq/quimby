@@ -1,7 +1,19 @@
+import { SyncConflictError } from '@quimbyhq/errors'
 import { describe, expect, it } from 'vitest'
 
 import type { RepoSyncOps, SyncConflictState } from './syncAlgorithm'
 import { runSyncAlgorithm } from './syncAlgorithm'
+
+// The `agentClean` flag a failed sync throws with — true only when the repo is left safe to
+// capture from (a rolled-back rebase); `merge`'s fallback keys on it.
+async function syncErr(ops: RepoSyncOps): Promise<SyncConflictError> {
+  try {
+    await runSyncAlgorithm(ops, { hostHead: 'abcdef12', seedCommit: 'old', name: 'alice' })
+  } catch (err) {
+    return err as SyncConflictError
+  }
+  throw new Error('expected a SyncConflictError')
+}
 
 interface FakeConfig {
   commits?: number
@@ -102,6 +114,29 @@ describe('runSyncAlgorithm', () => {
     expect(calls).toEqual(['fetch', 'stash', 'rebase:abcdef12', 'rebaseAbort', 'stashPop'])
     // never retagged the seed on the conflict path
     expect(calls).not.toContain('tag:abcdef12')
+  })
+
+  it('throws SyncConflictError agentClean=true for a rolled-back rebase (safe to net-merge)', async () => {
+    const err = await syncErr(fakeOps({ commits: 1, dirty: true, rebaseThrows: true }).ops)
+    expect(err).toBeInstanceOf(SyncConflictError)
+    expect(err.agentClean).toBe(true)
+  })
+
+  it('throws SyncConflictError agentClean=false when the repo is pre-wedged', async () => {
+    const err = await syncErr(fakeOps({ dirty: true, conflict: 'unmerged' }).ops)
+    expect(err.agentClean).toBe(false)
+  })
+
+  it('throws SyncConflictError agentClean=false when the rebase abort itself fails', async () => {
+    const err = await syncErr(
+      fakeOps({ commits: 1, dirty: true, rebaseThrows: true, abortFails: true }).ops,
+    )
+    expect(err.agentClean).toBe(false)
+  })
+
+  it('throws SyncConflictError agentClean=false on a post-rebase stash-pop conflict', async () => {
+    const err = await syncErr(fakeOps({ commits: 1, dirty: true, stashPopThrows: true }).ops)
+    expect(err.agentClean).toBe(false)
   })
 
   it('swallows a stash-pop failure during abort and still reports the rebase conflict', async () => {

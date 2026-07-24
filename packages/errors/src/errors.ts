@@ -38,6 +38,23 @@ export class HandoffError extends QuimbyError {
   }
 }
 
+export class SyncConflictError extends QuimbyError {
+  constructor(
+    message: string,
+    /**
+     * Whether the agent's repo is left clean and its work intact after the failed sync — true
+     * only when a rebase conflict was rolled back cleanly. A caller that measures conflicts by a
+     * different test (e.g. `merge`'s 3-way boundary merge, which sees only the net change) can
+     * then safely proceed from the current seed; when false the repo is wedged (pre-existing
+     * unmerged state, a failed abort, or a stash-pop conflict) and must be resolved first.
+     */
+    public agentClean: boolean,
+  ) {
+    super(message, 'SYNC_CONFLICT')
+    this.name = 'SyncConflictError'
+  }
+}
+
 export class ConflictError extends QuimbyError {
   constructor(
     message: string,

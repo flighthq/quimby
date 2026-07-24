@@ -1,4 +1,4 @@
-import { QuimbyError } from '@quimbyhq/errors'
+import { SyncConflictError } from '@quimbyhq/errors'
 
 /** A pre-existing conflicted state the safe sync's auto-stash cannot proceed over. */
 export type SyncConflictState = 'merge' | 'rebase' | 'unmerged'
@@ -59,7 +59,9 @@ export interface SyncAlgorithmResult {
  * tree, rebase its commits (or fast-forward when it has none), retag the seed, then pop
  * the stash. `force` hard-resets instead. A rebase conflict aborts and restores the
  * stash, leaving the work intact; a stash-pop conflict after a successful rebase reports
- * so the user can resolve on the agent. Both surface as a `QuimbyError`.
+ * so the user can resolve on the agent. Both surface as a `SyncConflictError`, whose
+ * `agentClean` flag says whether the repo is left clean (a rolled-back rebase) so a caller
+ * with a more lenient conflict test can proceed, versus wedged and needing resolution first.
  *
  * Pure orchestration over {@link RepoSyncOps} — no git or transport imports — so every
  * branch is unit-testable with a fake backend.
@@ -87,7 +89,9 @@ export async function runSyncAlgorithm(
   // hard, clearing the state) returned above, so this only ever gates the work-preserving path.
   const conflict = await ops.pendingConflictState()
   if (conflict) {
-    throw new QuimbyError(syncConflictMessage(name, hostHead, conflict))
+    // Pre-wedged: the working tree already carries conflict markers / an in-progress op, so it is
+    // NOT safe to capture — `agentClean: false`.
+    throw new SyncConflictError(syncConflictMessage(name, hostHead, conflict), false)
   }
 
   const commitsReplayed = await ops.countCommitsSinceSeed()
@@ -102,13 +106,17 @@ export async function runSyncAlgorithm(
     } catch {
       const aborted = await ops.rebaseAbort()
       if (dirty && aborted) await ops.stashPop().catch(() => {})
-      throw new QuimbyError(
+      // A clean abort leaves the repo back on its seed, work intact (`agentClean: true`), so a
+      // caller whose own conflict test is more lenient — `merge`'s 3-way of the net change — can
+      // proceed from the seed. A failed abort leaves it mid-rebase, so it is not clean.
+      throw new SyncConflictError(
         aborted
           ? `Agent "${name}" has rebase conflicts onto ${hostHead.slice(0, 8)} — aborted, work intact. ` +
               `Resolve them on the agent, or "quimby sync ${name} -f" to force to the base (discards the agent's commits).`
           : `Agent "${name}" hit rebase conflicts onto ${hostHead.slice(0, 8)} and the automatic abort failed — ` +
               `its repo is left mid-rebase. Resolve it on the agent ("git rebase --abort" in repo/), or ` +
               `"quimby sync ${name} -f" to hard-reset to the base (discards the agent's commits, keeps its mailbox).`,
+        aborted,
       )
     }
   }
@@ -118,8 +126,10 @@ export async function runSyncAlgorithm(
     try {
       await ops.stashPop()
     } catch {
-      throw new QuimbyError(
+      // The seed already advanced and the popped stash left markers in the tree — not clean.
+      throw new SyncConflictError(
         `Agent "${name}" synced onto ${hostHead.slice(0, 8)}, but restoring its uncommitted work hit conflicts — resolve them on the agent.`,
+        false,
       )
     }
   }

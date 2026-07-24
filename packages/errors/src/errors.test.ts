@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { AgentError, ConflictError, GitError, HandoffError, QuimbyError } from './errors'
+import {
+  AgentError,
+  ConflictError,
+  GitError,
+  HandoffError,
+  QuimbyError,
+  SyncConflictError,
+} from './errors'
 
 describe('AgentError', () => {
   it('is instanceof QuimbyError and Error', () => {
@@ -153,5 +160,27 @@ describe('QuimbyError', () => {
   it('code is undefined when not provided', () => {
     const err = new QuimbyError('test')
     expect(err.code).toBeUndefined()
+  })
+})
+
+describe('SyncConflictError', () => {
+  it('is instanceof QuimbyError and Error', () => {
+    const err = new SyncConflictError('rebase conflict', true)
+    expect(err instanceof QuimbyError).toBe(true)
+    expect(err instanceof Error).toBe(true)
+  })
+
+  it('sets name to SyncConflictError and code SYNC_CONFLICT', () => {
+    const err = new SyncConflictError('x', false)
+    expect(err.name).toBe('SyncConflictError')
+    expect(err.code).toBe('SYNC_CONFLICT')
+  })
+
+  it('carries agentClean true when the repo is left clean (rolled-back rebase)', () => {
+    expect(new SyncConflictError('x', true).agentClean).toBe(true)
+  })
+
+  it('carries agentClean false when the repo is wedged', () => {
+    expect(new SyncConflictError('x', false).agentClean).toBe(false)
   })
 })

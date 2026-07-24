@@ -11,7 +11,7 @@ import {
   rebaseAgentOntoBase,
   syncAgent,
 } from '@quimbyhq/agent'
-import { ConflictError, HandoffError, QuimbyError } from '@quimbyhq/errors'
+import { ConflictError, HandoffError, QuimbyError, SyncConflictError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
   applyHandoff,
@@ -171,6 +171,11 @@ export async function runMergeCommand({
   // retargets the agent's sync ref to it; bare `--sync`/absent advances onto the landed branch.
   const advanceOn = args.sync !== false
   const retargetRef = typeof args.sync === 'string' && args.sync !== '' ? args.sync : undefined
+  // The post-merge seed advance is normally gated the same as the pre-sync (`advanceOn`), but the
+  // pre-sync fallback below (a harmless rebase conflict) turns it off for that one run — it lands
+  // like `--no-sync`, so the seed stays put and the catch-up hint fires.
+  let postAdvanceOn = advanceOn
+  let presyncFellBack = false
   const targetRepoPath = resolve(args.target ?? process.cwd())
   const branch: boolean | string | undefined =
     args.branch !== undefined ? (args.branch === '' ? true : args.branch) : undefined
@@ -220,29 +225,25 @@ export async function runMergeCommand({
       try {
         await rebaseAgentOntoBase(repoRoot, args.agent, consolaReporter)
       } catch (err) {
-        if (err instanceof QuimbyError) {
-          // Pre-sync conflict: the rebase was rolled back (work intact, nothing staged). Ask the
-          // running agent to rebase+resolve on its own clone (where the code context is), and give
-          // the user one clean line instead of the raw sync error.
-          const syncRef = state.agents[args.agent].syncRef ?? state.sourceRef
-          const running = await hasAgentSession(state.agents[args.agent])
-          if (running) {
-            await nudgeAgentSession({
-              agent: state.agents[args.agent],
-              displayName: args.agent,
-              courier: renderResolveConflictRequest(syncRef),
-              reporter: consolaReporter,
-            })
-          }
-          logger.warn(`"${args.agent}" conflicts with ${syncRef} — work is safe, nothing merged.`)
+        if (!(err instanceof SyncConflictError)) throw err
+        const syncRef = state.agents[args.agent].syncRef ?? state.sourceRef
+        // A rebase conflict that rolled back cleanly (`agentClean`) is stricter than the boundary
+        // merge: a per-commit replay can collide where git's 3-way of the *net* change does not.
+        // So don't block — fall through and let the actual merge decide, landing like `--no-sync`
+        // (seed left put, catch-up hint at the end). Only a genuinely-overlapping net change will
+        // then surface a conflict, routed back to resolving on the agent.
+        if (err.agentClean) {
+          presyncFellBack = true
+          postAdvanceOn = false
           logger.info(
-            running
-              ? `Nudged it to rebase; re-run \`quimby merge ${args.agent}\` once it's clean.`
-              : `Start it, then re-run \`quimby merge ${args.agent}\` to have it resolve.`,
+            `Couldn't cleanly rebase "${args.agent}" onto ${syncRef} commit-by-commit, but the ` +
+              'net change may still merge cleanly — attempting it (like `--no-sync`).',
           )
-          process.exit(1)
+        } else {
+          // The agent's repo is wedged (pre-existing conflict, a failed abort, or a stash-pop
+          // clash), so its working tree isn't safe to capture. Route to resolving on the agent.
+          await blockOnAgentConflict(state, args.agent, syncRef)
         }
-        throw err
       }
     }
   }
@@ -331,7 +332,7 @@ export async function runMergeCommand({
     // the committed part, so a still-working agent isn't interrupted. HARD otherwise: everything
     // landed (squashed, or `--commits` with nothing loose / a `-m` sweep), so a reset loses nothing.
     if (isAgent) {
-      if (advanceOn) {
+      if (postAdvanceOn) {
         const keptLoose = result.unpulledRemainderFiles > 0
         await settleAgentSeed({
           state,
@@ -352,8 +353,8 @@ export async function runMergeCommand({
         }
       } else {
         logger.info(
-          `Seed left unchanged (--no-sync) — catch "${args.agent}" up with ` +
-            `\`quimby sync ${args.agent} --current -f\` before its next revision.`,
+          `Seed left unchanged (${presyncFellBack ? 'pre-sync fell back to a net merge' : '--no-sync'}) — ` +
+            `catch "${args.agent}" up with \`quimby sync ${args.agent} --current -f\` before its next revision.`,
         )
       }
     }
@@ -361,6 +362,17 @@ export async function runMergeCommand({
     logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
   } catch (err) {
     if (err instanceof ConflictError) {
+      // The pre-sync fallback attempts the boundary merge on the *chance* the net change is clean.
+      // A ConflictError here means it genuinely overlaps — the one case the fallback couldn't
+      // dissolve — so honor the "resolve on the agent" guarantee the pre-sync would have given:
+      // abort the tentative host merge (leaving your repo untouched, no MERGE_HEAD, nothing
+      // staged) and route it back to the agent, exactly as a hard pre-sync conflict would.
+      if (presyncFellBack) {
+        if (await git.isMergeInProgress(targetRepoPath)) await git.mergeAbort(targetRepoPath)
+        await discardHandoff(repoRoot, name).catch(() => {})
+        const syncRef = state.agents[args.agent].syncRef ?? state.sourceRef
+        await blockOnAgentConflict(state, args.agent, syncRef)
+      }
       logger.warn(`${err.message}`)
       logger.info('Conflicted files:')
       for (const f of err.conflicts) {
@@ -377,6 +389,34 @@ export async function runMergeCommand({
 
 function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY)
+}
+
+// The "resolve on the agent, not the host" exit: nudge a running agent to rebase+resolve on its
+// own clone (where the code context is), report one clean line, and stop without crossing the
+// boundary. Used both when the agent's repo is already wedged and when the pre-sync fallback's
+// tentative merge turned out to genuinely overlap (after aborting that merge). Never returns.
+async function blockOnAgentConflict(
+  state: Readonly<QuimbyState>,
+  agentName: string,
+  syncRef: string,
+): Promise<never> {
+  const agent = state.agents[agentName]
+  const running = await hasAgentSession(agent)
+  if (running) {
+    await nudgeAgentSession({
+      agent,
+      displayName: agentName,
+      courier: renderResolveConflictRequest(syncRef),
+      reporter: consolaReporter,
+    })
+  }
+  logger.warn(`"${agentName}" conflicts with ${syncRef} — work is safe, nothing merged.`)
+  logger.info(
+    running
+      ? `Nudged it to rebase; re-run \`quimby merge ${agentName}\` once it's clean.`
+      : `Start it, then re-run \`quimby merge ${agentName}\` to have it resolve.`,
+  )
+  process.exit(1)
 }
 
 /**
