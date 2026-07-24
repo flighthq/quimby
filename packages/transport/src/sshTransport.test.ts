@@ -152,6 +152,40 @@ describe('SSHTransport', () => {
     )
   })
 
+  it('exec does not let an empty interleaved stream hide stderr', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed with exit code 1'), {
+        shortMessage: 'Command failed with exit code 1: ssh ... git stash',
+        all: '',
+        stderr: 'fatal: unable to write new index file',
+        exitCode: 1,
+      }),
+    )
+    await expect(new SSHTransport(LOC).exec('git stash', { cwd: '/work' })).rejects.toThrow(
+      'SSH command failed for user@box: fatal: unable to write new index file',
+    )
+  })
+
+  it('exec renders the actual remote command legibly when it fails without output', async () => {
+    execa.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed with exit code 1'), {
+        shortMessage:
+          "Command failed with exit code 1: ssh user@box 'cd ~/'\\''.quimby/workspaces/id/repo'\\'' && git stash'",
+        all: '',
+        stderr: '',
+        stdout: '',
+        exitCode: 1,
+      }),
+    )
+    await expect(
+      new SSHTransport(LOC).exec('git stash push --include-untracked -m quimby-sync', {
+        cwd: '~/.quimby/workspaces/id/repo',
+      }),
+    ).rejects.toThrow(
+      "SSH command failed for user@box:\n  Remote command exited with code 1 without output:\n  cd ~/'.quimby/workspaces/id/repo' && git stash push --include-untracked -m quimby-sync",
+    )
+  })
+
   it('exec runs the raw command when no cwd is given', async () => {
     await new SSHTransport(LOC).exec('whoami')
     const [, args] = callsTo('ssh')[0] as [string, string[]]

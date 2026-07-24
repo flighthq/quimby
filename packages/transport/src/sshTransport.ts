@@ -56,9 +56,15 @@ export function toRsyncExcludeList(gitLsFilesZ: string): string {
 const SSH_CONNECTIVITY_FAILURE =
   /connect timed out|connection timed out|connection refused|could not resolve hostname|no route to host|network is unreachable|permission denied|connection closed/i
 
-function sshFailureMessage(tool: 'ssh' | 'scp' | 'rsync', host: string, err: unknown): string {
+function sshFailureMessage(
+  tool: 'ssh' | 'scp' | 'rsync',
+  host: string,
+  err: unknown,
+  remoteCommand?: string,
+): string {
   const e = err as {
     code?: string
+    exitCode?: number
     all?: string
     stderr?: string
     stdout?: string
@@ -67,15 +73,23 @@ function sshFailureMessage(tool: 'ssh' | 'scp' | 'rsync', host: string, err: unk
   }
   // Prefer the remote command's captured output — `all` (interleaved stdout+stderr, present
   // when exec sets `all: true`), then either stream — so git's actual complaint surfaces even
-  // when it wrote to stdout. Fall back to execa's generic short/long message otherwise.
-  const captured = (e.all ?? e.stderr ?? e.stdout ?? '').trim()
-  const detail = captured || e.shortMessage || e.message || String(err)
+  // when it wrote to stdout. Test each for content: an empty `all` must not hide a populated
+  // stderr or stdout stream.
+  const captured = [e.all, e.stderr, e.stdout]
+    .map((output) => output?.trim())
+    .find((output) => output)
+  const genericDetail = e.shortMessage || e.message || String(err)
+  const detail =
+    captured ??
+    (remoteCommand
+      ? `Remote command exited${e.exitCode === undefined ? '' : ` with code ${e.exitCode}`} without output:\n${remoteCommand}`
+      : genericDetail)
   if (e.code === 'ENOENT') {
     const noun = tool === 'ssh' ? 'SSH client' : tool === 'scp' ? 'scp client' : 'rsync'
     return `${noun} not found locally. Install ${tool === 'rsync' ? 'rsync' : 'OpenSSH'} before using SSH agents.`
   }
-  if (SSH_CONNECTIVITY_FAILURE.test(detail)) {
-    return withDetail(`Could not reach SSH host ${host}`, detail)
+  if (SSH_CONNECTIVITY_FAILURE.test(captured ?? genericDetail)) {
+    return withDetail(`Could not reach SSH host ${host}`, captured ?? genericDetail)
   }
   if (tool === 'rsync') {
     return withDetail(`rsync failed while communicating with SSH host ${host}`, detail)
@@ -103,11 +117,12 @@ async function remoteCall<T>(
   tool: 'ssh' | 'scp' | 'rsync',
   host: string,
   run: () => Promise<T>,
+  remoteCommand?: string,
 ): Promise<T> {
   try {
     return await run()
   } catch (err) {
-    throw new Error(sshFailureMessage(tool, host, err))
+    throw new Error(sshFailureMessage(tool, host, err, remoteCommand))
   }
 }
 
@@ -186,14 +201,18 @@ export class SSHTransport implements Transport {
 
   async exec(cmd: string, opts?: { cwd?: string }): Promise<string> {
     const remoteCmd = opts?.cwd ? `cd ${sp(opts.cwd)} && ${cmd}` : cmd
-    const { stdout } = await remoteCall('ssh', this.loc.host, () =>
-      execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
-        maxBuffer: 256 * 1024 * 1024,
-        stripFinalNewline: false,
-        // Interleave stdout+stderr so a failing remote command's real error (which git often
-        // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
-        all: true,
-      }),
+    const { stdout } = await remoteCall(
+      'ssh',
+      this.loc.host,
+      () =>
+        execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
+          maxBuffer: 256 * 1024 * 1024,
+          stripFinalNewline: false,
+          // Interleave stdout+stderr so a failing remote command's real error (which git often
+          // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
+          all: true,
+        }),
+      remoteCmd,
     )
     return stdout
   }
