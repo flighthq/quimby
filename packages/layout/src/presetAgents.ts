@@ -1,6 +1,6 @@
 import { addAgent } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
-import type { ConfiguredAgent, QuimbyConfig } from '@quimbyhq/types'
+import type { ConfiguredAgent, QuimbyConfig, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   loadState,
@@ -22,6 +22,10 @@ export async function createMissingPresetAgents(
   presetName: string,
 ): Promise<void> {
   const agents = resolvePresetAgentEntries(config, presetName)
+  // The layout places agents; it never creates them. A leaf naming neither a configured entry
+  // nor a live agent is reported here — before anything is created — so a stale layout says so
+  // instead of silently resurrecting an agent you removed.
+  assertPresetLayoutSatisfied(config, presetName, await loadState(repoRoot), agents)
 
   for (const [name, rawAgent] of agents) {
     const state = await loadState(repoRoot)
@@ -59,25 +63,46 @@ export async function createMissingPresetAgents(
   }
 }
 
+// The agents a preset declares — `presets.<name>.agents`, with `count: N` expanded into replicas.
+// The preset's layout is deliberately NOT consulted: a layout *places* agents, it does not create
+// them (see `assertPresetLayoutSatisfied`), so removing an agent from `agents:` removes it for
+// good even while a stale layout still names it.
 export function resolvePresetAgentEntries(
   config: Readonly<QuimbyConfig>,
   presetName: string,
 ): [string, PresetAgentConfig][] {
   const preset = resolvePreset(config, presetName)
-  const explicit = preset.agents ?? {}
   const entries = new Map<string, PresetAgentConfig>()
-  for (const [name, rawAgent] of Object.entries(explicit)) {
+  for (const [name, rawAgent] of Object.entries(preset.agents ?? {})) {
     for (const [replicaName, replicaConfig] of expandReplicas(name, rawAgent)) {
       entries.set(replicaName, replicaConfig)
     }
   }
-  if (!preset.layout) return [...entries.entries()]
+  return [...entries.entries()]
+}
+
+// Throw when a preset's layout names something nothing can fill: a bare leaf that is neither a
+// configured entry nor a live agent, or a `@role` slot with no instance either way. Creation is
+// driven by `agents:` alone, so an unsatisfiable leaf is a config mistake to surface — the common
+// one being an agent removed from `agents:` (and from the workspace) but left in the layout.
+export function assertPresetLayoutSatisfied(
+  config: Readonly<QuimbyConfig>,
+  presetName: string,
+  state: Readonly<QuimbyState>,
+  entries: readonly [string, PresetAgentConfig][],
+): void {
+  const preset = resolvePreset(config, presetName)
+  if (!preset.layout) return
+
+  const configured = new Map(entries)
+  const has = (name: string): boolean => configured.has(name) || Boolean(state.agents[name])
+  const hasRole = (role: string): boolean =>
+    [...configured.entries()].some(
+      ([name, agent]) => resolveConfiguredAgent(config, agent).role === role || name === role,
+    ) || Object.entries(state.agents).some(([name, agent]) => agent.role === role || name === role)
 
   for (const name of collectLayoutAgents(parseLayout(resolvePresetLayout(config, presetName)))) {
     if (isHostLayoutToken(name) || isServiceToken(name)) continue
-    // A `@role` slot expands to *existing* instances at plan time; here at creation it only needs
-    // to guarantee at least one exists, so it is satisfied by any explicit agent of that role and
-    // otherwise seeds a single `<role>` agent. (Replica counts from a preset are a separate feature.)
     if (isRoleToken(name)) {
       const role = roleNameOf(name)
       if (!config.roles?.[role]) {
@@ -85,22 +110,22 @@ export function resolvePresetAgentEntries(
           `Preset "${presetName}" layout references role "${name}", but no role "${role}" is defined under \`roles:\`.`,
         )
       }
-      const hasInstance = [...entries.values()].some(
-        (agent) => resolveConfiguredAgent(config, agent).role === role,
-      )
-      if (!hasInstance && !entries.has(role)) entries.set(role, { role })
+      if (!hasRole(role)) {
+        throw new QuimbyError(
+          `Preset "${presetName}" layout places role "${name}", but no agent has role "${role}". ` +
+            `Declare one under \`presets.${presetName}.agents\` (e.g. \`${role}: { role: ${role} }\`), ` +
+            `add one with \`quimby add <name> --role ${role}\`, or drop "${name}" from the layout.`,
+        )
+      }
       continue
     }
-    if (entries.has(name)) continue
-    if (config.roles?.[name]) entries.set(name, { role: name })
-    else if (config.defaults) entries.set(name, undefined)
-    else {
-      throw new QuimbyError(
-        `Preset "${presetName}" layout references agent "${name}", but it is not configured under \`presets.${presetName}.agents\` and no role named "${name}" exists.`,
-      )
-    }
+    if (has(name)) continue
+    throw new QuimbyError(
+      `Preset "${presetName}" layout places agent "${name}", which does not exist and is not declared under \`presets.${presetName}.agents\`. ` +
+        `A layout only places agents — it never creates them — so either declare "${name}" under \`agents:\`, ` +
+        `create it with \`quimby add ${name}\`, or remove it from the layout.`,
+    )
   }
-  return [...entries.entries()]
 }
 
 export function isHostLayoutToken(name: string): boolean {

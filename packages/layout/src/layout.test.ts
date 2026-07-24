@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest'
 import type { LayoutNode } from './layout'
 import {
   collectLayoutAgents,
+  expandRoleSlotNames,
   expandRoleSlots,
   isLayoutExpr,
   isRoleToken,
   isServiceToken,
   layoutWeights,
   parseLayout,
+  roleInstanceResolver,
   roleNameOf,
   serviceNameOf,
 } from './layout'
@@ -23,6 +25,31 @@ describe('collectLayoutAgents', () => {
 
   it('includes host as an ordinary name', () => {
     expect(collectLayoutAgents(parseLayout('host | a'))).toEqual(['host', 'a'])
+  })
+})
+
+describe('expandRoleSlotNames', () => {
+  const resolve = (role: string): string[] => (role === 'builder' ? ['builder', 'builder-2'] : [])
+
+  it('expands a @role name in a flat list, keeping the other names in place', () => {
+    expect(expandRoleSlotNames(['review', '@builder'], resolve)).toEqual([
+      'review',
+      'builder',
+      'builder-2',
+    ])
+  })
+
+  it('dedupes an instance already named explicitly', () => {
+    expect(expandRoleSlotNames(['@builder', 'builder'], resolve)).toEqual(['builder', 'builder-2'])
+  })
+
+  it('leaves a list with no role token untouched', () => {
+    const names = ['review', 'host', '$serve']
+    expect(expandRoleSlotNames(names, resolve)).toEqual(names)
+  })
+
+  it('throws when a role has no instances', () => {
+    expect(() => expandRoleSlotNames(['@ghost'], resolve)).toThrow('no agent has role "ghost"')
   })
 })
 
@@ -312,6 +339,30 @@ describe('parseLayout', () => {
 
   it('throws on a non-positive weight', () => {
     expect(() => parseLayout('a:0 | b')).toThrow(/positive/i)
+  })
+})
+
+describe('roleInstanceResolver', () => {
+  const state = {
+    id: 'p',
+    agents: {
+      review: { role: 'review' },
+      builder: { role: 'builder' },
+      'builder-2': { role: 'builder' },
+      integration: {},
+    },
+  } as never
+
+  it('resolves a role to its instances in creation order', () => {
+    expect(roleInstanceResolver(state)('builder')).toEqual(['builder', 'builder-2'])
+  })
+
+  it('includes a legacy agent named after the role, mirroring the launch fallback', () => {
+    expect(roleInstanceResolver(state)('integration')).toEqual(['integration'])
+  })
+
+  it('resolves an unknown role to no instances', () => {
+    expect(roleInstanceResolver(state)('ghost')).toEqual([])
   })
 })
 

@@ -24,6 +24,7 @@ import {
   expandRoleSlots,
   isServiceToken,
   parseLayout,
+  roleInstanceResolver,
   serviceNameOf,
 } from './layout'
 import { createMissingPresetAgents, isHostLayoutToken } from './presetAgents'
@@ -295,14 +296,6 @@ async function directAgentCommand(
   const launch = await prepareLocalTmuxLaunch({ state, repoRoot, agent })
   const argv = ['tmux', ...localNewSessionArgs(launch, { detached: false })]
   return { argv, string: argv.map(shellArg).join(' ') }
-}
-
-// A `@role` slot resolves to every agent whose `role` is that role, plus a legacy agent literally
-// named after it (mirroring `resolveAgentLaunchDefaults`'s `agent.role ?? agent.name` fallback),
-// in creation order — so `builder`, `builder-2`, `builder-3` tab in the order they were made.
-function roleInstanceResolver(state: Readonly<QuimbyState>): (role: string) => string[] {
-  return (role) =>
-    Object.keys(state.agents).filter((name) => state.agents[name].role === role || name === role)
 }
 
 function markLocalAgentsTmux(state: QuimbyState, node: Readonly<LayoutNode>): boolean {

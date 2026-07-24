@@ -1,4 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
+import type { QuimbyState } from '@quimbyhq/types'
 
 // A parsed panel-dashboard layout. `tabs` is a leaf — a pane hosting one or more agents as
 // tabs; `cols`/`rows` split their region side by side / stacked. An optional `weight` is a
@@ -68,34 +69,55 @@ export function expandRoleSlots(
   resolveRole: (role: string) => readonly string[],
 ): LayoutNode {
   if (node.type === 'tabs') {
-    const names: string[] = []
-    const seen = new Set<string>()
-    const push = (name: string): void => {
-      if (!seen.has(name)) {
-        seen.add(name)
-        names.push(name)
-      }
-    }
-    for (const name of node.names) {
-      if (!isRoleToken(name)) {
-        push(name)
-        continue
-      }
-      const role = roleNameOf(name)
-      const instances = resolveRole(role)
-      if (instances.length === 0) {
-        throw new QuimbyError(
-          `Layout references role "${name}", but no agent has role "${role}" (create one with \`quimby add --role ${role}\`).`,
-        )
-      }
-      for (const instance of instances) push(instance)
-    }
+    const names = expandRoleSlotNames(node.names, resolveRole)
     return node.weight !== undefined ? { type: 'tabs', names, weight: node.weight } : { type: 'tabs', names } // prettier-ignore
   }
   const children = node.children.map((child) => expandRoleSlots(child, resolveRole))
   return node.weight !== undefined
     ? { type: node.type, children, weight: node.weight }
     : { type: node.type, children }
+}
+
+// The tab-member half of `expandRoleSlots`, over a bare name list — so the flat (operator-less)
+// dashboard paths expand `@role` exactly as a panel layout does, rather than treating `@builder`
+// as an agent literally named that. Deduped in place, first-appearance order preserved.
+export function expandRoleSlotNames(
+  names: readonly string[],
+  resolveRole: (role: string) => readonly string[],
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (name: string): void => {
+    if (!seen.has(name)) {
+      seen.add(name)
+      out.push(name)
+    }
+  }
+  for (const name of names) {
+    if (!isRoleToken(name)) {
+      push(name)
+      continue
+    }
+    const role = roleNameOf(name)
+    const instances = resolveRole(role)
+    if (instances.length === 0) {
+      throw new QuimbyError(
+        `Layout references role "${name}", but no agent has role "${role}" (create one with \`quimby add --role ${role}\`).`,
+      )
+    }
+    for (const instance of instances) push(instance)
+  }
+  return out
+}
+
+// A `@role` slot resolves to every agent whose `role` is that role, plus a legacy agent literally
+// named after it (mirroring `resolveAgentLaunchDefaults`'s `agent.role ?? agent.name` fallback),
+// in creation order — so `builder`, `builder-2`, `builder-3` tab in the order they were made.
+export function roleInstanceResolver(
+  state: Readonly<QuimbyState>,
+): (role: string) => readonly string[] {
+  return (role) =>
+    Object.keys(state.agents).filter((name) => state.agents[name].role === role || name === role)
 }
 
 // True when a string uses layout operators (`|` `/` `(` `)`) or a `:N` size weight. A bare

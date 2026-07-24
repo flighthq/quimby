@@ -27,10 +27,14 @@ import type { LayoutNode } from '@quimbyhq/layout'
 import {
   collectLayoutAgents,
   createMissingPresetAgents,
+  expandRoleSlotNames,
+  expandRoleSlots,
   isLayoutExpr,
+  isRoleToken,
   isServiceToken,
   layoutWeights,
   parseLayout,
+  roleInstanceResolver,
   serviceNameOf,
 } from '@quimbyhq/layout'
 import {
@@ -178,9 +182,11 @@ export async function runRunCommand({
 
   // citty puts every positional in `args._` (including the one bound to `agent`), so a
   // plain concat would duplicate the first agent — dedupe, as `sync` does.
-  const names = [
-    ...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n))),
-  ].filter((n) => n !== HOST_WINDOW)
+  const names = await expandRunRoleSlots(
+    [...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))].filter(
+      (n) => n !== HOST_WINDOW,
+    ),
+  )
 
   // If we're already inside the quimby dashboard, a nested `tmux attach` / `new-session -A`
   // would steal this client from the dashboard and fire its client-detached self-destruct
@@ -217,13 +223,17 @@ export async function runRunCommand({
 
   const { state, repoRoot } = await resolveWorkspace()
 
-  const agent = state.agents[args.agent]
+  // A `@role` positional expands above, so the single-agent target is the expanded name
+  // (`quimby run @builder` with one builder opens that builder), falling back to the raw
+  // positional for the host shell, which `names` filters out.
+  const agentName = names[0] ?? args.agent
+  const agent = state.agents[agentName]
   if (!agent) {
-    throw new QuimbyError(`Agent "${args.agent}" not found`)
+    throw new QuimbyError(`Agent "${agentName}" not found`)
   }
 
   // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
-  await ensureAgentConnections(repoRoot, state, [args.agent])
+  await ensureAgentConnections(repoRoot, state, [agentName])
 
   // `run` attaches-or-creates: ask before replacing a live session whose config has since
   // drifted, then record the launch command before attach/create.
@@ -237,9 +247,9 @@ export async function runRunCommand({
   let shouldRecordLaunch = existing === 'stopped'
   if (existing !== 'stopped' && launchDrift(agent, runConfig, launchOpts)) {
     warnIfLaunchDrifted(agent, runConfig, launchOpts)
-    if (await confirmRestartForLaunchDrift(args.agent)) {
+    if (await confirmRestartForLaunchDrift(agentName)) {
       await killAgentSession(agent)
-      logger.info(`Restarting "${args.agent}" with current config.`)
+      logger.info(`Restarting "${agentName}" with current config.`)
       shouldRecordLaunch = true
     }
   }
@@ -279,7 +289,7 @@ export async function runRunCommand({
       `Attaching to tmux session "${launch.sessionName}" on ${launch.host}${launch.runtimeLabel}`,
     )
     if (shouldRecordLaunch) {
-      await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig, launchOpts)
+      await recordLaunchFingerprint(repoRoot, state, agentName, runConfig, launchOpts)
     }
     // CWD is the agent dir (parent of repo/) so the agent sees assignment.md, handoff/,
     // etc. tmux -A attaches to an existing session or creates a new one; bash -l is a
@@ -318,12 +328,12 @@ export async function runRunCommand({
     runtimeProfile: args.runtimeProfile,
   })
   if (shouldRecordLaunch) {
-    await recordLaunchFingerprint(repoRoot, state, args.agent, runConfig, launchOpts)
+    await recordLaunchFingerprint(repoRoot, state, agentName, runConfig, launchOpts)
   }
 
   // Enroll into tmux so `nudge`/`list` recognize the now-persistent session on later calls.
   if (!agent.tmux) {
-    state.agents[args.agent].tmux = true
+    state.agents[agentName].tmux = true
     await saveState(repoRoot, state)
   }
 
@@ -377,6 +387,16 @@ export async function runRunCommand({
   }
 }
 
+// Expand any `@role` slot in a bare (operator-less) name list to its concrete instances, so
+// `quimby run @builder` and a flat saved layout place a role exactly as a panel layout does.
+// The workspace is only resolved when a role token is actually present, keeping the ordinary
+// `quimby run <agent>` path at one resolve.
+async function expandRunRoleSlots(names: string[]): Promise<string[]> {
+  if (!names.some(isRoleToken)) return names
+  const { state } = await resolveWorkspace()
+  return expandRoleSlotNames(names, roleInstanceResolver(state))
+}
+
 async function runNamedLayout(name: string, includeHost: boolean): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
@@ -396,10 +416,13 @@ async function runNamedLayout(name: string, includeHost: boolean): Promise<void>
     await runPanelDashboard(expr)
     return
   }
-  const names = expr
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((n) => n !== HOST_WINDOW)
+  const names = expandRoleSlotNames(
+    expr
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((n) => n !== HOST_WINDOW),
+    roleInstanceResolver(state),
+  )
   const currentSession = await currentQuimbyTmuxSessionName()
   if (currentSession && isProjectTmuxSession(currentSession, state)) {
     await attachWithinCurrentSession(names)
@@ -1115,8 +1138,12 @@ async function styleDashboard(
 // ephemeral group down (agents survive), so orphaned views are impossible.
 
 async function runPanelDashboard(expr: string): Promise<void> {
-  const layout = parseLayout(expr) // throws QuimbyError on malformed input
+  const parsed = parseLayout(expr) // throws QuimbyError on malformed input
   const { state, repoRoot } = await resolveWorkspace()
+  // `@role` slots resolve to concrete instances before anything downstream (validation, view
+  // sessions, tmux marking) sees a name — the same expansion `quimby layout --json` performs,
+  // so the rendered dashboard and the published plan agree.
+  const layout = expandRoleSlots(parsed, roleInstanceResolver(state))
 
   const currentSession = await currentQuimbyTmuxSessionName()
   if (currentSession && isProjectTmuxSession(currentSession, state)) {
