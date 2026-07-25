@@ -82,6 +82,7 @@ describe('runDispatchCommand', () => {
               recipient: 'builder',
               parcelName: 'review-abc',
               userDirected: true,
+              interrupts: true,
             },
           ],
         },

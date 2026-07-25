@@ -99,12 +99,26 @@ export async function pickupRemoteOutbox(
   await transport.rsyncFrom(remoteQueued, localQueued)
 }
 
-/** Read a recipient's queued parcel: its note and optional `attach:` code source. */
+/**
+ * A parsed outbox draft: its note plus the frontmatter tags that govern the parcel's interrupt
+ * kind (coordination-proposals §6). `delegated`/`escalate` are sender intent the host then
+ * validates against the `directs` graph; `expectsReply`/`replyTo` drive the request/reply round-trip.
+ */
+export interface OutboxDraft {
+  note: string
+  attach?: string
+  delegated?: boolean
+  escalate?: boolean
+  expectsReply?: boolean
+  replyTo?: string
+}
+
+/** Read a recipient's queued parcel: its note and the frontmatter interrupt tags. */
 export async function readOutboxDraft(
   repoRoot: string,
   fromId: string,
   recipient: string,
-): Promise<{ note: string; attach?: string; delegated?: boolean }> {
+): Promise<OutboxDraft> {
   const readmePath = join(
     getAgentHandoffOutQueuedRecipientDir(repoRoot, fromId, recipient),
     'README.md',
@@ -133,7 +147,7 @@ const RESERVED_PARCEL_FILES = new Set([
   'meta.yaml',
 ])
 
-function parseDraft(content: string): { note: string; attach?: string; delegated?: boolean } {
+function parseDraft(content: string): OutboxDraft {
   if (!content.startsWith('---')) return { note: content }
   const end = content.indexOf('\n---', 3)
   if (end === -1) return { note: content }
@@ -141,5 +155,10 @@ function parseDraft(content: string): { note: string; attach?: string; delegated
   const note = content.slice(end + 4).replace(/^\r?\n/, '')
   const attach = frontmatter.match(/^\s*attach:\s*(\S+)\s*$/m)?.[1]
   const delegated = /^\s*delegated:\s*true\s*$/im.test(frontmatter) || undefined
-  return { note, attach, delegated }
+  // Interrupt-intent tags (§6b/§6c). Key spellings are tolerated (expectsReply / expect-reply,
+  // replyTo / reply-to) since the host is the canonical parser of what `agent.sh` produces.
+  const escalate = /^\s*escalate:\s*true\s*$/im.test(frontmatter) || undefined
+  const expectsReply = /^\s*expects?[-_]?reply:\s*true\s*$/im.test(frontmatter) || undefined
+  const replyTo = frontmatter.match(/^\s*reply[-_]?to:\s*(\S+)\s*$/im)?.[1]
+  return { note, attach, delegated, escalate, expectsReply, replyTo }
 }

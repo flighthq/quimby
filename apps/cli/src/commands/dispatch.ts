@@ -67,13 +67,20 @@ export async function runDispatchCommand({
           ? ` (+${result.files.length} file(s): ${result.files.join(', ')})`
           : ''
         logger.success(`Delivered "${sender}" → "${result.recipient}"${fileSuffix}`)
-        if (args.nudge && result.parcelName) {
+        // §6a: only a directed / escalation / reply parcel interrupts the recipient. An advisory
+        // parcel lands passively in the inbox (read on the recipient's own turn), so no nudge.
+        if (args.nudge && result.interrupts && result.parcelName) {
           const recip = state.agents[result.recipient]
           if (recip) {
+            const kind = result.escalation
+              ? 'escalation'
+              : result.userDirected
+                ? 'delegated task'
+                : 'parcel'
             await nudgeAgentSession({
               agent: recip,
               displayName: result.recipient,
-              courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${sender}`,
+              courier: `${kind} ${result.parcelName} from ${sender}`,
               reporter: consolaReporter,
             })
           }

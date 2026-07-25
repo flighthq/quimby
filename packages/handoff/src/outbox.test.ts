@@ -267,6 +267,23 @@ describe('readOutboxDraft', () => {
     })
   })
 
+  it('parses the interrupt tags (escalate / expects-reply / reply-to) from frontmatter', async () => {
+    await setupAgentRepo(dir, 'review')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(draft, { recursive: true })
+    await writeFile(
+      join(draft, 'README.md'),
+      '---\nescalate: true\nexpects-reply: true\nreply-to: manager-abc123\n---\nblocked, need a call',
+    )
+    const parsed = await readOutboxDraft(dir, 'review', 'builder')
+    expect(parsed).toMatchObject({
+      note: 'blocked, need a call',
+      escalate: true,
+      expectsReply: true,
+      replyTo: 'manager-abc123',
+    })
+  })
+
   it('returns the raw note when there is no frontmatter', async () => {
     await setupAgentRepo(dir, 'review')
     const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')

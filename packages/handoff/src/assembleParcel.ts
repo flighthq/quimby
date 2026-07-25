@@ -33,6 +33,9 @@ export interface AssembleParcelOptions {
   to?: string
   note?: string
   userDirected?: boolean
+  escalation?: boolean
+  expectsReply?: boolean
+  replyTo?: string
   description?: string
   suggestedMessage?: string
   name?: string
@@ -131,6 +134,9 @@ function buildMeta(opts: {
   to?: string
   note?: string
   userDirected?: boolean
+  escalation?: boolean
+  expectsReply?: boolean
+  replyTo?: string
   name: string
   seedCommit?: string
   subjects: readonly string[]
@@ -161,6 +167,9 @@ function buildMeta(opts: {
     seedCommit: opts.seedCommit,
     note,
     userDirected: opts.userDirected || undefined,
+    escalation: opts.escalation || undefined,
+    expectsReply: opts.expectsReply || undefined,
+    replyTo: opts.replyTo || undefined,
     description,
     suggestedMessage,
     createdAt: new Date().toISOString(),

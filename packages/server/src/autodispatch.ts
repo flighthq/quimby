@@ -69,12 +69,19 @@ export async function autoDispatchOutboxes(
         reporter.success(
           `  delivered "${sender}" → "${result.recipient}" (${result.parcelName})${fileSuffix}`,
         )
+        // §6a: only a directed / escalation / reply parcel interrupts. Advisory parcels land
+        // passively (the recipient reads them on its own turn), so auto-dispatch does not nudge.
         const recip = state.agents[result.recipient]
-        if (recip && result.parcelName) {
+        if (recip && result.interrupts && result.parcelName) {
+          const kind = result.escalation
+            ? 'escalation'
+            : result.userDirected
+              ? 'delegated task'
+              : 'parcel'
           await nudgeAgentSession({
             agent: recip,
             displayName: result.recipient,
-            courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${sender}`,
+            courier: `${kind} ${result.parcelName} from ${sender}`,
             reporter,
           })
         }

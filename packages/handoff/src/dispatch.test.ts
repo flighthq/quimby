@@ -169,6 +169,49 @@ describe('dispatchOutbox', () => {
     expect(meta.userDirected).toBe(true)
   })
 
+  it('stamps userDirected + interrupts along a directs edge; advisory stays passive', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+
+    // Plain advisory note, no edge → passive.
+    await stageDraft(dir, 'review', 'builder', 'fix the null case')
+    const [advisory] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+    expect(advisory.userDirected).toBeFalsy()
+    expect(advisory.interrupts).toBeFalsy()
+
+    // Same note, now with review → builder declared as a directs edge → directed (interrupts).
+    await stageDraft(dir, 'review', 'builder', 'fix the null case')
+    const directed = stateWith('review', 'builder')
+    directed.agents.review.directs = ['builder']
+    const [result] = await dispatchOutbox({ state: directed, repoRoot: dir, sender: 'review' })
+    expect(result.userDirected).toBe(true)
+    expect(result.interrupts).toBe(true)
+  })
+
+  it('honors an escalation only to the escalation target, else normalizes to advisory', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await setupAgentRepo(dir, 'integration')
+    const state = stateWith('review', 'builder', 'integration')
+    state.agents.review.directs = ['builder'] // ⇒ builder's escalation target is review
+
+    await stageDraft(dir, 'builder', 'review', '---\nescalate: true\n---\nblocked on X')
+    await stageDraft(dir, 'builder', 'integration', '---\nescalate: true\n---\nfyi')
+    const results = await dispatchOutbox({ state, repoRoot: dir, sender: 'builder' })
+
+    const toReview = results.find((r) => r.recipient === 'review')!
+    const toIntegration = results.find((r) => r.recipient === 'integration')!
+    expect(toReview.escalation).toBe(true)
+    expect(toReview.interrupts).toBe(true)
+    // integration is not builder's escalation target → normalized to an ordinary advisory (passive).
+    expect(toIntegration.escalation).toBeFalsy()
+    expect(toIntegration.interrupts).toBeFalsy()
+  })
+
   it('fails when attach references a nonexistent code source', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

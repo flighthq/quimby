@@ -113,12 +113,27 @@ describe('autoDispatchOutboxes', () => {
     // drained from the outbox = it was carried to the recipient
     expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
     expect(events.some((e) => e.level === 'success' && /delivered/.test(e.message))).toBe(true)
+    // §6a: an advisory parcel (no directs edge, not delegated) lands passively — no nudge.
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('nudges the recipient for a directed parcel along a directs edge (§6a)', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'fix the null case')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+    state.agents.review.directs = ['builder'] // review directs builder → directed → interrupts
+
+    await autoDispatchOutboxes(dir, state, tracker)
+    await autoDispatchOutboxes(dir, state, tracker)
+
     const inbox = join(getAgentDir(dir, 'builder'), 'handoff', 'in', 'received')
     const [parcelName] = await readdir(inbox)
     expect(nudgeAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         displayName: 'builder',
-        courier: `parcel ${parcelName} from review`,
+        courier: `delegated task ${parcelName} from review`,
       }),
     )
   })

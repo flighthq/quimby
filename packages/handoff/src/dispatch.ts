@@ -4,6 +4,7 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
+import { directsRecipient, honorsEscalation } from '@quimbyhq/workspace'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
 import {
@@ -24,6 +25,13 @@ export interface DispatchOutboxResult {
   /** Extra files the sender attached (via `agent.sh handoff --file`) that were carried along. */
   files?: string[]
   userDirected?: boolean
+  /** A bounded upward summon honored along the inverse-directs edge (§6b). */
+  escalation?: boolean
+  /**
+   * Whether this parcel should wake the recipient (§6a): a directed handoff, an honored escalation,
+   * or a reply. Advisory parcels are passive (false), so the caller does not nudge for them.
+   */
+  interrupts?: boolean
   error?: string
 }
 
@@ -123,6 +131,20 @@ export async function dispatchOutbox(opts: {
       }
       if (opts.beforeStage) await opts.beforeStage(codeSourceName)
 
+      // Classify the parcel's interrupt kind from sender intent + the directs graph (§6). The host
+      // validates intent against authority: a declared `directs` edge (or an explicit delegate)
+      // makes it directed; an `escalate` is honored only to the sender's escalation target, else
+      // normalized to an ordinary advisory. A reply (`replyTo`) interrupts the asker by correlation.
+      const userDirected = Boolean(draft.delegated) || directsRecipient(state, sender, recipient)
+      const escalation = Boolean(draft.escalate) && honorsEscalation(state, sender, recipient)
+      const interrupts = userDirected || escalation || Boolean(draft.replyTo)
+      const tags = {
+        userDirected,
+        escalation,
+        expectsReply: draft.expectsReply,
+        replyTo: draft.replyTo,
+      }
+
       const meta = isSSH(codeSource.location)
         ? await assembleRemoteHandoff({
             repoRoot,
@@ -133,7 +155,7 @@ export async function dispatchOutbox(opts: {
             projectId: state.id,
             to: recipient,
             note: draft.note || undefined,
-            userDirected: draft.delegated,
+            ...tags,
             resolveAttestation: opts.resolveAttestation,
           })
         : await assembleHandoff({
@@ -143,7 +165,7 @@ export async function dispatchOutbox(opts: {
             codeSourceId: codeSource.id,
             to: recipient,
             note: draft.note || undefined,
-            userDirected: draft.delegated,
+            ...tags,
             resolveAttestation: opts.resolveAttestation,
           })
 
@@ -175,6 +197,8 @@ export async function dispatchOutbox(opts: {
         hasNote: Boolean(draft.note),
         files: files.length > 0 ? files : undefined,
         userDirected: meta.userDirected,
+        escalation: escalation || undefined,
+        interrupts,
       })
     } catch (err) {
       results.push({
