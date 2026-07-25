@@ -15,6 +15,20 @@ export interface HandoffMeta {
   note?: string
   /** Host-stamped signal that the note carries user-directed work rather than peer advice. */
   userDirected?: boolean
+  /**
+   * A bounded upward summon (coordination-proposals §6b): interrupts the recipient like a directed
+   * parcel but grants NO authority. Host-honored only along the inverse-`directs` edge (to the
+   * sender's director) or an `escalatesTo` target; normalized to advisory otherwise.
+   */
+  escalation?: boolean
+  /** The sender expects a reply (coordination-proposals §6c); opens a one-shot reply window. */
+  expectsReply?: boolean
+  /**
+   * This parcel answers an earlier `expectsReply` question (its parcel name). The host grants the
+   * reply a one-shot interrupt back to the asker — authorized by the outstanding request, not an
+   * edge (coordination-proposals §6c).
+   */
+  replyTo?: string
   description: string
   suggestedMessage: string
   createdAt: string

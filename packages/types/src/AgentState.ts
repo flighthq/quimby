@@ -66,4 +66,13 @@ export interface AgentState {
    * live sessions, not disk.
    */
   enabled?: boolean
+  /**
+   * Agents this one may DIRECT on its own initiative (coordination-proposals §6). Copied from the
+   * agent's config entry at creation; a directed handoff along this edge is host-stamped
+   * `userDirected` and interrupts the recipient. Entries are agent names or a `@role` slot. The
+   * escalation target is the inverse of this edge unless `escalatesTo` overrides it.
+   */
+  directs?: string[]
+  /** Override the escalation target (else the inverse of `directs`). See coordination-proposals §6b. */
+  escalatesTo?: string
 }

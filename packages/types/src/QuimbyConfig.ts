@@ -32,6 +32,19 @@ export interface ConfiguredAgent {
    * a single agent. Combine with a `@role` layout slot to place a whole fleet in one pane.
    */
   count?: number
+  /**
+   * The coordination edge (coordination-proposals §6/§6a): agents this one may DIRECT on its own
+   * initiative. A directed handoff along a declared edge is host-stamped `userDirected` and is the
+   * only kind that interrupts (nudges) the recipient — advisory handoffs and status stay passive.
+   * Entries are agent names or a `@role` slot (expands to every instance of that role). Absent ⇒
+   * an ordinary advisory peer (default-deny). Escalation is the inverse of this edge.
+   */
+  directs?: string[]
+  /**
+   * Override the escalation target (coordination-proposals §6b). Escalation defaults to the inverse
+   * of `directs` (the agent that directs this one); set this to route an upward summon elsewhere.
+   */
+  escalatesTo?: string
 }
 
 export interface LayoutConfig {

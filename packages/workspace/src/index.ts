@@ -1,3 +1,4 @@
+export * from './authority'
 export * from './config'
 export * from './registry'
 export * from './remoteAdopt'
