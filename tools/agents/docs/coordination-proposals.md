@@ -152,6 +152,18 @@ The missing distinction is **summon vs. command**. Directing is downward authori
 
 The three channels now cover every direction: **down** = directed handoff (authority interrupt), **up** = escalate (summon interrupt, no authority), **lateral/ambient** = advisory + status (passive). Escalation reuses the existing `directs` graph (its inverse), so there is no new graph — only the `escalate` verb and the optional `escalatesTo` override. It stays safe against the original token/clobbering problem because it is bounded (director only), sender-chosen (routine passive), coalesced (§7a), and aimed at the coordinator's pane, never the operator's.
 
+### 6c. A question expecting a response — request/reply as a correlation, not a new direction
+
+The three channels (§6a/§6b) are fire-and-forget. A **question that expects a response** is a round-trip, and its load-bearing problem is the _return leg_: a cheap idle manager that asks a builder a question and ends its turn is never woken by the answer — the round-trip deadlocks on the async substrate. So the answer must be able to wake the asker.
+
+The resolution: **a reply interrupts the asker by _correlation_, not by edge** — authorized by "you asked," a one-shot per-exchange grant, never a standing relationship.
+
+- The **question** goes out on whatever channel its direction warrants (manager→builder = directed, interrupts; a builder's _blocking_ question upward = escalate; a lateral question = passive unless escalated), marked `expectsReply` — "open a reply window; I'll want to be woken by the answer." `ask` is _not_ a new interrupt channel: the question's own interrupt still follows the §6a/§6b rules.
+- The **reply** carries `replyTo: <question>`. The host honors an interrupt back to the asker **because the asker opened the exchange** — even across an edge the answerer could not otherwise interrupt (a builder answering its manager). The grant is scoped to that one reply and spent on use; it confers no standing upward-interrupt.
+- **§7 still wins:** a reply to an _attached_ asker (e.g. you, in principal) is not injected — it lands in the inbox to read. The correlation authorizes an interrupt; attachment still suppresses the injection.
+
+So request/reply is not a fourth direction — it is a **correlation overlaid on the existing channels**, the answer riding a consent-based, one-shot interrupt home. Safe by construction: bounded (one asker, one reply, only while outstanding), consent-based (the asker asked for it), granting no standing channel, and coalesced (§7a). A never-answered question simply expires (durable, non-destructive, no deadlock — re-ask or escalate). Mechanism: `expectsReply` on the question + `replyTo` on the answer + one host rule (a reply to an outstanding question interrupts the asker, once); `agent.sh ask <recipient>` / `agent.sh reply <parcel>` are sugar, both `handoff` underneath.
+
 ## 7. Attached-session nudge rule
 
 **Never `send-keys` into a session a human is attached to.** Quimby already distinguishes `attached` (a client is in `quimby run`) from `running` (detached/headless). When attached, the human is the driver and injection is both a collision (types over their input) and unnecessary — the parcel is durable in the inbox and `wake` reconciles it on the agent's next turn. So an attached-session nudge is **deferred or skipped**; injection stays unchanged for **detached/headless** agents, where it is the only wake path (preserving the keep-awake property). Optionally surface `N parcels held for <agent> (queued while you're attached)`.
