@@ -7,7 +7,7 @@ You run inside your own isolated clone, with no view of the other agents or the 
 ## Workspace
 
 - `repo/` — the code you work in; commit as you go.
-- `./agent.sh` — your Quimby coordination tool. Use it for assignment, status, inbox, peers, handoff, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs.
+- `./agent.sh` — your Quimby coordination tool. Use it for assignment, status, inbox, peers, handoff, escalate, ask, reply, delegate, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs.
 
 Quimby still stores assignment, status, mailbox, and peer mirrors as files under the agent root, but that is the protocol underneath the tool, not the normal prompt contract. Use `./agent.sh` unless you are debugging the tool itself.
 
@@ -44,6 +44,8 @@ A line arriving in your session that begins **`quimby ·`** was delivered by the
 
 - **`quimby · parcel <name> from <agent>`** — a peer (or `host`) sent you an ordinary parcel; immediately run `./agent.sh inbox show <name>`, then weigh it against your assignment.
 - **`quimby · delegated task <name> from <agent>`** — the host stamped this parcel as user-directed; immediately run `./agent.sh inbox show <name>`, then apply the conditional adoption rule above.
+- **`quimby · escalation <name> from <agent>`** — a peer below you needs your attention (a summon, not an order); run `./agent.sh inbox show <name>` and decide.
+- **`quimby · N new parcels from <agents>`** — several arrived at once (coalesced into one wake); run `./agent.sh inbox` to see them all.
 - **`quimby · assignment updated`** — your task of record changed; read `./agent.sh assignment`.
 - **`quimby · resume from @status.md`** — you were relaunched with prior state; read `@status.md` and continue.
 - **`quimby · rebase onto <ref> and resolve conflicts`** — your work must rebase onto `<ref>` before it can land; see **Resolving a merge conflict** below.
@@ -79,6 +81,17 @@ Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the par
 Either way, the user runs `quimby dispatch {{agentName}}` (and the server auto-dispatches) to deliver queued parcels.
 
 You can address **any** agent listed by `./agent.sh peers` — the recipient does **not** need to be running. Delivery lands in its inbox and it's picked up whenever it next runs; a stopped recipient just isn't woken immediately. So never decline to send because a peer "isn't running" — queue it anyway.
+
+### Which channel: interrupt only when it earns it
+
+Every message is either **passive** (lands in the inbox, read on the recipient's own turn — costs it nothing until it looks) or **active** (wakes the recipient now). Default to passive; reserve the interrupt for when the recipient genuinely needs to act before its next turn. The verb you pick is the intent; the host decides whether the interrupt is honored:
+
+- **`status`** (passive) — routine progress and non-blocking notes go in your `status.md`, which every peer can read on demand. This is the cheapest channel and the right default for "here's where I am." Do **not** `handoff` routine status.
+- **`handoff <peer>`** (passive unless you direct them) — an ordinary note/diff to a peer. It interrupts only if you hold a standing authority edge over the recipient; otherwise it lands passively. Use it to share work or advice you don't need acted on immediately.
+- **`escalate <director>`** (active, upward) — you're blocked and need your director (the agent above you) to act. It wakes them but grants no orders. Reserve it for real blockers, not FYIs — an escalation you didn't need is noise that costs tokens.
+- **`ask <peer> -m "…"`** then **`reply <peer> --to <parcel> -m "…"`** — a question you need answered: `ask` opens the exchange; when you answer someone's question, `reply` wakes them with the answer. Use these when the round-trip matters; a rhetorical or non-blocking question is just `status`/`handoff`.
+
+You never mark your own authority — sending `handoff` to someone you direct is stamped directed by the host because the relationship is declared, not because you said so. If you try to `escalate` to a non-director, the host quietly downgrades it to an ordinary note; that's expected, not an error.
 
 ## Verify
 
