@@ -57,6 +57,29 @@ export async function setAgentDefaults(
   await saveState(repoRoot, state)
 }
 
+/**
+ * Enable or disable an agent. A disabled agent is retained on disk (repo, mailbox, assignment,
+ * status) but is dropped from layout placement and never launched — the "keep the work, drop the
+ * live-session footprint" middle rung between `stop` (transient) and `remove` (destructive).
+ * Absence of the flag means enabled, so enabling deletes it (purely additive default).
+ */
+export async function setAgentEnabled(
+  repoRoot: string,
+  name: string,
+  enabled: boolean,
+): Promise<void> {
+  const state = await loadState(repoRoot)
+  if (!Object.hasOwn(state.agents, name)) {
+    throw new QuimbyError(`Agent "${name}" not found`)
+  }
+  if (enabled) {
+    delete state.agents[name].enabled
+  } else {
+    state.agents[name].enabled = false
+  }
+  await saveState(repoRoot, state)
+}
+
 export async function setAgentLocation(
   repoRoot: string,
   name: string,

@@ -58,4 +58,12 @@ export interface AgentState {
   check?: string
   /** Advisory check request default. Quimby asks the agent to attest; it never gates a merge. */
   verifyByDefault?: boolean
+  /**
+   * Whether the agent participates in launches. Absent ⇒ enabled (the default; purely additive).
+   * `false` ⇒ disabled: retained on disk (repo, mailbox, assignment, status) but dropped from
+   * layout placement and never launched (`quimby disable`/`enable`). The middle rung between
+   * `stop` (transient session end) and `remove` (destructive) — the binding fleet constraint is
+   * live sessions, not disk.
+   */
+  enabled?: boolean
 }

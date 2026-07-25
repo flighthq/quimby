@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   setAgentCheckCommand,
   setAgentDefaults,
+  setAgentEnabled,
   setAgentLocation,
   setAgentRuntimeProfile,
   setAgentSyncRef,
@@ -81,6 +82,23 @@ describe('setAgentDefaults', () => {
     const state = await loadState(dir)
     expect(state.agents.alice.defaults?.runtime).toBe('sbx')
     expect(state.agents.alice.defaults?.entrypoint).toBe('codex')
+  })
+})
+
+describe('setAgentEnabled', () => {
+  it('throws QuimbyError when the agent does not exist', async () => {
+    await expect(setAgentEnabled(dir, 'ghost', false)).rejects.toThrow('not found')
+  })
+
+  it('disables (flag false) and re-enables (flag cleared) an agent', async () => {
+    await addAgent(dir, 'alice')
+    expect((await loadState(dir)).agents.alice.enabled).toBeUndefined()
+
+    await setAgentEnabled(dir, 'alice', false)
+    expect((await loadState(dir)).agents.alice.enabled).toBe(false)
+
+    await setAgentEnabled(dir, 'alice', true)
+    expect((await loadState(dir)).agents.alice.enabled).toBeUndefined()
   })
 })
 
