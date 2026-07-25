@@ -112,6 +112,7 @@ export async function runNudgeCommand({
         clear: args.clear,
         displayName: args.agent,
         courier: 'assignment updated',
+        force: true,
         reporter: consolaReporter,
       })
     }
@@ -151,6 +152,7 @@ export async function runNudgeCommand({
         displayName: name,
         text: textFor(agent),
         dashboardSession: dashSession,
+        force: true,
         reporter: consolaReporter,
       })
     }
@@ -172,6 +174,7 @@ export async function runNudgeCommand({
     displayName: args.agent,
     text: textFor(agent),
     dashboardSession: dashSession,
+    force: true,
     reporter: consolaReporter,
   })
 }

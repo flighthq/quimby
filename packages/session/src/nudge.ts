@@ -8,6 +8,8 @@ import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 
+import { getAgentSessionState } from './sessionState'
+
 // Every quimby tmux command targets the dedicated `-L quimby` server, or it would look
 // at the user's default server and never find the agent sessions.
 const TMUX = ['-L', quimbyTmuxSocket]
@@ -99,6 +101,12 @@ export async function nudgeAgentSession(opts: {
    */
   courier?: string
   dashboardSession?: string
+  /**
+   * Bypass the §7 attached-session skip. Automated nudges (assign/handoff/dispatch) leave this
+   * unset so they never inject over a human in `quimby run`; the explicit `quimby nudge` sets it,
+   * since that is the human deliberately typing into the session.
+   */
+  force?: boolean
   reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, dashboardSession } = opts
@@ -124,6 +132,17 @@ export async function nudgeAgentSession(opts: {
   }
 
   const session = tmuxSessionName(agent.id)
+
+  // §7 (coordination-proposals): never inject into a session a human is attached to — it types
+  // over their input, and the work is already durable in the inbox/assignment, so a deferred nudge
+  // loses nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
+  if (!opts.force && (await getAgentSessionState(agent)) === 'attached') {
+    reporter.info(
+      `Held nudge for "${displayName}" — you're attached to it; it'll pick up the delivered ` +
+        `work on your next turn (\`quimby nudge ${displayName}\` forces it).`,
+    )
+    return
+  }
 
   try {
     if (isSSH(agent.location)) {

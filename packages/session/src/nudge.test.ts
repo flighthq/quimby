@@ -6,15 +6,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildRemoteNudgeCommand, hasAgentSession, nudgeAgentSession } from './nudge'
 
 const execa = vi.hoisted(() => vi.fn())
+const getSessionState = vi.hoisted(() => vi.fn(async () => 'running' as string))
 
 vi.mock('execa', () => ({ execa }))
 // The `/clear` settle delay is real time — collapse it so the clear-path test is fast.
 vi.mock('node:timers/promises', () => ({ setTimeout: vi.fn(async () => {}) }))
+// The §7 attached-skip probes getAgentSessionState; default it to `running` (skip bypassed) so the
+// existing send/warn tests are unaffected — the attached-skip tests override it to `attached`.
+vi.mock('./sessionState', () => ({ getAgentSessionState: getSessionState }))
 
 let prevTmux: string | undefined
 
 beforeEach(() => {
   execa.mockReset()
+  getSessionState.mockReset()
+  getSessionState.mockResolvedValue('running')
   // No quimby tmux server in test: `has-session` (and every tmux call) fails by
   // default, so a nudge warns rather than pretending a live session exists.
   execa.mockRejectedValue(new Error('no tmux server'))
@@ -269,5 +275,30 @@ describe('nudgeAgentSession', () => {
     const warn = events.find((e) => e.level === 'warn')?.message ?? ''
     expect(warn).toContain('quimby start reviewer')
     expect(warn).not.toContain('quimby run')
+  })
+
+  it('holds the nudge (no send-keys) when the recipient is attached — §7', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    execa.mockResolvedValue({})
+    const { reporter, events } = collectingReporter()
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(false)
+    expect(events.some((e) => e.message.includes('Held nudge'))).toBe(true)
+  })
+
+  it('forces the nudge into an attached session when force is set', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    execa.mockResolvedValue({})
+    const { reporter } = collectingReporter()
+    await nudgeAgentSession({
+      agent: localWithTmux,
+      displayName: 'reviewer',
+      text: 'go',
+      force: true,
+      reporter,
+    })
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(true)
   })
 })
