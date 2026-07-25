@@ -1,9 +1,11 @@
 # Quimby — Design
 
-This is the authoritative design document. Two companion docs are split out to keep each readable:
+This is the authoritative design document (shipped behavior). Companion docs are split out to keep each readable — see the [docs index](../README.md) for the full map and the idea lifecycle:
 
 - **[cli-surface.md](./cli-surface.md)** — the complete command and flag reference.
 - **[design-decisions.md](./design-decisions.md)** — the rationale log (why each choice was made, and what was rejected).
+- **[developing.md](./developing.md)** — contributor on-ramp: architecture tour and how to add a package, command, or type.
+- **[ideas.md](./ideas.md)** — the living catalog of prospective (not-yet-shipped) ideas, with status.
 - **[coordination-proposals.md](./coordination-proposals.md)** — _proposed, not yet implemented_: a scaffolded `agent.sh` orient/recover/checkpoint set, a read-only `commons/` channel, directed-relationship authority (`directs`), and the attached-session nudge rule.
 
 ## Overview
