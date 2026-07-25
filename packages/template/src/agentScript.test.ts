@@ -68,8 +68,12 @@ function makeAgentWorkspace(): string {
   return root
 }
 
-function runSh(root: string, args: string[], cwd = root): string {
-  return execFileSync('sh', [join(root, 'agent.sh'), ...args], { cwd, encoding: 'utf-8' })
+function runSh(root: string, args: string[], cwd = root, env?: Record<string, string>): string {
+  return execFileSync('sh', [join(root, 'agent.sh'), ...args], {
+    cwd,
+    encoding: 'utf-8',
+    env: { ...process.env, ...env },
+  })
 }
 
 afterEach(() => {
@@ -178,6 +182,25 @@ describe('renderAgentScript', () => {
     const root = makeAgentWorkspace()
     expect(() => runSh(root, ['reply', 'manager', '-m', 'answer'])).toThrow()
   })
+
+  it.runIf(posix)('inbox show reads a delivered parcel', () => {
+    const root = makeAgentWorkspace()
+    mkdirSync(join(root, 'handoff', 'in', 'received', 'peer-xyz'), { recursive: true })
+    writeFileSync(join(root, 'handoff', 'in', 'received', 'peer-xyz', 'README.md'), 'the note')
+    expect(runSh(root, ['inbox', 'show', 'peer-xyz'])).toContain('the note')
+  })
+
+  it.runIf(posix)(
+    'inbox show retries the mount-sync window, then reports a not-landed parcel',
+    () => {
+      const root = makeAgentWorkspace()
+      // QA_INBOX_RETRIES=1 collapses the retry window so a genuinely-absent parcel fails fast; the
+      // message draws the transient-vs-loss line ("announced but not landed") rather than a bare miss.
+      expect(() =>
+        runSh(root, ['inbox', 'show', 'ghost-abc'], root, { QA_INBOX_RETRIES: '1' }),
+      ).toThrow(/not landed/)
+    },
+  )
 
   it.runIf(posix)(
     'handoff works when invoked from inside repo/ (root is resolved by walking up)',

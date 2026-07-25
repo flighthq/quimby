@@ -45,7 +45,7 @@ A line arriving in your session that begins **`quimby ·`** was delivered by the
 - **`quimby · parcel <name> from <agent>`** — a peer (or `host`) sent you an ordinary parcel; immediately run `./agent.sh inbox show <name>`, then weigh it against your assignment.
 - **`quimby · delegated task <name> from <agent>`** — the host stamped this parcel as user-directed; immediately run `./agent.sh inbox show <name>`, then apply the conditional adoption rule above.
 - **`quimby · escalation <name> from <agent>`** — a peer below you needs your attention (a summon, not an order); run `./agent.sh inbox show <name>` and decide.
-- **`quimby · N new parcels from <agents>`** — several arrived at once (coalesced into one wake); run `./agent.sh inbox` to see them all.
+- **`quimby · N new parcels from <agents>`** — several arrived at once (coalesced into one wake); run `./agent.sh inbox` to see them all. If it looks empty right after this line, that's a brief guest mount-sync lag — wait a moment and re-run (`inbox show <name>` already retries this window for you).
 - **`quimby · assignment updated`** — your task of record changed; read `./agent.sh assignment`.
 - **`quimby · resume from @status.md`** — you were relaunched with prior state; read `@status.md` and continue.
 - **`quimby · rebase onto <ref> and resolve conflicts`** — your work must rebase onto `<ref>` before it can land; see **Resolving a merge conflict** below.

@@ -36,7 +36,7 @@ Why it also fixes the race: `wake` lists **all** unprocessed parcels (`in/receiv
 - Subsumes the **orientation** leads (parcel / delegated / assignment-updated / resume). Keeps the **action** lead (`rebase onto <ref>`) separate — that's an instruction to _do_, not orient.
 - Keeps the granular verbs (`inbox show`, `assignment set`, `status set`, `peers <name>`) for drill-down; `wake` is additive.
 - Surfaces two **mechanism facts** (not policy): repo-health (wedged?) and carryability (which repo/branch you're in, and whether it's the branch Quimby seeds against — the "committed to the wrong repo / branched away and lost the work" guard).
-- Backstop even if reconcile isn't enough: `inbox show`/`inbox list` should retry a few times over ~1–2s before dying (closing the guest-cache window), and draw the transient-vs-loss line at the retry boundary — surface a real miss only after the window, when the file truly isn't there.
+- Backstop even if reconcile isn't enough: `inbox show`/`inbox list` should retry a few times over ~1–2s before dying (closing the guest-cache window), and draw the transient-vs-loss line at the retry boundary — surface a real miss only after the window, when the file truly isn't there. **Implemented** for the name-carrying path: `agent.sh inbox show`/`done` now poll via `qa_await_dir` (default 3 tries ≈ 2s, `QA_INBOX_RETRIES`-tunable) and report "announced but not landed" only after the window. `inbox list` is deliberately left non-retrying (it would add ~2s to the common genuinely-empty check); the coalesced-courier prose instead tells the agent to re-run if the list looks empty right after the wake. The name-independent `wake` (above) remains the fuller fix.
 
 ## 2. `agent.sh rebase` — a guarded conflict-resolution driver
 
