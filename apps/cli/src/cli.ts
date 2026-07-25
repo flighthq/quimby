@@ -22,6 +22,8 @@ const main = defineCommand({
     start: () => import('./commands/start').then((m) => m.default),
     restart: () => import('./commands/restart').then((m) => m.default),
     stop: () => import('./commands/stop').then((m) => m.default),
+    enable: () => import('./commands/enable').then((m) => m.default),
+    disable: () => import('./commands/disable').then((m) => m.default),
     list: () => import('./commands/list').then((m) => m.default),
     sessions: () => import('./commands/sessions').then((m) => m.default),
     status: () => import('./commands/status').then((m) => m.default),
