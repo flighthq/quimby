@@ -140,6 +140,18 @@ Two operator desires fall out with no extra mechanism:
 
 Escape hatches keep this safe to commit to: the **human at the CLI** (`quimby nudge`/`assign`) overrides everything — these rules govern _agent↔agent_ nudges only; and "tell the human a decision awaits" is a _notification to you_ (out-of-band), never an agent nudging into your pane. **Escalation** is the inverse of `directs`, derived (builder→manager, manager→principal, critic→principal); an explicit `escalatesTo: <agent>` overrides it. There is deliberately **no handoff allow-list** — a rare hard partition is a default-OPEN `peers:` deny naming the few forbidden edges, never a per-pair allow-list.
 
+### 6b. Escalation is the active _upward_ channel — summon, not command
+
+The active/passive rule as stated in §6a has a gap: if only _directed_ (downward, authority) handoffs interrupt, an agent with no inbound `directs` edge can never be woken by those below it. That breaks the cheap **manager** — builders don't direct it, so a blocked builder's report lands passively, and an idle manager (a cheap model that acts only when nudged, not a continuous process) never wakes to read it. The coordinator role becomes unreachable from below.
+
+The missing distinction is **summon vs. command**. Directing is downward authority ("do X"); _escalating_ is upward attention ("I need you") — it must interrupt, but grants no authority. A builder must be able to **summon** its manager without **directing** it. So escalation is a third channel: a **bounded, non-authoritative upward interrupt**.
+
+- **`escalate`** (agent-side verb / `--escalate`) marks a parcel as an active upward summon. It nudges the recipient exactly like a directed handoff, but stamps **no** `userDirected` — "wake up and look," not "obey."
+- **Bounded to your director.** The host honors the escalation-interrupt only along the _inverse_ `directs` edge — to the agent that directs you (builder→manager, manager→principal) — or an explicit `escalatesTo: <agent>` override. An `--escalate` aimed anywhere else is normalized down to an ordinary advisory (passive), the same non-destructive normalize-don't-reject rule as authority, so escalation never becomes sideways interrupt-spam.
+- **Sender-chosen, so routine stays passive.** Only the parcels the builder _chooses_ to escalate wake the manager; progress reports still land passively. This is the "only blockers wake the coordinator" property that keeps the token cost down.
+
+The three channels now cover every direction: **down** = directed handoff (authority interrupt), **up** = escalate (summon interrupt, no authority), **lateral/ambient** = advisory + status (passive). Escalation reuses the existing `directs` graph (its inverse), so there is no new graph — only the `escalate` verb and the optional `escalatesTo` override. It stays safe against the original token/clobbering problem because it is bounded (director only), sender-chosen (routine passive), coalesced (§7a), and aimed at the coordinator's pane, never the operator's.
+
 ## 7. Attached-session nudge rule
 
 **Never `send-keys` into a session a human is attached to.** Quimby already distinguishes `attached` (a client is in `quimby run`) from `running` (detached/headless). When attached, the human is the driver and injection is both a collision (types over their input) and unnecessary — the parcel is durable in the inbox and `wake` reconciles it on the agent's next turn. So an attached-session nudge is **deferred or skipped**; injection stays unchanged for **detached/headless** agents, where it is the only wake path (preserving the keep-awake property). Optionally surface `N parcels held for <agent> (queued while you're attached)`.
