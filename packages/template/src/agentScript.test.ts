@@ -159,6 +159,26 @@ describe('renderAgentScript', () => {
     expect(() => runSh(root, ['delegate', 'worker'])).toThrow()
   })
 
+  it.runIf(posix)('escalate/ask/reply write the host-parseable interrupt tags', () => {
+    const root = makeAgentWorkspace()
+    const read = (recipient: string): string =>
+      readFileSync(join(root, 'handoff', 'out', 'queued', recipient, 'README.md'), 'utf-8')
+
+    runSh(root, ['escalate', 'manager', '-m', 'blocked on X'])
+    expect(read('manager')).toBe('---\nescalate: true\n---\nblocked on X\n')
+
+    runSh(root, ['ask', 'builder', '-m', 'which auth did you use?'])
+    expect(read('builder')).toBe('---\nexpects-reply: true\n---\nwhich auth did you use?\n')
+
+    runSh(root, ['reply', 'manager', '--to', 'manager-abc123', '-m', 'used OAuth'])
+    expect(read('manager')).toBe('---\nreply-to: manager-abc123\n---\nused OAuth\n')
+  })
+
+  it.runIf(posix)('reply requires --to <parcel>', () => {
+    const root = makeAgentWorkspace()
+    expect(() => runSh(root, ['reply', 'manager', '-m', 'answer'])).toThrow()
+  })
+
   it.runIf(posix)(
     'handoff works when invoked from inside repo/ (root is resolved by walking up)',
     () => {
