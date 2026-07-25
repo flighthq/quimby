@@ -212,6 +212,32 @@ describe('dispatchOutbox', () => {
     expect(toIntegration.interrupts).toBeFalsy()
   })
 
+  it('honors a reply-interrupt only when the replyTo parcel is in the replier’s inbox (§6c)', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    // review really received a question parcel named "builder-q1".
+    await mkdir(getAgentHandoffInReceivedParcelDir(dir, 'review', 'builder-q1'), {
+      recursive: true,
+    })
+
+    await stageDraft(dir, 'review', 'builder', '---\nreply-to: builder-q1\n---\nhere is the answer')
+    const [honored] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+    expect(honored.interrupts).toBe(true)
+
+    // A reply to a parcel review never received → normalized to an ordinary advisory (passive).
+    await stageDraft(dir, 'review', 'builder', '---\nreply-to: ghost-q9\n---\nspurious')
+    const [spurious] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+    expect(spurious.interrupts).toBeFalsy()
+  })
+
   it('fails when attach references a nonexistent code source', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

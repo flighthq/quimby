@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import {
   getAgentDir,
+  getAgentHandoffInReceivedParcelDir,
   getAgentHandoffOutDraftRecipientDir,
   getAgentHandoffOutQueuedDir,
   getAgentHandoffOutQueuedRecipientDir,
@@ -20,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteOutboxDraft,
   copyOutboxExtraFiles,
+  hasInboxParcel,
   markHandoffSent,
   pickupRemoteOutbox,
   readOutboxDraft,
@@ -168,6 +170,19 @@ describe('copyOutboxExtraFiles', () => {
     const copied = await copyOutboxExtraFiles(dir, 'review', 'builder', destDir)
     expect(copied).toEqual(['notes.txt'])
     expect(await exists(join(destDir, 'commits'))).toBe(false)
+  })
+})
+
+describe('hasInboxParcel', () => {
+  const agent = { id: 'review', name: 'review', location: { type: 'local' } } as AgentState
+
+  it('is true for a parcel in the received tray and false for an absent one', async () => {
+    await setupAgentRepo(dir, 'review')
+    await mkdir(getAgentHandoffInReceivedParcelDir(dir, 'review', 'builder-q1'), {
+      recursive: true,
+    })
+    expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q1')).toBe(true)
+    expect(await hasInboxParcel(dir, agent, 'proj', 'ghost-q9')).toBe(false)
   })
 })
 

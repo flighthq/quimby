@@ -1,10 +1,14 @@
 import { readdir, readFile, rename, rm } from 'node:fs/promises'
 
 import {
+  getAgentHandoffInProcessedDir,
+  getAgentHandoffInReceivedParcelDir,
   getAgentHandoffOutQueuedDir,
   getAgentHandoffOutQueuedRecipientDir,
   getAgentHandoffOutSentDir,
   getAgentHandoffOutSentRecipientDir,
+  remoteAgentHandoffInProcessedDir,
+  remoteAgentHandoffInReceivedDir,
   remoteAgentHandoffOutQueuedDir,
   remoteAgentHandoffOutSentDir,
 } from '@quimbyhq/paths'
@@ -125,6 +129,36 @@ export async function readOutboxDraft(
   )
   if (!(await exists(readmePath))) return { note: '' }
   return parseDraft(await readFile(readmePath, 'utf-8'))
+}
+
+/**
+ * Whether a parcel named `parcelName` is in `agent`'s inbox (received or processed). Backs the
+ * reply-correlation check (coordination-proposals §6c): a `reply --to <parcel>` is honored as an
+ * interrupt only if that parcel is really something the replier received — otherwise it is
+ * normalized to an ordinary advisory, so a stray `replyTo` can't wake someone who never asked.
+ * Best-effort: any lookup failure (unreachable SSH host, etc.) reads as absent.
+ */
+export async function hasInboxParcel(
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+  projectId: string,
+  parcelName: string,
+): Promise<boolean> {
+  if (isSSH(agent.location)) {
+    const received = remoteAgentHandoffInReceivedDir(projectId, agent.id, agent.location.base)
+    const processed = remoteAgentHandoffInProcessedDir(projectId, agent.id, agent.location.base)
+    try {
+      await getSSHTransport(agent.location).exec(
+        `test -d ${sq(join(received, parcelName))} || test -d ${sq(join(processed, parcelName))}`,
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+  const received = getAgentHandoffInReceivedParcelDir(repoRoot, agent.id, parcelName)
+  const processed = join(getAgentHandoffInProcessedDir(repoRoot, agent.id), parcelName)
+  return (await exists(received)) || (await exists(processed))
 }
 
 /** List recipients with a queued parcel in `out/queued/` (local agents). */

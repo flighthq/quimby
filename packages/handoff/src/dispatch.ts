@@ -10,6 +10,7 @@ import { assembleHandoff, assembleRemoteHandoff } from './assemble'
 import {
   clearRemoteOutboxDraft,
   copyOutboxExtraFiles,
+  hasInboxParcel,
   markHandoffSent,
   pickupRemoteOutbox,
   readOutboxDraft,
@@ -137,7 +138,12 @@ export async function dispatchOutbox(opts: {
       // normalized to an ordinary advisory. A reply (`replyTo`) interrupts the asker by correlation.
       const userDirected = Boolean(draft.delegated) || directsRecipient(state, sender, recipient)
       const escalation = Boolean(draft.escalate) && honorsEscalation(state, sender, recipient)
-      const interrupts = userDirected || escalation || Boolean(draft.replyTo)
+      // A reply interrupts the asker only if it answers a parcel actually in the replier's inbox
+      // (§6c) — else a stray `replyTo` is normalized to an ordinary advisory.
+      const replyHonored = draft.replyTo
+        ? await hasInboxParcel(repoRoot, senderState, state.id, draft.replyTo)
+        : false
+      const interrupts = userDirected || escalation || replyHonored
       const tags = {
         userDirected,
         escalation,
