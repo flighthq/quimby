@@ -10,6 +10,7 @@ import {
   isServiceToken,
   layoutWeights,
   parseLayout,
+  pruneLayoutNames,
   roleInstanceResolver,
   roleNameOf,
   serviceNameOf,
@@ -339,6 +340,29 @@ describe('parseLayout', () => {
 
   it('throws on a non-positive weight', () => {
     expect(() => parseLayout('a:0 | b')).toThrow(/positive/i)
+  })
+})
+
+describe('pruneLayoutNames', () => {
+  const drop = (dropped: string[]) => (name: string) => dropped.includes(name)
+
+  it('drops a rejected leaf from a tab pane and keeps the rest', () => {
+    const pruned = pruneLayoutNames(parseLayout('a b'), drop(['b']))
+    expect(pruned).toEqual({ type: 'tabs', names: ['a'] })
+  })
+
+  it('collapses a pane emptied by the prune within a split', () => {
+    const pruned = pruneLayoutNames(parseLayout('a | b'), drop(['b']))
+    expect(collectLayoutAgents(pruned!)).toEqual(['a'])
+  })
+
+  it('returns null when every leaf is dropped', () => {
+    expect(pruneLayoutNames(parseLayout('a | b'), drop(['a', 'b']))).toBeNull()
+  })
+
+  it('never drops a host/service token (the predicate only matches agents)', () => {
+    const pruned = pruneLayoutNames(parseLayout('a | host'), drop(['a']))
+    expect(collectLayoutAgents(pruned!)).toEqual(['host'])
   })
 })
 

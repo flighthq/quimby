@@ -34,6 +34,7 @@ import {
   isServiceToken,
   layoutWeights,
   parseLayout,
+  pruneLayoutNames,
   roleInstanceResolver,
   serviceNameOf,
 } from '@quimbyhq/layout'
@@ -425,7 +426,12 @@ async function runNamedLayout(name: string, includeHost: boolean): Promise<void>
       .filter(Boolean)
       .filter((n) => n !== HOST_WINDOW),
     roleInstanceResolver(state),
-  )
+  ).filter((n) => state.agents[n]?.enabled !== false)
+  if (names.length === 0) {
+    throw new QuimbyError(
+      `Every agent in "${name}" is disabled — enable one with \`quimby enable <agent>\`.`,
+    )
+  }
   const currentSession = await currentQuimbyTmuxSessionName()
   if (currentSession && isProjectTmuxSession(currentSession, state)) {
     await attachWithinCurrentSession(names)
@@ -1145,8 +1151,15 @@ async function runPanelDashboard(expr: string): Promise<void> {
   const { state, repoRoot } = await resolveWorkspace()
   // `@role` slots resolve to concrete instances before anything downstream (validation, view
   // sessions, tmux marking) sees a name — the same expansion `quimby layout --json` performs,
-  // so the rendered dashboard and the published plan agree.
-  const layout = expandRoleSlots(parsed, roleInstanceResolver(state))
+  // so the rendered dashboard and the published plan agree. Then prune disabled agents so the
+  // dashboard opens exactly the enabled set without editing the layout expr (§8).
+  const expanded = expandRoleSlots(parsed, roleInstanceResolver(state))
+  const layout = pruneLayoutNames(expanded, (name) => state.agents[name]?.enabled === false)
+  if (!layout) {
+    throw new QuimbyError(
+      'Every agent in this layout is disabled — enable one with `quimby enable <agent>`.',
+    )
+  }
 
   const currentSession = await currentQuimbyTmuxSessionName()
   if (currentSession && isProjectTmuxSession(currentSession, state)) {

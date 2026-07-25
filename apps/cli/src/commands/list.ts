@@ -104,12 +104,16 @@ export async function runListCommand() {
       // running = detached (headless, `quimby start`); attached = a client is in
       // `quimby run`; stopped = no session. A local non-tmux agent reads as stopped
       // (it has no session to probe even while a foreground `run` is live).
+      // A disabled agent (`quimby disable`) is retained on disk but excluded from launches, so
+      // its label takes precedence over the (necessarily stopped) session probe.
       const stateStr =
-        sessionStateValue === 'attached'
-          ? cyan('● attached')
-          : sessionStateValue === 'running'
-            ? green('● running')
-            : dim('○ stopped')
+        agent.enabled === false
+          ? yellow('⊘ disabled')
+          : sessionStateValue === 'attached'
+            ? cyan('● attached')
+            : sessionStateValue === 'running'
+              ? green('● running')
+              : dim('○ stopped')
 
       // The short id matches the tmux session (`qb-<id8>`) and sandbox names, so the
       // roster correlates with `tmux ls` / `sbx ls`.

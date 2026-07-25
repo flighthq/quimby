@@ -24,6 +24,7 @@ import {
   expandRoleSlots,
   isServiceToken,
   parseLayout,
+  pruneLayoutNames,
   roleInstanceResolver,
   serviceNameOf,
 } from './layout'
@@ -103,7 +104,16 @@ export async function buildResolvedLayoutPlan({
   // Expand `@role` slots to concrete instances up front, so validation, planning, and the
   // tmux-marking below all operate on real agent names — and `quimby layout --json` (the VS Code
   // viewport) receives already-resolved terminals, keeping quimby the single layout resolver.
-  const parsed = expandRoleSlots(parseLayout(expr), roleInstanceResolver(state))
+  const expanded = expandRoleSlots(parseLayout(expr), roleInstanceResolver(state))
+  // Prune disabled agents so a saved layout opens exactly the enabled set without editing its
+  // `expr` (see coordination-proposals §8). A pane emptied by the prune collapses; if nothing
+  // survives, the layout is entirely disabled and there is nothing to open.
+  const parsed = pruneLayoutNames(expanded, (name) => state.agents[name]?.enabled === false)
+  if (!parsed) {
+    throw new Error(
+      `Every agent placed by "${resolvedName}" is disabled — enable one with \`quimby enable <agent>\`.`,
+    )
+  }
   validateLayoutPlan(parsed, config, state)
   const root = await planNode(parsed, { config, state, repoRoot, commandMode })
   if (commandMode === 'direct' && markLocalAgentsTmux(state, parsed)) {

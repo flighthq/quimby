@@ -110,6 +110,30 @@ export function expandRoleSlotNames(
   return out
 }
 
+// Drop agent leaves the predicate rejects (e.g. disabled agents), collapsing any pane or split
+// left empty — so `quimby run` on a saved layout opens exactly the surviving set without the
+// layout `expr` being edited ("disable one without redoing the whole layout"). Runs AFTER
+// `expandRoleSlots`, so a `@role` slot whose every instance is disabled collapses its pane rather
+// than mis-reporting an empty role. Returns null when nothing survives (the caller reports it).
+// Host/service tokens never match an agent-keyed predicate, so a `(host $serve)` pane always stays.
+export function pruneLayoutNames(
+  node: Readonly<LayoutNode>,
+  shouldDrop: (name: string) => boolean,
+): LayoutNode | null {
+  if (node.type === 'tabs') {
+    const names = node.names.filter((name) => !shouldDrop(name))
+    if (names.length === 0) return null
+    return node.weight !== undefined ? { type: 'tabs', names, weight: node.weight } : { type: 'tabs', names } // prettier-ignore
+  }
+  const children = node.children
+    .map((child) => pruneLayoutNames(child, shouldDrop))
+    .filter((child): child is LayoutNode => child !== null)
+  if (children.length === 0) return null
+  return node.weight !== undefined
+    ? { type: node.type, children, weight: node.weight }
+    : { type: node.type, children }
+}
+
 // A `@role` slot resolves to every agent whose `role` is that role, plus a legacy agent literally
 // named after it (mirroring `resolveAgentLaunchDefaults`'s `agent.role ?? agent.name` fallback),
 // in creation order — so `builder`, `builder-2`, `builder-3` tab in the order they were made.
