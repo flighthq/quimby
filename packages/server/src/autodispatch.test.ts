@@ -138,6 +138,29 @@ describe('autoDispatchOutboxes', () => {
     )
   })
 
+  it('coalesces a cycle’s interrupting parcels into one nudge per recipient (§7a)', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('integration')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'fix A')
+    await stageDraft('integration', 'builder', 'fix B')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'integration', 'builder')
+    state.agents.review.directs = ['builder']
+    state.agents.integration.directs = ['builder']
+
+    await autoDispatchOutboxes(dir, state, tracker) // settle cycle
+    await autoDispatchOutboxes(dir, state, tracker) // deliver both → one coalesced wake
+
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
+    expect(nudgeAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayName: 'builder',
+        courier: expect.stringContaining('2 new parcels'),
+      }),
+    )
+  })
+
   it('embeds the sender attestation in the auto-dispatched parcel meta', async () => {
     await setupAgentRepo('review')
     await setupAgentRepo('builder')

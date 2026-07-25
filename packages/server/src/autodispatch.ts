@@ -6,7 +6,7 @@ import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import type { QuimbyState } from '@quimbyhq/types'
+import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { join } from 'pathe'
 
 export interface OutboxDispatchTracker {
@@ -20,6 +20,13 @@ export async function autoDispatchOutboxes(
   tracker: OutboxDispatchTracker,
   reporter: Reporter = silentReporter,
 ): Promise<void> {
+  // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
+  // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
+  // N times. Delivery stays per-parcel and immediate; only the wake is batched.
+  const pending = new Map<
+    string,
+    { agent: AgentState; descriptors: string[]; senders: Set<string> }
+  >()
   for (const sender of Object.keys(state.agents)) {
     const senderAgent = state.agents[sender]
     const senderId = senderAgent.id
@@ -70,7 +77,7 @@ export async function autoDispatchOutboxes(
           `  delivered "${sender}" → "${result.recipient}" (${result.parcelName})${fileSuffix}`,
         )
         // §6a: only a directed / escalation / reply parcel interrupts. Advisory parcels land
-        // passively (the recipient reads them on its own turn), so auto-dispatch does not nudge.
+        // passively (the recipient reads them on its own turn), so no nudge is accrued for them.
         const recip = state.agents[result.recipient]
         if (recip && result.interrupts && result.parcelName) {
           const kind = result.escalation
@@ -78,12 +85,14 @@ export async function autoDispatchOutboxes(
             : result.userDirected
               ? 'delegated task'
               : 'parcel'
-          await nudgeAgentSession({
+          const entry = pending.get(result.recipient) ?? {
             agent: recip,
-            displayName: result.recipient,
-            courier: `${kind} ${result.parcelName} from ${sender}`,
-            reporter,
-          })
+            descriptors: [],
+            senders: new Set<string>(),
+          }
+          entry.descriptors.push(`${kind} ${result.parcelName} from ${sender}`)
+          entry.senders.add(sender)
+          pending.set(result.recipient, entry)
         }
       } else if (result.status === 'unknown') {
         reporter.warn(`  "${result.recipient}" is not an agent — left in "${sender}" outbox to fix`)
@@ -91,6 +100,16 @@ export async function autoDispatchOutboxes(
         reporter.warn(`  failed "${sender}" → "${result.recipient}": ${result.error}`)
       }
     }
+  }
+
+  // Flush the coalesced wakes: one nudge per recipient for the whole cycle. A single parcel keeps
+  // its specific courier; several collapse to a count naming the senders (§7a).
+  for (const [recipient, entry] of pending) {
+    const courier =
+      entry.descriptors.length === 1
+        ? entry.descriptors[0]
+        : `${entry.descriptors.length} new parcels from ${[...entry.senders].join(', ')}`
+    await nudgeAgentSession({ agent: entry.agent, displayName: recipient, courier, reporter })
   }
 }
 
