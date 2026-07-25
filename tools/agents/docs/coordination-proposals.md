@@ -124,11 +124,55 @@ presets:
 - **An imperative `quimby direct` command** — would write to ignored config (invisible grant) and adds surface; hand-authored tracked config is the point.
 - **Prose as permission** (a free-text description gating authority) — the host needs a structured, enumerable fact to decide stamping; English can't gate authority, and reading authority out of message/description text is the "message text never grants authority" line. A `note:`/comment is fine as a _human annotation_ beside the structured edge, never as the mechanism.
 
+### 6a. The same edge gates _interruption_: active vs passive channels
+
+A second, sharper reading of the edge: `directs` also answers _who may interrupt whom_. Split the two ways a message reaches a recipient:
+
+- **Passive** (never interrupts): the status mirror, and _any advisory handoff_. It lands in the inbox and is read on the recipient's own turn. Open to everyone — this is collaboration, and it costs the recipient nothing until it chooses to look.
+- **Active** (interrupts — a `tmux send-keys` nudge): a **directed** handoff, i.e. one that travels a `directs` edge (host-stamped `userDirected`). Only these wake a running agent.
+
+So a `directs` edge means "may interrupt on its own initiative" — the _same_ fact as "may direct." This **moves handoff's nudge trigger from note-presence to directed-ness** (superseding the "handoff nudges when a note is present" rule in the nudge-policy decision): a note without authority is passive; authority is what earns the interrupt.
+
+Two operator desires fall out with no extra mechanism:
+
+- _"Only the manager decides when to interrupt a worker."_ The manager is the builder's only inbound edge, so only its parcels nudge; a peer's note or a critic's finding lands passively. The manager keeps the _timing_ lever too — `--no-nudge` queues a directive without interrupting, for "pick this up when you finish your turn."
+- _"No one interrupts the principal."_ Nothing `directs` the principal (nothing is above it), so no handoff ever nudges it — reinforced by §7 (you're attached to it). "Never," for free, no special case.
+
+Escape hatches keep this safe to commit to: the **human at the CLI** (`quimby nudge`/`assign`) overrides everything — these rules govern _agent↔agent_ nudges only; and "tell the human a decision awaits" is a _notification to you_ (out-of-band), never an agent nudging into your pane. **Escalation** is the inverse of `directs`, derived (builder→manager, manager→principal, critic→principal); an explicit `escalatesTo: <agent>` overrides it. There is deliberately **no handoff allow-list** — a rare hard partition is a default-OPEN `peers:` deny naming the few forbidden edges, never a per-pair allow-list.
+
 ## 7. Attached-session nudge rule
 
 **Never `send-keys` into a session a human is attached to.** Quimby already distinguishes `attached` (a client is in `quimby run`) from `running` (detached/headless). When attached, the human is the driver and injection is both a collision (types over their input) and unnecessary — the parcel is durable in the inbox and `wake` reconciles it on the agent's next turn. So an attached-session nudge is **deferred or skipped**; injection stays unchanged for **detached/headless** agents, where it is the only wake path (preserving the keep-awake property). Optionally surface `N parcels held for <agent> (queued while you're attached)`.
 
 This is only safe _because_ of the principle at the top — durable inbox + name-independent `wake` mean a deferred nudge loses nothing. The chattiness half (agents over-handing-off) is also softened by §6's enriched status: agents handoff less when they can _see_ peer progress instead of sending a parcel to report it.
+
+### 7a. Coalesce, don't drop — one nudge per poll window
+
+The attached guard defers; it should also **coalesce**. Delivery and nudging are already separable (parcels land in the inbox immediately, losslessly); only the _wake_ is debounced. So a per-recipient pending-nudge accumulates the directed parcels arriving within a poll window and emits **one** nudge ("3 new directives") rather than N. This cuts the token cost (one wake, not three) and the collision surface (one injection, not three) with the same buffer §7 uses to hold-while-attached. Since a nudge only ever means "go look," coalescing loses nothing.
+
+## 8. Fleet management — enable/disable, seat-swap, heterogeneous workers
+
+Running a fleet on one machine, the binding constraint is **live sessions (sandboxes/tmux), not disk**. Three operator needs follow; two are already met, one is new.
+
+**Seat-swap (already supported).** Sub a different engine into a seat — Claude out of tokens → Codex — with `quimby set <agent> --runtime-profile codex-engine` then `quimby restart <agent>`. The agent dir, mailbox, `assignment.md`, and `status.md` are UUID-keyed and stay on disk; only the resolved command changes, and `restart` reboots the session on the new engine, resuming from `status.md`.
+
+**Heterogeneous workers (already expressible).** A role is a _type_, an instance is one worker; the two are already decoupled. Declare multiple preset entries sharing one `role` with different profiles (and `count`s); all instances land in the `@role` layout slot as tabs:
+
+```yaml
+builders-claude: { role: builder, runtimeProfile: builder-engine, count: 2 }
+builders-codex: { role: builder, runtimeProfile: codex-engine, count: 2 }
+```
+
+`@builder` then tabs all four. No new mechanism — the role-slot + `count` + per-entry-profile primitives composing.
+
+**Enable/disable (new).** The one missing piece: temporarily drop a seat from what _runs_ without editing the layout `expr` or losing its work. Because the constraint is sessions-not-disk, disable means exactly: **free the live session, keep everything on disk, exclude the agent from layout placement.**
+
+- `quimby disable <agent>` sets a persistent `AgentState.enabled: false` and **stops** its session (freeing the sandbox/tmux slot). Its repo, mailbox, assignment, and status are untouched.
+- `quimby enable <agent>` clears the flag; the next `run`/`start` brings it back, resuming from `status.md`.
+- The **layout planner prunes disabled leaves**: a disabled agent named in a layout (directly, or via a `@role` slot) is _skipped_, not a hard error, and a pane left empty by the pruning collapses. So `quimby run` on your saved layout opens exactly the enabled set — "disable one without redoing the whole layout."
+- `up` does not recreate or start a disabled agent; `list`/`sessions` show it as `disabled` (distinct from `stopped`, which is transient).
+
+Disable is deliberately distinct from `stop` (transient — a stopped-but-enabled agent is still placed and relaunches on the next `run`) and from `remove` (destructive — clears disk). It is the middle rung the pool needs: _keep the work, drop the footprint._ It composes with `pool.maxLive` — disabling is how you stay under a session ceiling without discarding an agent.
 
 ---
 
@@ -137,5 +181,6 @@ This is only safe _because_ of the principle at the top — durable inbox + name
 1. `wake` + inbox retry/reconcile, and the attached-session nudge rule (§1, §7) — they share the durability foundation and kill the race + the paste-over collision together.
 2. `agent.sh rebase` (§2) — directly ends the Codex rebase loop.
 3. `commons/` (§5) and `scratch` (§3) — the two missing artifact channels; both purely additive.
-4. Directed relationships (§6) — the `directs` edge + status enrichment.
-5. `checkpoint` (§4) — after deciding the run-the-check question.
+4. Directed relationships (§6/§6a) — the `directs` edge = authority **and** interruption (active/passive), moving handoff's nudge trigger to directed-ness; coalesce directed nudges (§7a).
+5. Fleet management (§8) — enable/disable (new; layout-planner pruning) atop the existing seat-swap and heterogeneous-worker primitives.
+6. `checkpoint` (§4) — after deciding the run-the-check question.

@@ -3,48 +3,114 @@ hosts:
     type: ssh
     host: remote
 
+# Model tiers keyed to turn-frequency: cost tracks turns INVERSELY.
+# principal = fewest turns, highest judgment → the dear model is affordable here.
+# manager   = the hottest loop (sweeps peer status, routes, keeps builders fed) → cheapest capable.
+# (model: lives here for convenience; move it to ignored .quimby/local.yaml to keep it out of git.)
 runtimeProfiles:
-  claude-sbx:
+  principal-engine:
     runtime: sbx
     entrypoint: claude
-    requiredTools:
-      - claude
-  codex-sbx:
+    model: claude-fable-5
+    requiredTools: [claude]
+  manager-engine:
+    runtime: sbx
+    entrypoint: claude
+    model: claude-sonnet-5 # cheapest capable coordinator; drop to claude-haiku-4-5 if routing stays simple
+    requiredTools: [claude]
+  builder-engine:
+    runtime: sbx
+    entrypoint: claude
+    model: claude-opus-4-8
+    requiredTools: [claude]
+  integration-engine:
+    runtime: sbx
+    entrypoint: claude
+    model: claude-opus-4-8 # conflict resolution is real judgment
+    requiredTools: [claude]
+  critic-engine:
     runtime: sbx
     entrypoint: codex
-    requiredTools:
-      - codex
+    requiredTools: [codex]
 
 defaults:
-  runtimeProfile: claude-sbx
   tmux: true
   hostAlias: remote
 
 roles:
-  review: {}
-  builder: {}
-  integration: {}
+  principal:
+    runtimeProfile: principal-engine
+  manager:
+    runtimeProfile: manager-engine
+  builder:
+    runtimeProfile: builder-engine
+    check:
+      command: npm run ci
+      verifyByDefault: false
+  integration:
+    runtimeProfile: integration-engine
+  critic:
+    runtimeProfile: critic-engine
 
 services:
   serve: quimby serve
 
 layouts:
-  default:
-    expr: (review | builder):80 / (host $serve):20
+  # You sit in principal (left). The work fans out on the right: builders tabbed on a @role slot,
+  # the coordination/review agents tabbed below, a serve strip at the bottom. Weights are adjustable.
+  chain:
+    expr: 'principal | (@builder / manager integration critic) / (host $serve):15'
 
-default: default
+default: chain-gang
 
 presets:
-  default:
-    layout: default
+  chain-gang:
+    layout: chain
     agents:
-      review:
-        role: review
-        # Standing authority edge: review may direct builder on its own initiative
-        # (its handoffs to builder are host-stamped user-directed). Default-deny —
-        # absence of `directs` means an ordinary advisory peer. See
-        # tools/agents/docs/coordination-proposals.md § Directed relationships.
-        directs: [builder]
+      # ── ONE declared edge set, `directs` (proposal §6; DECLARED, not yet host-enforced),
+      #    resolves AUTHORITY and INTERRUPTION together. Channels split by how they REACH a recipient:
+      #  PASSIVE (never interrupts): the status mirror + ANY advisory handoff — lands in the inbox,
+      #    read on the recipient's own turn. Open to everyone; agents collaborate freely.
+      #  ACTIVE (interrupts = nudges): a DIRECTED handoff along a `directs` edge ONLY.
+      #    So a `directs` edge means "may interrupt on its own initiative" == the authority edge.
+      #    (This moves handoff's nudge trigger from note-presence → directed-ness.)
+      #  Falls out for free: only `manager` interrupts a builder (its one inbound edge); nothing
+      #    `directs` principal, so nothing interrupts it — and you're attached to it, so §7 (never
+      #    inject an attached session) double-guarantees it. `--no-nudge` lets a director queue a
+      #    directive WITHOUT interrupting. The human at the CLI (`quimby nudge/assign`) always
+      #    overrides — these rules govern agent↔agent nudges only.
+      #  Escalation route = INVERSE of `directs`, derived; override with `escalatesTo: <agent>`.
+      #  No handoff allow-list: a rare hard partition = default-OPEN `peers:` deny, not a per-pair allow.
+      principal:
+        role: principal
+        # You speak only to principal. It dispatches down to the manager, and commissions the
+        # critic DIRECTLY — bypassing the manager so what gets reviewed stays independent of the
+        # (cheap) coordinator.
+        directs: [manager, critic]
+      manager:
+        role: manager
+        # Runs the builders + integration. Deliberately does NOT direct the critic.
+        directs: [builder, integration]
       builder:
         role: builder
-        runtimeProfile: codex-sbx
+        count: 4
+        # directs: []  → terminal worker. Reports progress via status.md (free mirror);
+        # handoffs the manager ONLY when truly blocked.
+        #
+        # HETEROGENEOUS WORKERS: a role is a type, an instance is one worker. To run
+        # 2× Claude + 2× Codex builders, replace this entry with two entries sharing
+        # `role: builder` but different engines — both land in the `@builder` slot as tabs:
+        #   builders-claude: { role: builder, runtimeProfile: builder-engine, count: 2 }
+        #   builders-codex:  { role: builder, runtimeProfile: critic-engine,  count: 2 }  # critic-engine = codex
+        #
+        # SEAT-SWAP (Claude out of tokens → Codex): no config edit needed —
+        #   quimby set builder-2 --runtime-profile critic-engine && quimby restart builder-2
+        # keeps builder-2's repo/mailbox/assignment on disk; only the engine changes.
+      integration:
+        role: integration
+        # directs: []  → no downstream authority AND no upstream directives it issues; terminal,
+        # like a builder. Receives work from the manager, prepares it; the human still merges.
+      critic:
+        role: critic
+        # directs: []  → findings only, to whoever asks (manager or principal). Never a directive.
+        # Its independence is the point: keep it off the manager's `directs` list.
