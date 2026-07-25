@@ -272,6 +272,13 @@ describe('renderAgentScriptCmd', () => {
     expect(cmd).toContain(':peers')
     expect(cmd).toContain('"delegate"')
     expect(cmd).toContain('delegated: true')
+    // Interrupt-channel verbs mirror the sh (§6b/§6c); best-effort on Windows, POSIX .sh canonical.
+    expect(cmd).toContain('"escalate"')
+    expect(cmd).toContain('escalate: true')
+    expect(cmd).toContain('"ask"')
+    expect(cmd).toContain('expects-reply: true')
+    expect(cmd).toContain('"reply"')
+    expect(cmd).toContain('reply-to: %REPLYTO%')
     expect(cmd).toContain('--file')
     expect(cmd).toContain('```quimby-attest')
   })
