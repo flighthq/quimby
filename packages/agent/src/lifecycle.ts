@@ -40,6 +40,8 @@ export async function addAgent(
     tmux?: boolean
     check?: string
     verifyByDefault?: boolean
+    directs?: string[]
+    escalatesTo?: string
   },
 ): Promise<AgentState> {
   const state = await ensureWorkspace(repoRoot)
@@ -72,6 +74,8 @@ export async function addAgent(
     ...(opts?.tmux ? { tmux: true } : {}),
     ...(opts?.check ? { check: opts.check } : {}),
     ...(opts?.verifyByDefault ? { verifyByDefault: true } : {}),
+    ...(opts?.directs?.length ? { directs: opts.directs } : {}),
+    ...(opts?.escalatesTo ? { escalatesTo: opts.escalatesTo } : {}),
   }
 
   if (isSSH(opts?.location)) {

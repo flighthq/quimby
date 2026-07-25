@@ -58,6 +58,10 @@ export async function createMissingPresetAgents(
       ...(role.tmux ? { tmux: true } : {}),
       ...(check?.command ? { check: check.command } : {}),
       ...((check?.verifyByDefault ?? role.verifyByDefault) ? { verifyByDefault: true } : {}),
+      // Coordination edges (§6): copied onto agent state at creation so the host can resolve
+      // "does A direct B?" from state alone at handoff/dispatch time.
+      ...(configured.directs?.length ? { directs: configured.directs } : {}),
+      ...(configured.escalatesTo ? { escalatesTo: configured.escalatesTo } : {}),
     })
     logger.success(`Agent "${name}" created${configured.role ? ` (${configured.role})` : ''}`)
   }
