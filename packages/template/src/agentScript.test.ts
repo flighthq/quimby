@@ -202,6 +202,21 @@ describe('renderAgentScript', () => {
     },
   )
 
+  it.runIf(posix)('wake emits a name-independent orientation packet', () => {
+    const root = makeAgentWorkspace()
+    mkdirSync(join(root, 'handoff', 'in', 'received', 'peer-xyz'), { recursive: true })
+    writeFileSync(
+      join(root, 'handoff', 'in', 'received', 'peer-xyz', 'README.md'),
+      'review my diff',
+    )
+    const out = runSh(root, ['wake'])
+    expect(out).toContain('-- assignment --')
+    expect(out).toContain('-- inbox (unprocessed) --')
+    expect(out).toContain('-- peers --')
+    // The parcel is surfaced although the courier never named it — the self-healing property.
+    expect(out).toContain('peer-xyz')
+  })
+
   it.runIf(posix)(
     'handoff works when invoked from inside repo/ (root is resolved by walking up)',
     () => {

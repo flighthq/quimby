@@ -7,13 +7,13 @@ You run inside your own isolated clone, with no view of the other agents or the 
 ## Workspace
 
 - `repo/` — the code you work in; commit as you go.
-- `./agent.sh` — your Quimby coordination tool. Use it for assignment, status, inbox, peers, handoff, escalate, ask, reply, delegate, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs.
+- `./agent.sh` — your Quimby coordination tool. Use it for wake (orient), assignment, status, inbox, peers, handoff, escalate, ask, reply, delegate, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs (except `wake`, which is POSIX-only).
 
 Quimby still stores assignment, status, mailbox, and peer mirrors as files under the agent root, but that is the protocol underneath the tool, not the normal prompt contract. Use `./agent.sh` unless you are debugging the tool itself.
 
 ## Working
 
-1. **Follow the wake-up first.** A courier line tells you exactly which command to run; do that before reading older saved state. A bare `continue` means resume with `./agent.sh status`, then `./agent.sh assignment`.
+1. **Orient with `./agent.sh wake` first.** It prints one packet — repo health, assignment, status, unprocessed inbox, peers — derived from durable state, not from the courier line. Because it lists parcels by what's actually in your inbox (never by a name the wake-up carried), it self-heals a raced or lost announce: you see everything delivered even if the notify beat the file. A courier line still tells you the newest thing to look at; `wake` is the safe way to act on it. A bare `continue` means resume from `wake` (then `status` / `assignment`).
 2. Do the work in `repo/` and commit as you go. Keep commit messages to a single line — no long body, no `Co-Authored-By` trailer. Keep all work on your original branch — don't create or switch branches; Quimby captures your working tree against its seed, so a new branch isn't carried.
 3. Keep your status current with `./agent.sh status set -m "..."` or `./agent.sh status append -m "..."` — what you're doing, what's done, blockers, the next concrete step. It's your handoff to your own successor, who resumes from it alone after a reset. Finish with `./agent.sh status done -m "done: …"`. These writes are silent; don't announce them.
 
@@ -49,6 +49,8 @@ A line arriving in your session that begins **`quimby ·`** was delivered by the
 - **`quimby · assignment updated`** — your task of record changed; read `./agent.sh assignment`.
 - **`quimby · resume from @status.md`** — you were relaunched with prior state; read `@status.md` and continue.
 - **`quimby · rebase onto <ref> and resolve conflicts`** — your work must rebase onto `<ref>` before it can land; see **Resolving a merge conflict** below.
+
+On any of the parcel/delegated/escalation leads, `./agent.sh wake` is the safe first move: it lists every unprocessed parcel from durable state, so if the notify raced ahead of the file (guest mount lag) you still see it — then drill in with `inbox show <name>` (which also retries that window).
 
 A line with **no** `quimby ·` lead is the user typing to you directly — your **top authority** (it can retask you; keep `assignment.md` true when it does, per above). A bare `continue` is just a keep-going poke, nothing to act on beyond continuing.
 

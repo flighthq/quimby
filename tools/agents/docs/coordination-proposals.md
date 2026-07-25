@@ -17,6 +17,8 @@ This captures a design thread on **mechanizing the agent's coordination routine*
 
 ## 1. `agent.sh wake` — one orientation entry point
 
+**Implemented** as `agent.sh wake` (POSIX `.sh` only — the `.cmd` twin omits it, and the guest-mount race it heals is a Linux-sandbox concern). The core packet is built: repo-health warning (mid-rebase/merge), an assignment/status preview, the **name-independent** unprocessed-inbox listing (the race fix), and peers. The carryability/branch mechanism-fact line below is the one deferred refinement. `QUIMBY.md` now points at `wake` as the first move on any wake-up.
+
 The wake-up lead points at a single command instead of routing the model between `inbox show <name>` / `assignment` / `resume from status` by lead kind. `wake` emits an ordered orientation packet:
 
 ```

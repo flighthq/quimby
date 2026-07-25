@@ -87,9 +87,10 @@ describe('renderQuimbyContext', () => {
 
   it('carries the recovery-loop, keep-assignment-true, peer, and verify rules', () => {
     const out = renderQuimbyContext({ agentName: 'alice', agentId: 'id' })
-    // Recovery routes by the newest wake-up before consulting saved state.
-    expect(out).toContain('Follow the wake-up first')
-    expect(out).toContain('before reading older saved state')
+    // Recovery routes by the newest wake-up before consulting saved state — via the
+    // name-independent `agent.sh wake` orientation, which self-heals a raced announce.
+    expect(out).toContain('Orient with `./agent.sh wake` first')
+    expect(out).toContain('self-heals a raced or lost announce')
     expect(out).toContain('successor')
     // Keep assignment true from direct or explicitly relayed user intent.
     expect(out).toContain('newer user intent')
