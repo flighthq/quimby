@@ -4,6 +4,7 @@ This is the authoritative design document. Two companion docs are split out to k
 
 - **[cli-surface.md](./cli-surface.md)** — the complete command and flag reference.
 - **[design-decisions.md](./design-decisions.md)** — the rationale log (why each choice was made, and what was rejected).
+- **[coordination-proposals.md](./coordination-proposals.md)** — _proposed, not yet implemented_: a scaffolded `agent.sh` orient/recover/checkpoint set, a read-only `commons/` channel, directed-relationship authority (`directs`), and the attached-session nudge rule.
 
 ## Overview
 

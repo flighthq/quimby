@@ -40,6 +40,11 @@ presets:
     agents:
       review:
         role: review
+        # Standing authority edge: review may direct builder on its own initiative
+        # (its handoffs to builder are host-stamped user-directed). Default-deny —
+        # absence of `directs` means an ordinary advisory peer. See
+        # tools/agents/docs/coordination-proposals.md § Directed relationships.
+        directs: [builder]
       builder:
         role: builder
         runtimeProfile: codex-sbx
