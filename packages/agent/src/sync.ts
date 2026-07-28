@@ -18,9 +18,14 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentState } from '@quimbyhq/types'
+import type { AgentCoordinationEdges, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { loadState, saveState } from '@quimbyhq/workspace'
+import {
+  loadQuimbyConfig,
+  loadState,
+  resolveConfiguredAgentEdges,
+  saveState,
+} from '@quimbyhq/workspace'
 
 import { writeAgentInstructions, writeRemoteAgentInstructions } from './lifecycle'
 import type { RepoSyncOps } from './syncAlgorithm'
@@ -175,7 +180,13 @@ export async function syncAgent(
   repoRoot: string,
   name: string,
   opts?: { force?: boolean; base?: string },
-): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
+): Promise<{
+  newSeed: string
+  rebased: boolean
+  commitsReplayed: number
+  /** Whether the sync brought the agent's coordination edges back in line with current config. */
+  edgesUpdated: boolean
+}> {
   const state = await loadState(repoRoot)
 
   if (!Object.hasOwn(state.agents, name)) {
@@ -209,6 +220,12 @@ export async function syncAgent(
   })
 
   state.agents[name].seedCommit = result.newSeed
+  // Re-resolve the coordination edges from current config in the same write. The `directs` graph
+  // is otherwise snapshotted at creation, so editing it in `quimby.yaml` would only reach an agent
+  // through a rebuild; refreshing it here makes `sync` the non-destructive path for a graph edit,
+  // exactly as it already is for the scaffold. Best-effort: unreadable config never fails a sync.
+  const edges = await resolveConfiguredEdgesFor(repoRoot, state.agents[name])
+  const edgesUpdated = applyAgentCoordinationEdges(state.agents[name], edges)
   await saveState(repoRoot, state)
 
   // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
@@ -220,7 +237,36 @@ export async function syncAgent(
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
   await pruneAgentMailboxCaches(repoRoot, agent, state.id).catch(() => {})
 
-  return result
+  return { ...result, edgesUpdated }
+}
+
+/**
+ * Apply the coordination edges config declares onto an agent's state, returning whether anything
+ * changed. `null` edges mean config says nothing about this agent, so its stored edges are left
+ * alone; a declared-but-omitted edge is CLEARED, so removing a line from `quimby.yaml` actually
+ * revokes the authority rather than only ever adding to it.
+ */
+export function applyAgentCoordinationEdges(
+  agent: AgentState,
+  edges: Readonly<AgentCoordinationEdges> | null,
+): boolean {
+  if (!edges) return false
+  let changed = false
+
+  const directs = edges.directs?.length ? [...edges.directs] : undefined
+  if ((agent.directs ?? []).join(' ') !== (directs ?? []).join(' ')) {
+    if (directs) agent.directs = directs
+    else delete agent.directs
+    changed = true
+  }
+
+  if (agent.escalatesTo !== edges.escalatesTo) {
+    if (edges.escalatesTo) agent.escalatesTo = edges.escalatesTo
+    else delete agent.escalatesTo
+    changed = true
+  }
+
+  return changed
 }
 
 /**
@@ -270,6 +316,19 @@ async function refreshAgentScaffold(
     return
   }
   await writeAgentInstructions(getAgentDir(repoRoot, agent.id), opts)
+}
+
+// The edges current config declares for an agent, or null when config is unreadable — a malformed
+// or missing `quimby.yaml` leaves the stored edges untouched instead of failing the sync.
+async function resolveConfiguredEdgesFor(
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+): Promise<AgentCoordinationEdges | null> {
+  try {
+    return resolveConfiguredAgentEdges(await loadQuimbyConfig(repoRoot), agent)
+  } catch {
+    return null
+  }
 }
 
 /** Drive the sync algorithm against a local agent clone via the git CLI. */

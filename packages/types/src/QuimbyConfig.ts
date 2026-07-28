@@ -13,6 +13,13 @@ export interface AgentRoleConfig {
   verifyByDefault?: boolean
   syncRef?: string
   tmux?: boolean
+  /**
+   * Coordination edges declared for the whole role (coordination-proposals §6), so a fleet of
+   * replicas — or an agent created with a bare `quimby add --role <role>`, which has no preset
+   * entry — inherits them. An agent's own entry overrides these.
+   */
+  directs?: string[]
+  escalatesTo?: string
 }
 
 export interface ConfiguredAgent {

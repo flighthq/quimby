@@ -1,10 +1,11 @@
-import type { AgentState, QuimbyState } from '@quimbyhq/types'
+import type { AgentState, QuimbyConfig, QuimbyState } from '@quimbyhq/types'
 import { describe, expect, it } from 'vitest'
 
 import {
   directsRecipient,
   escalationTarget,
   honorsEscalation,
+  resolveConfiguredAgentEdges,
   resolveDirectedRecipients,
 } from './authority'
 
@@ -48,6 +49,47 @@ describe('honorsEscalation', () => {
     expect(honorsEscalation(state, 'builder1', 'manager')).toBe(true)
     expect(honorsEscalation(state, 'builder1', 'principal')).toBe(false)
     expect(honorsEscalation(state, 'builder2', 'critic')).toBe(true)
+  })
+})
+
+describe('resolveConfiguredAgentEdges', () => {
+  const config: QuimbyConfig = {
+    roles: { builder: { directs: ['@tester'] } },
+    presets: {
+      fleet: {
+        agents: {
+          manager: { role: 'manager', directs: ['@builder'], escalatesTo: 'principal' },
+          builder: { role: 'builder', count: 3 },
+          critic: { role: 'critic' },
+        },
+      },
+    },
+  }
+
+  it('reads the edges off an agent’s own preset entry', () => {
+    expect(resolveConfiguredAgentEdges(config, { name: 'manager' })).toEqual({
+      directs: ['@builder'],
+      escalatesTo: 'principal',
+    })
+  })
+
+  it('falls back to the role’s edges for a replica the entry expanded', () => {
+    expect(resolveConfiguredAgentEdges(config, { name: 'builder-3' })).toEqual({
+      directs: ['@tester'],
+    })
+    // beyond the declared count, so no entry claims it — but its stored role still does
+    expect(resolveConfiguredAgentEdges(config, { name: 'builder-9', role: 'builder' })).toEqual({
+      directs: ['@tester'],
+    })
+  })
+
+  it('returns an empty object for a declared agent with no edges, so a removed edge clears', () => {
+    expect(resolveConfiguredAgentEdges(config, { name: 'critic' })).toEqual({})
+  })
+
+  it('returns null when nothing in config declares the agent', () => {
+    expect(resolveConfiguredAgentEdges(config, { name: 'stray' })).toBeNull()
+    expect(resolveConfiguredAgentEdges({}, { name: 'manager' })).toBeNull()
   })
 })
 

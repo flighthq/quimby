@@ -44,7 +44,12 @@ function opts(overrides: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks()
   mockedBranch.mockResolvedValue('main')
-  mockedSync.mockResolvedValue({ newSeed: 'newseed01', rebased: false, commitsReplayed: 0 })
+  mockedSync.mockResolvedValue({
+    newSeed: 'newseed01',
+    rebased: false,
+    commitsReplayed: 0,
+    edgesUpdated: false,
+  })
 })
 
 describe('syncAgents', () => {
@@ -79,26 +84,46 @@ describe('syncAgents', () => {
   })
 
   it('classifies a forced hard-reset', async () => {
-    mockedSync.mockResolvedValue({ newSeed: 'forced01', rebased: false, commitsReplayed: 0 })
+    mockedSync.mockResolvedValue({
+      newSeed: 'forced01',
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
     const [outcome] = await syncAgents(opts({ force: true }))
     expect(outcome).toMatchObject({ name: 'alice', outcome: 'forced', newSeed: 'forced01' })
     expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', { force: true, base: undefined })
   })
 
   it('classifies an up-to-date agent (seed unchanged)', async () => {
-    mockedSync.mockResolvedValue({ newSeed: 'old', rebased: false, commitsReplayed: 0 })
+    mockedSync.mockResolvedValue({
+      newSeed: 'old',
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
     const [outcome] = await syncAgents(opts({}))
     expect(outcome.outcome).toBe('up-to-date')
   })
 
   it('classifies a rebased agent', async () => {
-    mockedSync.mockResolvedValue({ newSeed: 'newseed01', rebased: true, commitsReplayed: 3 })
+    mockedSync.mockResolvedValue({
+      newSeed: 'newseed01',
+      rebased: true,
+      commitsReplayed: 3,
+      edgesUpdated: false,
+    })
     const [outcome] = await syncAgents(opts({}))
     expect(outcome).toMatchObject({ outcome: 'rebased', commitsReplayed: 3 })
   })
 
   it('classifies a fast-forward (advanced but no commits to replay)', async () => {
-    mockedSync.mockResolvedValue({ newSeed: 'newseed01', rebased: false, commitsReplayed: 0 })
+    mockedSync.mockResolvedValue({
+      newSeed: 'newseed01',
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
     const [outcome] = await syncAgents(opts({}))
     expect(outcome.outcome).toBe('fast-forwarded')
   })
@@ -110,9 +135,12 @@ describe('syncAgents', () => {
   })
 
   it('under --all, skips a conflicted agent and continues', async () => {
-    mockedSync
-      .mockRejectedValueOnce(new Error('rebase conflicts'))
-      .mockResolvedValueOnce({ newSeed: 'n', rebased: false, commitsReplayed: 0 })
+    mockedSync.mockRejectedValueOnce(new Error('rebase conflicts')).mockResolvedValueOnce({
+      newSeed: 'n',
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
 
     const outcomes = await syncAgents(
       opts({

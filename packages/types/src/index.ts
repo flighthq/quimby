@@ -1,4 +1,5 @@
 export type { AgentAttestation } from './AgentAttestation'
+export type { AgentCoordinationEdges } from './AgentCoordinationEdges'
 export { type AgentLocation, isSSH } from './AgentLocation'
 export type { AgentSessionState } from './AgentSessionState'
 export type { AgentDefaults } from './AgentState'

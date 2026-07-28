@@ -250,6 +250,9 @@ roles:
   reviewer:
     runtime: local
     entrypoint: claude
+    # who this role may DIRECT — the edge that makes a parcel interrupt its recipient.
+    # An agent's own entry overrides this; `quimby sync` re-reads both.
+    directs: ['@builder']
 
 layouts:
   review:
@@ -524,6 +527,8 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 - **`--current`** — sugar for `--base <the host's current branch>`, resolved once at call time. The everyday "snap onto where I am" — pair it with `-f` for the most common move after integrating (`quimby sync <agent> --current -f`: drop the agent's now-shipped work and rebase it on the branch you just landed work onto). It still **persists** the resolved branch as `syncRef`, so plain `sync` stays deterministic afterward; only the one-time read of live `HEAD` is implicit, and it errors on a detached HEAD (no branch to track). Orthogonal to `-f`: without `-f` it rebases the agent's work onto your branch; with `-f` it resets. Unlike `--base`, it is allowed with `--all` (retarget every agent onto your integration branch in one call).
 
 `--all` syncs every agent, skipping any with conflicts. Agents created before sync targets existed are migrated on state load: a missing `syncRef` is backfilled from the workspace `sourceRef`. The merge target is independent of `syncRef` — `quimby merge <agent> -t <branch>` lands work wherever you choose.
+
+Every sync also **re-resolves the agent's coordination edges** (`directs`/`escalatesTo`) from current config and writes them onto its state. Those edges are otherwise snapshotted at creation, so editing the graph in `quimby.yaml` would only reach an agent through a rebuild; `sync` makes it the non-destructive path — `quimby sync --all` after a graph edit, and the new edges govern the very next dispatch. Config is authoritative when it declares the agent (a preset entry, or edges on its role): an edge you **removed** is cleared, not merely added to. An agent config names nowhere keeps whatever it has, so hand-set edges survive. `sync` reports `coordination edges updated from config` when anything changed.
 
 Every sync also **re-renders the agent's Quimby-tier scaffold** — `CLAUDE.md`/`AGENTS.md` and the `agent.sh`/`agent.cmd` tool — onto its on-disk agent dir (host, or remote over transport), exactly as a launch does. This is how a **quimby upgrade reaches an in-flight agent**: after upgrading quimby, `quimby sync --all` refreshes every agent's docs/tool to the new version while keeping their work _and_ their live tmux session/sandbox — it never touches the session, `assignment.md`, `status.md`, or the mailbox. The running agent still only _ingests_ the refreshed docs at its next context reset (a `/clear`, or a fresh instance), since neither Claude nor Codex re-reads its instruction files mid-session; `sync` makes the current file ready on disk without forcing a reboot (which is `restart`'s job). The refresh is best-effort across all three sync behaviors (safe/`-f`/`--base`): a write failure never fails the sync.
 

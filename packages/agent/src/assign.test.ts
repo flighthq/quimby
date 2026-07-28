@@ -48,7 +48,12 @@ beforeEach(async () => {
   dir = join(tmpdir(), `quimby-assign-${crypto.randomUUID()}`)
   await mkdir(agentDir(), { recursive: true })
   mockedStatus.mockResolvedValue({ behind: 0, syncRef: 'main', targetCommit: 'tip' })
-  mockedSync.mockResolvedValue({ newSeed: 'newseedcommit', rebased: false, commitsReplayed: 0 })
+  mockedSync.mockResolvedValue({
+    newSeed: 'newseedcommit',
+    rebased: false,
+    commitsReplayed: 0,
+    edgesUpdated: false,
+  })
 })
 
 afterEach(async () => {
@@ -219,7 +224,12 @@ describe('assignAgentTask', () => {
 
   it('reports a rebase and nudges when the pre-assign sync succeeds', async () => {
     mockedStatus.mockResolvedValue({ behind: 1, syncRef: 'main', targetCommit: 'tip' })
-    mockedSync.mockResolvedValue({ newSeed: 'abcdef1234', rebased: true, commitsReplayed: 3 })
+    mockedSync.mockResolvedValue({
+      newSeed: 'abcdef1234',
+      rebased: true,
+      commitsReplayed: 3,
+      edgesUpdated: false,
+    })
 
     const { reporter, events } = collectingReporter()
     const result = await assignAgentTask(

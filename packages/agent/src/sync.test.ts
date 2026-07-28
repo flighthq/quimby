@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setAgentSyncRef } from './config'
 import { addAgent } from './lifecycle'
 import {
+  applyAgentCoordinationEdges,
   getAgentPendingWork,
   getAgentSyncStatus,
   getAgentWorkSummary,
@@ -134,6 +135,38 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
   vi.clearAllMocks()
+})
+
+describe('applyAgentCoordinationEdges', () => {
+  function agentWith(edges: Partial<AgentState>): AgentState {
+    return { id: 'a', name: 'a', seedCommit: 's', createdAt: 't', ...edges } as AgentState
+  }
+
+  it('leaves stored edges alone when config declares nothing (null)', () => {
+    const agent = agentWith({ directs: ['builder'] })
+    expect(applyAgentCoordinationEdges(agent, null)).toBe(false)
+    expect(agent.directs).toEqual(['builder'])
+  })
+
+  it('applies added edges and reports the change', () => {
+    const agent = agentWith({})
+    expect(applyAgentCoordinationEdges(agent, { directs: ['@builder'] })).toBe(true)
+    expect(agent.directs).toEqual(['@builder'])
+  })
+
+  it('clears an edge config no longer declares', () => {
+    const agent = agentWith({ directs: ['builder'], escalatesTo: 'critic' })
+    expect(applyAgentCoordinationEdges(agent, {})).toBe(true)
+    expect(agent.directs).toBeUndefined()
+    expect(agent.escalatesTo).toBeUndefined()
+  })
+
+  it('reports no change when the stored edges already match', () => {
+    const agent = agentWith({ directs: ['builder'], escalatesTo: 'critic' })
+    expect(
+      applyAgentCoordinationEdges(agent, { directs: ['builder'], escalatesTo: 'critic' }),
+    ).toBe(false)
+  })
 })
 
 describe('getAgentPendingWork', () => {
@@ -303,6 +336,20 @@ describe('pruneAgentMailboxCaches', () => {
 })
 
 describe('syncAgent', () => {
+  it('refreshes the coordination edges from quimby.yaml, so a graph edit needs no rebuild', async () => {
+    await registerLocalAgentClone('review', 'review-id')
+    await writeFile(
+      join(dir, 'quimby.yaml'),
+      'presets:\n  fleet:\n    agents:\n      review:\n        directs: ["@builder"]\n',
+    )
+    await advanceHost('feature')
+
+    const result = await syncAgent(dir, 'review')
+
+    expect(result.edgesUpdated).toBe(true)
+    expect((await loadState(dir)).agents.review.directs).toEqual(['@builder'])
+  })
+
   it('prunes the out/sent and in/processed caches after a successful sync', async () => {
     await registerLocalAgentClone('gc', 'gc-id')
     await mkdir(join(getAgentHandoffOutSentDir(dir, 'gc-id'), 'reviewer'), { recursive: true })
@@ -329,7 +376,12 @@ describe('syncAgent', () => {
 
     const result = await syncAgent(dir, 'alice')
 
-    expect(result).toEqual({ newSeed: head, rebased: false, commitsReplayed: 0 })
+    expect(result).toEqual({
+      newSeed: head,
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
     // the seed is persisted and the tag moved in the agent's clone
     expect((await loadState(dir)).agents.alice.seedCommit).toBe(head)
     const repoDir = getAgentRepoDir(dir, 'alice-id')
@@ -345,7 +397,12 @@ describe('syncAgent', () => {
 
     const result = await syncAgent(dir, 'bob')
 
-    expect(result).toEqual({ newSeed: seed, rebased: false, commitsReplayed: 0 })
+    expect(result).toEqual({
+      newSeed: seed,
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
   })
 
   it('drives the remote git commands over transport for an SSH agent (no local commits)', async () => {
@@ -356,7 +413,12 @@ describe('syncAgent', () => {
 
     const result = await syncAgent(dir, 'remote')
 
-    expect(result).toEqual({ newSeed: head, rebased: false, commitsReplayed: 0 })
+    expect(result).toEqual({
+      newSeed: head,
+      rebased: false,
+      commitsReplayed: 0,
+      edgesUpdated: false,
+    })
     expect(transport.syncProjectTo).toHaveBeenCalled()
     // exact remote command strings the algorithm's remote adapter must issue
     expect(calls).toContain('git fetch origin')
@@ -383,7 +445,12 @@ describe('syncAgent', () => {
 
     const result = await syncAgent(dir, 'remote')
 
-    expect(result).toEqual({ newSeed: head, rebased: true, commitsReplayed: 2 })
+    expect(result).toEqual({
+      newSeed: head,
+      rebased: true,
+      commitsReplayed: 2,
+      edgesUpdated: false,
+    })
     expect(calls).toContain('git stash push --include-untracked -m quimby-sync')
     expect(calls).toContain(`git rebase ${head}`)
     expect(calls).toContain('git stash pop')
