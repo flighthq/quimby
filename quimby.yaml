@@ -37,6 +37,7 @@ presets:
     agents:
       review:
         role: review
+        directs: [builder]
         # `directs: [builder]` is the coordination edge (proposal §6/§6a; DECLARED, host-enforced
         # once §6 lands). It means review may direct builder on its own initiative (host-stamps the
         # parcel userDirected) AND — the active/passive split — review's DIRECTED handoffs are the
