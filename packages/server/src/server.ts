@@ -8,7 +8,7 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { formatDuration, writeText } from '@quimbyhq/utils'
-import { loadQuimbyConfig, loadState, resolveNudgeHoldPolicy } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, loadState, resolveNudgePolicy } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
@@ -49,8 +49,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   // next `quimby serve` rather than mid-run. Unset (the default) means the server never reaps.
   const serverConfig = await loadQuimbyConfig(repoRoot).catch(() => undefined)
   const idleTimeoutMs = getPoolIdleTimeoutMs(serverConfig)
-  // Likewise standing policy: how an auto-dispatch nudge treats a session you're attached to (§7).
-  const nudgeHold = resolveNudgeHoldPolicy(serverConfig ?? {})
+  // Likewise standing policy: when an auto-dispatch nudge may type into a live session (§7).
+  const nudgePolicy = resolveNudgePolicy(serverConfig ?? {})
   // The actual bound port, set once the server is listening (see bindServer below).
   let boundPort = 0
 
@@ -100,7 +100,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
         }
       }
       if (autoDispatch)
-        await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter, nudgeHold)
+        await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter, nudgePolicy)
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
       reporter.error(`Poll error: ${err}`)

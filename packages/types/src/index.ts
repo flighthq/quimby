@@ -13,14 +13,13 @@ export type {
   LayoutPlanTerminal,
 } from './LayoutPlan'
 export type { LocalLocation } from './LocalLocation'
-export type { NudgeHoldPolicy } from './NudgeHoldPolicy'
+export type { NudgePolicy } from './NudgePolicy'
 export type {
   AgentRoleConfig,
   CheckConfig,
   ConfiguredAgent,
   HostAliasConfig,
   LayoutConfig,
-  NudgeConfig,
   OllamaRuntimeConfig,
   PresetConfig,
   QuimbyConfig,

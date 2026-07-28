@@ -29,7 +29,7 @@ import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
-  resolveNudgeHoldPolicy,
+  resolveNudgePolicy,
   resolveWorkspace,
   saveMergeModeDefault,
 } from '@quimbyhq/workspace'
@@ -414,7 +414,7 @@ async function blockOnAgentConflict(
       displayName: agentName,
       courier: renderResolveConflictRequest(syncRef),
       reporter: consolaReporter,
-      holdWhenAttached: resolveNudgeHoldPolicy(await loadQuimbyConfig(repoRoot)),
+      policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
     })
   }
   logger.warn(`"${agentName}" conflicts with ${syncRef} — work is safe, nothing merged.`)

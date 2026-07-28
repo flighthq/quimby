@@ -1,6 +1,6 @@
 import { assignAgentTask } from '@quimbyhq/agent'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import { loadQuimbyConfig, resolveNudgeHoldPolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { consolaReporter } from '../reporter'
@@ -89,7 +89,7 @@ export async function runAssignCommand({
       displayName: args.agent,
       courier: 'assignment updated',
       reporter: consolaReporter,
-      holdWhenAttached: resolveNudgeHoldPolicy(await loadQuimbyConfig(repoRoot)),
+      policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
     })
   }
 }

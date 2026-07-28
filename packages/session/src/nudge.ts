@@ -4,7 +4,7 @@ import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState, NudgeHoldPolicy } from '@quimbyhq/types'
+import type { AgentState, NudgePolicy } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 
@@ -45,22 +45,23 @@ export const COURIER_PREFIX = 'quimby · '
  * exactly one pane. That held every nudge for every agent in a dashboard, which is the whole
  * problem §7 was meant to be a narrow exception to.
  *
- * So a hold requires the session to be attached *and* the agent's window to be the endpoint of the
- * human's focus chain. Matching is by `window_id` (stable across `link-window`, so a local agent's
- * shared window matches whether it is reached through its own session or a dashboard tab) and by
- * window name (an SSH agent's window lives on another tmux server, where ids are meaningless, and
- * its dashboard window is created with the agent's name). One conservative fallback: an SSH agent
- * whose remote session is attached with no local quimby window carrying its name is a bare
- * `quimby run <agent>` in a plain terminal — no local focus information exists, so it holds.
+ * So under the default `unfocused` policy a hold requires the session to be attached *and* the
+ * agent's window to be the endpoint of the human's focus chain. Matching is by `window_id` (stable
+ * across `link-window`, so a local agent's shared window matches whether it is reached through its
+ * own session or a dashboard tab) and by window name (an SSH agent's window lives on another tmux
+ * server, where ids are meaningless, and its dashboard window is created with the agent's name).
+ * One conservative fallback: an SSH agent whose remote session is attached with no local quimby
+ * window carrying its name is a bare `quimby run <agent>` in a plain terminal — no local focus
+ * information exists, so it holds. `always` and `never` short-circuit without probing anything.
  */
 export async function shouldHoldNudge(
   agent: Readonly<AgentState>,
   displayName: string,
-  policy: NudgeHoldPolicy = 'focus',
+  policy: NudgePolicy = 'unfocused',
 ): Promise<boolean> {
-  if (policy === 'never') return false
+  if (policy === 'always') return false
+  if (policy === 'never') return true
   if ((await getAgentSessionState(agent)) !== 'attached') return false
-  if (policy === 'always') return true
 
   const focused = await getFocusedTmuxWindows()
   if (focused.names.has(displayName)) return true
@@ -144,10 +145,10 @@ export async function nudgeAgentSession(opts: {
    */
   force?: boolean
   /**
-   * How the §7 hold decides (default `focus`). Resolved from config by the caller, since this
+   * When this nudge may land (default `unfocused`). Resolved from config by the caller, since this
    * package sits below `@quimbyhq/workspace` and cannot read config itself.
    */
-  holdWhenAttached?: NudgeHoldPolicy
+  policy?: NudgePolicy
   reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, dashboardSession } = opts
@@ -177,7 +178,7 @@ export async function nudgeAgentSession(opts: {
   // §7 (coordination-proposals): never inject into a session a human is typing in — it types over
   // their input, and the work is already durable in the inbox/assignment, so a deferred nudge loses
   // nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
-  if (!opts.force && (await shouldHoldNudge(agent, displayName, opts.holdWhenAttached))) {
+  if (!opts.force && (await shouldHoldNudge(agent, displayName, opts.policy))) {
     reporter.info(
       `Held nudge for "${displayName}" — you're working in it; it'll pick up the delivered ` +
         `work on your next turn (\`quimby nudge ${displayName}\` forces it).`,

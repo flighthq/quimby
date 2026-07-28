@@ -17,7 +17,7 @@ import {
   resolveConfiguredAgent,
   resolveHostAlias,
   resolveLayoutExpr,
-  resolveNudgeHoldPolicy,
+  resolveNudgePolicy,
   resolvePreset,
   resolvePresetLayout,
   resolveRole,
@@ -331,15 +331,18 @@ describe('resolveLayoutExpr', () => {
   })
 })
 
-describe('resolveNudgeHoldPolicy', () => {
-  it('is focus-aware by default, so a dashboard only holds the pane you are in', () => {
-    expect(resolveNudgeHoldPolicy({})).toBe('focus')
-    expect(resolveNudgeHoldPolicy({ nudge: {} })).toBe('focus')
+describe('resolveNudgePolicy', () => {
+  it('defaults to unfocused, so a dashboard only holds the pane you are in', () => {
+    expect(resolveNudgePolicy({})).toBe('unfocused')
   })
 
-  it('maps overAttached true/false onto never/always', () => {
-    expect(resolveNudgeHoldPolicy({ nudge: { overAttached: true } })).toBe('never')
-    expect(resolveNudgeHoldPolicy({ nudge: { overAttached: false } })).toBe('always')
+  it('passes an explicit always/never through', () => {
+    expect(resolveNudgePolicy({ nudge: 'always' })).toBe('always')
+    expect(resolveNudgePolicy({ nudge: 'never' })).toBe('never')
+  })
+
+  it('falls back to the default on a typo rather than failing a courier run', () => {
+    expect(resolveNudgePolicy({ nudge: 'sometimes' as 'always' })).toBe('unfocused')
   })
 })
 

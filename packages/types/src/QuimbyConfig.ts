@@ -1,4 +1,5 @@
 import type { AgentLocation } from './AgentLocation'
+import type { NudgePolicy } from './NudgePolicy'
 
 export interface CheckConfig {
   command?: string
@@ -52,17 +53,6 @@ export interface ConfiguredAgent {
    * of `directs` (the agent that directs this one); set this to route an upward summon elsewhere.
    */
   escalatesTo?: string
-}
-
-export interface NudgeConfig {
-  /**
-   * Whether an automated nudge may type into a session you are attached to (coordination-proposals
-   * §7). Unset (the default) is focus-aware: it holds only for the agent whose window you are
-   * actually looking at, so a dashboard's other panes still wake. `true` never holds — accepting
-   * that a nudge can land mid-keystroke. `false` restores the blunt pre-focus rule: hold whenever
-   * any client is attached, which in a dashboard means every agent in the layout.
-   */
-  overAttached?: boolean
 }
 
 export interface LayoutConfig {
@@ -138,8 +128,11 @@ export interface QuimbyConfig {
   /** Machine-wide agent-pool limits. Agents compete for one machine, so both keys count
    * sessions across *every* quimby project on the tmux socket, not just this workspace. */
   pool?: PoolConfig
-  /** When an automated nudge stands down rather than typing into a live session (§7). */
-  nudge?: NudgeConfig
+  /**
+   * When an automated nudge may type into a live agent session (§7): `always`, `unfocused` (the
+   * default — everything except the pane you are working in), or `never`.
+   */
+  nudge?: NudgePolicy
 }
 
 export interface PoolConfig {

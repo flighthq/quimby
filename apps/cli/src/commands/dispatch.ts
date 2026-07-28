@@ -2,7 +2,7 @@ import { rebaseAgentOntoBase } from '@quimbyhq/agent'
 import { dispatchOutboxes } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
-import { loadQuimbyConfig, resolveNudgeHoldPolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { attestationResolver } from '../attestation'
@@ -82,7 +82,7 @@ export async function runDispatchCommand({
               displayName: result.recipient,
               courier: `${kind} ${result.parcelName} from ${sender}`,
               reporter: consolaReporter,
-              holdWhenAttached: resolveNudgeHoldPolicy(await loadQuimbyConfig(repoRoot)),
+              policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
             })
           }
         }

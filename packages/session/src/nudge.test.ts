@@ -374,13 +374,15 @@ describe('shouldHoldNudge', () => {
     expect(await shouldHoldNudge(sshAgent, 'researcher')).toBe(false)
   })
 
-  it('honors the policy: "never" always sends, "always" holds without consulting focus', async () => {
+  it('honors the policy: "always" sends even into the focused pane, "never" always holds', async () => {
     getSessionState.mockResolvedValue('attached')
     getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'never')).toBe(false)
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'always')).toBe(false)
 
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'always')).toBe(true)
+    getSessionState.mockResolvedValue('running')
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'never')).toBe(true)
+    // both short-circuit — neither probes the session state or the focus chain
     expect(getFocused).not.toHaveBeenCalled()
+    expect(getSessionState).not.toHaveBeenCalled()
   })
 })

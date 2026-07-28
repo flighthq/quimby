@@ -380,13 +380,13 @@ An automated nudge (assign, handoff, dispatch, auto-dispatch) never types into t
 
 This distinction is load-bearing for a dashboard, which attaches a client to **every** pane it shows — and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session. A session-wide "is anyone attached?" therefore reads true for an entire layout, which would hold every nudge for every agent while you sit in one pane. Local agents are reached by `link-window` (shared window, no client), so they were never affected; SSH fleets were, completely.
 
-A bare `quimby run <agent>` in a plain terminal still holds, including for SSH agents (there is no local window to reason about, so quimby stays conservative). The explicit `quimby nudge <agent>` always forces. To change the policy wholesale:
+A bare `quimby run <agent>` in a plain terminal still holds, including for SSH agents (there is no local window to reason about, so quimby stays conservative). The explicit `quimby nudge <agent>` always forces. The optional top-level `nudge` key names when an automated nudge may land — a monotone scale, most permissive first:
 
 ```yaml
-nudge:
-  overAttached: true # never hold — accept that a nudge can land mid-keystroke
-  # overAttached: false  # hold whenever any client is attached (the blunt pre-focus rule)
+nudge: unfocused # the default; `always` injects even into the pane you're in, `never` never injects
 ```
+
+`never` is a real setting, not just "off": parcels still arrive and the agent reads them on its own next turn — it is the fully passive courier. An unrecognized value falls back to `unfocused` rather than failing a courier run over a config typo.
 
 ### Agent-side mechanics (`agent.sh`)
 

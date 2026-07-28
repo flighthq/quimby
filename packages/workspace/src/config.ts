@@ -5,7 +5,7 @@ import type {
   CheckConfig,
   ConfiguredAgent,
   HostAliasConfig,
-  NudgeHoldPolicy,
+  NudgePolicy,
   PresetConfig,
   QuimbyConfig,
   RuntimeProfileConfig,
@@ -254,14 +254,14 @@ export async function saveMergeModeDefault(
 }
 
 /**
- * How an automated nudge treats an attached session (coordination-proposals §7), from the
- * optional `nudge.overAttached` key: unset ⇒ focus-aware (hold only the agent you're working in),
- * `true` ⇒ never hold, `false` ⇒ the blunt pre-focus rule (hold whenever any client is attached).
+ * When an automated nudge may type into a live session (coordination-proposals §7), from the
+ * optional top-level `nudge` key. Defaults to `unfocused` — everything except the pane you are
+ * working in. An unrecognized value falls back to the default rather than failing a courier run
+ * over a config typo.
  */
-export function resolveNudgeHoldPolicy(config: Readonly<QuimbyConfig>): NudgeHoldPolicy {
-  const overAttached = config.nudge?.overAttached
-  if (overAttached === undefined) return 'focus'
-  return overAttached ? 'never' : 'always'
+export function resolveNudgePolicy(config: Readonly<QuimbyConfig>): NudgePolicy {
+  const policy = config.nudge
+  return policy === 'always' || policy === 'never' ? policy : 'unfocused'
 }
 
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {
@@ -289,7 +289,7 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     if (config.mergeMode !== undefined) out.mergeMode = config.mergeMode
     // Per-key so a project can set a ceiling while user config keeps the reap threshold.
     if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
-    if (config.nudge) out.nudge = { ...(out.nudge ?? {}), ...defined(config.nudge) }
+    if (config.nudge !== undefined) out.nudge = config.nudge
   }
   return out
 }
