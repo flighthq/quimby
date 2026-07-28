@@ -246,6 +246,9 @@ roles:
     check:
       command: npm run ci
       verifyByDefault: false
+    # who a builder may SUMMON when blocked. An allow-list it picks ONE recipient from per
+    # escalation — not a fan-out. Receiving an escalation grants no authority back.
+    escalatesTo: ['@reviewer', integration]
 
   reviewer:
     runtime: local

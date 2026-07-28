@@ -260,7 +260,9 @@ export function applyAgentCoordinationEdges(
     changed = true
   }
 
-  if (agent.escalatesTo !== edges.escalatesTo) {
+  // `escalatesTo` may be a bare string or an allow-list, so compare by normalized value rather
+  // than identity — an array would otherwise always read as changed.
+  if (escalationKey(agent.escalatesTo) !== escalationKey(edges.escalatesTo)) {
     if (edges.escalatesTo) agent.escalatesTo = edges.escalatesTo
     else delete agent.escalatesTo
     changed = true
@@ -316,6 +318,11 @@ async function refreshAgentScaffold(
     return
   }
   await writeAgentInstructions(getAgentDir(repoRoot, agent.id), opts)
+}
+
+function escalationKey(refs: string | readonly string[] | undefined): string {
+  if (refs === undefined) return ''
+  return typeof refs === 'string' ? refs : refs.join(' ')
 }
 
 // The edges current config declares for an agent, or null when config is unreadable — a malformed

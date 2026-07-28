@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   directsRecipient,
-  escalationTarget,
+  escalationTargets,
   honorsEscalation,
   resolveConfiguredAgentEdges,
   resolveDirectedRecipients,
@@ -35,20 +35,65 @@ describe('directsRecipient', () => {
   })
 })
 
-describe('escalationTarget', () => {
-  it('defaults to the inverse of directs and honors an escalatesTo override', () => {
-    expect(escalationTarget(state, 'builder1')).toBe('manager')
-    expect(escalationTarget(state, 'manager')).toBe('principal')
-    expect(escalationTarget(state, 'builder2')).toBe('critic')
-    expect(escalationTarget(state, 'principal')).toBeUndefined()
+describe('escalationTargets', () => {
+  it('defaults to the inverse of directs — every agent that directs you', () => {
+    expect(escalationTargets(state, 'builder1')).toEqual(['manager'])
+    expect(escalationTargets(state, 'manager')).toEqual(['principal'])
+  })
+
+  it('is empty for an agent nothing directs', () => {
+    expect(escalationTargets(state, 'principal')).toEqual([])
+  })
+
+  it('honors an explicit override, as a bare string or an allow-list', () => {
+    expect(escalationTargets(state, 'builder2')).toEqual(['critic'])
+    const listed = fleet({
+      manager: { directs: ['@builder'] },
+      builder1: { role: 'builder', escalatesTo: ['manager', 'critic', 'integration'] },
+      critic: {},
+      integration: {},
+    })
+    expect(escalationTargets(listed, 'builder1')).toEqual(['manager', 'critic', 'integration'])
+  })
+
+  it('expands a @role slot in the allow-list', () => {
+    const listed = fleet({
+      review1: { role: 'review' },
+      review2: { role: 'review' },
+      builder1: { role: 'builder', escalatesTo: ['@review', 'integration'] },
+      integration: {},
+    })
+    expect(escalationTargets(listed, 'builder1').sort()).toEqual([
+      'integration',
+      'review1',
+      'review2',
+    ])
+  })
+
+  it('falls back to the directors when the override list is empty', () => {
+    const listed = fleet({ boss: { directs: ['worker'] }, worker: { escalatesTo: [] } })
+    expect(escalationTargets(listed, 'worker')).toEqual(['boss'])
   })
 })
 
 describe('honorsEscalation', () => {
-  it('permits an escalation only to the sender’s escalation target', () => {
+  it('permits an escalation only to a permitted target', () => {
     expect(honorsEscalation(state, 'builder1', 'manager')).toBe(true)
     expect(honorsEscalation(state, 'builder1', 'principal')).toBe(false)
     expect(honorsEscalation(state, 'builder2', 'critic')).toBe(true)
+  })
+
+  it('permits any member of an allow-list — one per escalation, never all at once', () => {
+    const listed = fleet({
+      review1: { directs: ['@builder'] },
+      review2: {},
+      integration: {},
+      builder1: { role: 'builder', escalatesTo: ['review1', 'review2', 'integration'] },
+    })
+    expect(honorsEscalation(listed, 'builder1', 'review2')).toBe(true)
+    expect(honorsEscalation(listed, 'builder1', 'integration')).toBe(true)
+    // and the asymmetry holds: receiving an escalation grants no authority back
+    expect(directsRecipient(listed, 'review2', 'builder1')).toBe(false)
   })
 })
 

@@ -41,7 +41,7 @@ export async function addAgent(
     check?: string
     verifyByDefault?: boolean
     directs?: string[]
-    escalatesTo?: string
+    escalatesTo?: string | string[]
   },
 ): Promise<AgentState> {
   const state = await ensureWorkspace(repoRoot)

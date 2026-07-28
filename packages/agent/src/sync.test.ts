@@ -167,6 +167,13 @@ describe('applyAgentCoordinationEdges', () => {
       applyAgentCoordinationEdges(agent, { directs: ['builder'], escalatesTo: 'critic' }),
     ).toBe(false)
   })
+
+  it('compares an escalatesTo allow-list by value, not identity', () => {
+    const agent = agentWith({ escalatesTo: ['review1', 'review2'] })
+    expect(applyAgentCoordinationEdges(agent, { escalatesTo: ['review1', 'review2'] })).toBe(false)
+    expect(applyAgentCoordinationEdges(agent, { escalatesTo: ['review1'] })).toBe(true)
+    expect(agent.escalatesTo).toEqual(['review1'])
+  })
 })
 
 describe('getAgentPendingWork', () => {

@@ -7,6 +7,6 @@
 export interface AgentCoordinationEdges {
   /** Agents this one may direct — names or a `@role` slot. Empty/absent ⇒ an advisory peer. */
   directs?: string[]
-  /** Override the escalation target (else the inverse of `directs`). */
-  escalatesTo?: string
+  /** Who this agent may escalate to (else every agent that directs it) — an allow-list. */
+  escalatesTo?: string | string[]
 }

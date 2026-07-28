@@ -73,6 +73,11 @@ export interface AgentState {
    * escalation target is the inverse of this edge unless `escalatesTo` overrides it.
    */
   directs?: string[]
-  /** Override the escalation target (else the inverse of `directs`). See coordination-proposals §6b. */
-  escalatesTo?: string
+  /**
+   * Who this agent may escalate to, overriding the default (every agent that directs it). A list is
+   * an ALLOW-LIST, not a fan-out: the agent names one recipient per escalation, and only that one
+   * is woken. Entries are agent names or a `@role` slot. A bare string is one permitted target.
+   * See coordination-proposals §6b.
+   */
+  escalatesTo?: string | string[]
 }

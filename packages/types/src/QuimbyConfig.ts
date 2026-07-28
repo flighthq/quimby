@@ -20,7 +20,7 @@ export interface AgentRoleConfig {
    * entry — inherits them. An agent's own entry overrides these.
    */
   directs?: string[]
-  escalatesTo?: string
+  escalatesTo?: string | string[]
 }
 
 export interface ConfiguredAgent {
@@ -49,10 +49,11 @@ export interface ConfiguredAgent {
    */
   directs?: string[]
   /**
-   * Override the escalation target (coordination-proposals §6b). Escalation defaults to the inverse
-   * of `directs` (the agent that directs this one); set this to route an upward summon elsewhere.
+   * Who this agent may escalate to (coordination-proposals §6b), overriding the default (every
+   * agent that directs it). A list is an allow-list the agent picks one recipient from per
+   * escalation — never a fan-out that wakes them all. Entries may be `@role` slots.
    */
-  escalatesTo?: string
+  escalatesTo?: string | string[]
 }
 
 export interface LayoutConfig {
