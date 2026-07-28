@@ -1,7 +1,9 @@
 import { syncAgents } from '@quimbyhq/agent'
+import { SyncConflictError } from '@quimbyhq/errors'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { offerConflictNudge } from '../conflictNudge'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -58,16 +60,35 @@ export async function runSyncCommand({
   // dedupe to avoid syncing the first agent twice.
   const names = [...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))]
 
-  await syncAgents(
-    {
-      state,
-      repoRoot,
-      names,
-      all: args.all,
-      force: args.force,
-      base: args.base,
-      current: args.current,
-    },
-    consolaReporter,
-  )
+  try {
+    await syncAgents(
+      {
+        state,
+        repoRoot,
+        names,
+        all: args.all,
+        force: args.force,
+        base: args.base,
+        current: args.current,
+      },
+      consolaReporter,
+    )
+  } catch (err) {
+    // A rebase conflict rolled back cleanly: the agent's work is intact, and the fix is for the
+    // agent to rebase and resolve in its own clone (where the code context is). Rather than leave
+    // the user guessing what to tell it, offer to send exactly that request — never firing it
+    // unasked, since waking an agent onto a conflicted baseline is the user's call.
+    if (err instanceof SyncConflictError && err.agentClean && names.length === 1) {
+      const agent = state.agents[names[0]]
+      if (agent) {
+        await offerConflictNudge({
+          agent,
+          displayName: names[0],
+          syncRef: agent.syncRef ?? state.sourceRef,
+          whenNonInteractive: 'print',
+        })
+      }
+    }
+    throw err
+  }
 }

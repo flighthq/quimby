@@ -45,7 +45,7 @@ export const COURIER_PREFIX = 'quimby · '
  * exactly one pane. That held every nudge for every agent in a dashboard, which is the whole
  * problem §7 was meant to be a narrow exception to.
  *
- * So under the default `unfocused` policy a hold requires the session to be attached *and* the
+ * So under the default `focus` policy a hold requires the session to be attached *and* the
  * agent's window to be the endpoint of the human's focus chain. Matching is by `window_id` (stable
  * across `link-window`, so a local agent's shared window matches whether it is reached through its
  * own session or a dashboard tab) and by window name (an SSH agent's window lives on another tmux
@@ -57,7 +57,7 @@ export const COURIER_PREFIX = 'quimby · '
 export async function shouldHoldNudge(
   agent: Readonly<AgentState>,
   displayName: string,
-  policy: NudgePolicy = 'unfocused',
+  policy: NudgePolicy = 'focus',
 ): Promise<boolean> {
   if (policy === 'always') return false
   if (policy === 'never') return true
@@ -145,7 +145,7 @@ export async function nudgeAgentSession(opts: {
    */
   force?: boolean
   /**
-   * When this nudge may land (default `unfocused`). Resolved from config by the caller, since this
+   * When this nudge may land (default `focus`). Resolved from config by the caller, since this
    * package sits below `@quimbyhq/workspace` and cannot read config itself.
    */
   policy?: NudgePolicy

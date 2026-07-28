@@ -383,10 +383,12 @@ This distinction is load-bearing for a dashboard, which attaches a client to **e
 A bare `quimby run <agent>` in a plain terminal still holds, including for SSH agents (there is no local window to reason about, so quimby stays conservative). The explicit `quimby nudge <agent>` always forces. The optional top-level `nudge` key names when an automated nudge may land — a monotone scale, most permissive first:
 
 ```yaml
-nudge: unfocused # the default; `always` injects even into the pane you're in, `never` never injects
+nudge: focus # the default; `always` injects even into the pane you're in, `never` never injects
 ```
 
-`never` is a real setting, not just "off": parcels still arrive and the agent reads them on its own next turn — it is the fully passive courier. An unrecognized value falls back to `unfocused` rather than failing a courier run over a config typo.
+`never` is a real setting, not just "off": parcels still arrive and the agent reads them on its own next turn — it is the fully passive courier. An unrecognized value falls back to `focus` rather than failing a courier run over a config typo.
+
+**A conflict nudge is not subject to any of this.** When a `sync` or `merge` fails on a rebase conflict, quimby offers to send the agent the "rebase onto `<ref>` and resolve conflicts" request, and that nudge is **forced** — it is the direct answer to a command you just ran, and holding it is what left you with a failed sync and nothing to tell the agent. Interactive runs ask first (`y/N`, defaulting to yes) and print the ready-to-paste `quimby nudge …` if you decline. Non-interactively, `merge` fires it (its long-standing behavior) while `sync` only prints it — waking an agent onto a conflicted baseline stays your call, the same reason `assign` suppresses its nudge when the pre-sync fails.
 
 ### Agent-side mechanics (`agent.sh`)
 

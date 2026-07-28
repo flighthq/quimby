@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const syncAgents = vi.hoisted(() => vi.fn())
+const offerConflictNudge = vi.hoisted(() => vi.fn(async () => true))
+
+vi.mock('../conflictNudge', () => ({ offerConflictNudge }))
 
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -23,6 +26,53 @@ afterEach(() => {
 })
 
 describe('runSyncCommand', () => {
+  it('offers the resolve-conflict nudge when a rebase conflict rolls back cleanly', async () => {
+    const { SyncConflictError } = await import('@quimbyhq/errors')
+    const workspace = await import('@quimbyhq/workspace')
+    vi.mocked(workspace.resolveWorkspace).mockResolvedValueOnce({
+      state: {
+        id: 'proj-id',
+        sourceRef: 'main',
+        agents: { builder: { id: 'b', name: 'builder', syncRef: 'main' } },
+      },
+      repoRoot: '/fake/root',
+    } as never)
+    syncAgents.mockRejectedValueOnce(new SyncConflictError('conflicts with main', true))
+
+    const { default: cmd } = await import('./sync')
+    await expect(
+      cmd.run!({ args: { agent: 'builder', all: false, force: false, current: false } } as never),
+    ).rejects.toThrow(/conflicts with main/)
+
+    expect(offerConflictNudge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayName: 'builder',
+        syncRef: 'main',
+        whenNonInteractive: 'print',
+      }),
+    )
+  })
+
+  it('does not offer a nudge when the agent repo is wedged (agentClean false)', async () => {
+    const { SyncConflictError } = await import('@quimbyhq/errors')
+    const workspace = await import('@quimbyhq/workspace')
+    vi.mocked(workspace.resolveWorkspace).mockResolvedValueOnce({
+      state: {
+        id: 'proj-id',
+        sourceRef: 'main',
+        agents: { builder: { id: 'b', name: 'builder' } },
+      },
+      repoRoot: '/fake/root',
+    } as never)
+    syncAgents.mockRejectedValueOnce(new SyncConflictError('wedged', false))
+
+    const { default: cmd } = await import('./sync')
+    await expect(
+      cmd.run!({ args: { agent: 'builder', all: false, force: false, current: false } } as never),
+    ).rejects.toThrow(/wedged/)
+    expect(offerConflictNudge).not.toHaveBeenCalled()
+  })
+
   it('is a function', async () => {
     const { default: cmd } = await import('./sync')
     expect(typeof cmd.run).toBe('function')

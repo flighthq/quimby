@@ -129,7 +129,7 @@ export interface QuimbyConfig {
    * sessions across *every* quimby project on the tmux socket, not just this workspace. */
   pool?: PoolConfig
   /**
-   * When an automated nudge may type into a live agent session (§7): `always`, `unfocused` (the
+   * When an automated nudge may type into a live agent session (§7): `always`, `focus` (the
    * default — everything except the pane you are working in), or `never`.
    */
   nudge?: NudgePolicy

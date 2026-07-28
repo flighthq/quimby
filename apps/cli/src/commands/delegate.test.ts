@@ -19,7 +19,7 @@ vi.mock('@quimbyhq/workspace', () => ({
   })),
   // The nudge resolves the §7 hold policy from config before waking the recipient.
   loadQuimbyConfig: vi.fn(async () => ({})),
-  resolveNudgePolicy: vi.fn(() => 'unfocused'),
+  resolveNudgePolicy: vi.fn(() => 'focus'),
 }))
 
 afterEach(() => vi.clearAllMocks())

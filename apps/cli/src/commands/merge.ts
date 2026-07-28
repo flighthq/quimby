@@ -23,22 +23,16 @@ import {
   stageParcel,
 } from '@quimbyhq/handoff'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
-import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
-import { renderResolveConflictRequest } from '@quimbyhq/template'
 import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import {
-  loadQuimbyConfig,
-  resolveNudgePolicy,
-  resolveWorkspace,
-  saveMergeModeDefault,
-} from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveWorkspace, saveMergeModeDefault } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { colors } from 'consola/utils'
 import { execa } from 'execa'
 import { join, resolve } from 'pathe'
 
 import { attestationResolver, formatAttestation } from '../attestation'
+import { offerConflictNudge } from '../conflictNudge'
 import { getQuimbySuccessQuip } from '../quips'
 import { consolaReporter } from '../reporter'
 import { formatWorkSummary } from '../workSummary'
@@ -247,7 +241,7 @@ export async function runMergeCommand({
         } else {
           // The agent's repo is wedged (pre-existing conflict, a failed abort, or a stash-pop
           // clash), so its working tree isn't safe to capture. Route to resolving on the agent.
-          await blockOnAgentConflict(state, args.agent, syncRef, repoRoot)
+          await blockOnAgentConflict(state, args.agent, syncRef)
         }
       }
     }
@@ -376,7 +370,7 @@ export async function runMergeCommand({
         if (await git.isMergeInProgress(targetRepoPath)) await git.mergeAbort(targetRepoPath)
         await discardHandoff(repoRoot, name).catch(() => {})
         const syncRef = state.agents[args.agent].syncRef ?? state.sourceRef
-        await blockOnAgentConflict(state, args.agent, syncRef, repoRoot)
+        await blockOnAgentConflict(state, args.agent, syncRef)
       }
       logger.warn(`${err.message}`)
       logger.info('Conflicted files:')
@@ -404,24 +398,21 @@ async function blockOnAgentConflict(
   state: Readonly<QuimbyState>,
   agentName: string,
   syncRef: string,
-  repoRoot: string,
 ): Promise<never> {
   const agent = state.agents[agentName]
-  const running = await hasAgentSession(agent)
-  if (running) {
-    await nudgeAgentSession({
-      agent,
-      displayName: agentName,
-      courier: renderResolveConflictRequest(syncRef),
-      reporter: consolaReporter,
-      policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
-    })
-  }
   logger.warn(`"${agentName}" conflicts with ${syncRef} — work is safe, nothing merged.`)
+  // Offer to hand the agent the resolution request. Interactive asks first (declining still prints
+  // the command); a script keeps merge's long-standing auto-nudge.
+  const nudged = await offerConflictNudge({
+    agent,
+    displayName: agentName,
+    syncRef,
+    whenNonInteractive: 'nudge',
+  })
   logger.info(
-    running
-      ? `Nudged it to rebase; re-run \`quimby merge ${agentName}\` once it's clean.`
-      : `Start it, then re-run \`quimby merge ${agentName}\` to have it resolve.`,
+    nudged
+      ? `Re-run \`quimby merge ${agentName}\` once it's clean.`
+      : `Re-run \`quimby merge ${agentName}\` once it has rebased onto ${syncRef}.`,
   )
   process.exit(1)
 }

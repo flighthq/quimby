@@ -255,13 +255,13 @@ export async function saveMergeModeDefault(
 
 /**
  * When an automated nudge may type into a live session (coordination-proposals §7), from the
- * optional top-level `nudge` key. Defaults to `unfocused` — everything except the pane you are
+ * optional top-level `nudge` key. Defaults to `focus` — everything except the pane you are
  * working in. An unrecognized value falls back to the default rather than failing a courier run
  * over a config typo.
  */
 export function resolveNudgePolicy(config: Readonly<QuimbyConfig>): NudgePolicy {
   const policy = config.nudge
-  return policy === 'always' || policy === 'never' ? policy : 'unfocused'
+  return policy === 'always' || policy === 'never' ? policy : 'focus'
 }
 
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {

@@ -332,8 +332,8 @@ describe('resolveLayoutExpr', () => {
 })
 
 describe('resolveNudgePolicy', () => {
-  it('defaults to unfocused, so a dashboard only holds the pane you are in', () => {
-    expect(resolveNudgePolicy({})).toBe('unfocused')
+  it('defaults to focus, so a dashboard only holds the pane you are in', () => {
+    expect(resolveNudgePolicy({})).toBe('focus')
   })
 
   it('passes an explicit always/never through', () => {
@@ -342,7 +342,7 @@ describe('resolveNudgePolicy', () => {
   })
 
   it('falls back to the default on a typo rather than failing a courier run', () => {
-    expect(resolveNudgePolicy({ nudge: 'sometimes' as 'always' })).toBe('unfocused')
+    expect(resolveNudgePolicy({ nudge: 'sometimes' as 'always' })).toBe('focus')
   })
 })
 
