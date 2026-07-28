@@ -27,7 +27,11 @@ import {
   saveState,
 } from '@quimbyhq/workspace'
 
-import { writeAgentInstructions, writeRemoteAgentInstructions } from './lifecycle'
+import {
+  resolveAgentGraph,
+  writeAgentInstructions,
+  writeRemoteAgentInstructions,
+} from './lifecycle'
 import type { RepoSyncOps } from './syncAlgorithm'
 import { runSyncAlgorithm } from './syncAlgorithm'
 
@@ -231,7 +235,9 @@ export async function syncAgent(
   // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
   // upgrading quimby reaches an in-flight agent without a rebuild or a session kill. Best-effort:
   // a write failure never fails the sync.
-  await refreshAgentScaffold(repoRoot, state.id, agent).catch(() => {})
+  await refreshAgentScaffold(repoRoot, state.id, agent, resolveAgentGraph(state, name)).catch(
+    () => {},
+  )
 
   // GC the delivery/processing caches now that the agent has advanced — folded into sync per
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
@@ -307,8 +313,14 @@ async function refreshAgentScaffold(
   repoRoot: string,
   stateId: string,
   agent: Readonly<AgentState>,
+  graph: Readonly<{ directs: string[]; escalatesTo: string[] }>,
 ): Promise<void> {
-  const opts = { agentName: agent.name, agentId: agent.id, runtime: agent.defaults?.runtime }
+  const opts = {
+    agentName: agent.name,
+    agentId: agent.id,
+    runtime: agent.defaults?.runtime,
+    ...graph,
+  }
   if (isSSH(agent.location)) {
     await writeRemoteAgentInstructions(
       getSSHTransport(agent.location),

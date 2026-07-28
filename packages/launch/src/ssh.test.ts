@@ -24,6 +24,7 @@ vi.mock('@quimbyhq/agent', () => ({
   writeRemoteAgentInstructions: vi.fn(async () => {}),
   writeRemoteAgentScaffold: vi.fn(async () => {}),
   renderRemoteMailboxMigration: vi.fn((rAgentDir: string) => `migrate ${rAgentDir}`),
+  resolveAgentGraph: vi.fn(() => ({ directs: [], escalatesTo: [] })),
 }))
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],

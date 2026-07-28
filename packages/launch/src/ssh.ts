@@ -2,6 +2,7 @@ import {
   cloneAndSeedRemoteAgentRepo,
   configureRemoteAgentIdentity,
   renderRemoteMailboxMigration,
+  resolveAgentGraph,
   writeRemoteAgentInstructions,
   writeRemoteAgentScaffold,
 } from '@quimbyhq/agent'
@@ -120,7 +121,12 @@ export async function prepareSshLaunch(
   // just first-run init above), so fixing the host identity or shipping newer instructions reaches
   // an existing remote agent without a rebuild. Both idempotent and best-effort — a transient
   // remote hiccup must never block attaching.
-  const instructionOpts = { agentName: agent.name, agentId: agent.id, runtime }
+  const instructionOpts = {
+    agentName: agent.name,
+    agentId: agent.id,
+    runtime,
+    ...resolveAgentGraph(state, agent.name),
+  }
   try {
     await configureRemoteAgentIdentity(transport, rRepoDir, agent.name, repoRoot)
     await writeRemoteAgentInstructions(transport, rAgentDir, instructionOpts)

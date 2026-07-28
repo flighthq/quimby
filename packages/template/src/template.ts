@@ -141,13 +141,53 @@ export function renderQuimbyContext(opts: {
   agentName: string
   agentId: string
   runtime?: string
+  /** Concrete agents this one may direct — already `@role`-expanded by the caller. */
+  directs?: readonly string[]
+  /** Concrete agents this one may escalate to — already `@role`-expanded by the caller. */
+  escalatesTo?: readonly string[]
 }): string {
   // agentId is still accepted (callers pass it) but no longer surfaced to the agent — its UUID is
   // plumbing it never uses, and leading with it read as framework-forward "you are a managed agent".
-  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName).replaceAll(
-    '{{capability}}',
-    renderCapabilityClause(opts.runtime),
-  )
+  return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName)
+    .replaceAll('{{capability}}', renderCapabilityClause(opts.runtime))
+    .replaceAll('{{coordination}}', renderCoordinationClause(opts.directs, opts.escalatesTo))
+}
+
+/**
+ * The `{{coordination}}` clause: the agent's own place in the authority graph, by name.
+ *
+ * Without this the context can only say "escalate to your director" — and the agent has no way to
+ * learn who that is, since the graph lives in host state it cannot read. A guess that misses is
+ * *silently* downgraded to an advisory (nobody woken), so an unnamed graph makes the interrupt
+ * channel unreliable in exactly the way that puts the human back to relaying. Names are resolved by
+ * the caller (which holds the state) and refreshed on every launch and `quimby sync`.
+ */
+export function renderCoordinationClause(
+  directs?: readonly string[],
+  escalatesTo?: readonly string[],
+): string {
+  const lines: string[] = []
+  if (directs?.length) {
+    lines.push(
+      `- You **direct**: ${list(directs)}. A \`handoff\` to any of them is stamped directed by the ` +
+        'host and wakes them, so send it only when you mean to interrupt.',
+    )
+  }
+  if (escalatesTo?.length) {
+    lines.push(
+      `- You may **escalate** to: ${list(escalatesTo)}. Name exactly one per \`escalate\` — the ` +
+        'list is who you are permitted to summon, not a group to wake at once. Escalating grants ' +
+        'you no authority over them, and them none over you.',
+    )
+  }
+  if (lines.length === 0) {
+    return (
+      'You direct no one and have no escalation target, so every note you send is advisory: it ' +
+      'lands in the inbox and is read on the recipient’s own turn. That is expected — say it with ' +
+      '`status` or `handoff` and let them come to it.'
+    )
+  }
+  return `Your place in the graph:\n\n${lines.join('\n')}`
 }
 
 /**
@@ -160,6 +200,8 @@ export function renderAgentClaudeMd(opts: {
   agentName: string
   agentId: string
   runtime?: string
+  directs?: readonly string[]
+  escalatesTo?: readonly string[]
 }): string {
   return `${renderQuimbyContext(opts)}\n## Project instructions\n\n@repo/CLAUDE.md\n`
 }
@@ -174,12 +216,18 @@ export function renderAgentAgentsMd(opts: {
   agentName: string
   agentId: string
   runtime?: string
+  directs?: readonly string[]
+  escalatesTo?: readonly string[]
 }): string {
   return (
     `${renderQuimbyContext(opts)}\n## Project instructions\n\n` +
     'This project may provide its own guidance in `repo/AGENTS.md` (and `repo/CLAUDE.md`). Treat ' +
     'it as the project-specific layer on top of this Quimby context; follow it where it applies.\n'
   )
+}
+
+function list(names: readonly string[]): string {
+  return names.map((n) => `\`${n}\``).join(', ')
 }
 
 /** Runtimes that give the agent a disposable, isolated environment where running the code freely is safe. */

@@ -10,7 +10,11 @@ const setup = vi.hoisted(() => vi.fn(async () => {}))
 const configureLocalAgentIdentity = vi.hoisted(() => vi.fn(async () => {}))
 const writeAgentInstructions = vi.hoisted(() => vi.fn(async () => {}))
 
-vi.mock('@quimbyhq/agent', () => ({ configureLocalAgentIdentity, writeAgentInstructions }))
+vi.mock('@quimbyhq/agent', () => ({
+  configureLocalAgentIdentity,
+  writeAgentInstructions,
+  resolveAgentGraph: vi.fn(() => ({ directs: [], escalatesTo: [] })),
+}))
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
   runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),

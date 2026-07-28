@@ -2,6 +2,7 @@ import { confirm, isCancel } from '@clack/prompts'
 import {
   configureRemoteAgentIdentity,
   renderRemoteMailboxMigration,
+  resolveAgentGraph,
   writeRemoteAgentInstructions,
 } from '@quimbyhq/agent'
 import { QuimbyError } from '@quimbyhq/errors'
@@ -935,6 +936,7 @@ async function buildSSHWindow(
       agentName: name,
       agentId: agent.id,
       runtime: agent.defaults?.runtime,
+      ...resolveAgentGraph(state, name),
     })
 
     state.agents[name].seedCommit = seedCommit
@@ -950,6 +952,7 @@ async function buildSSHWindow(
       agentName: name,
       agentId: agent.id,
       runtime: agent.defaults?.runtime,
+      ...resolveAgentGraph(state, name),
     })
   } catch {
     // Advisory; leave whatever the remote clone already has.

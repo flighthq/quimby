@@ -24,7 +24,13 @@ import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentDefaults, AgentLocation, AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
-import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
+import {
+  ensureWorkspace,
+  escalationTargets,
+  loadState,
+  resolveDirectedRecipients,
+  saveState,
+} from '@quimbyhq/workspace'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
@@ -298,7 +304,7 @@ export async function writeRemoteAgentScaffold(
 export async function writeRemoteAgentInstructions(
   transport: SSHTransport,
   rAgentDir: string,
-  opts: { agentName: string; agentId: string; runtime?: string },
+  opts: AgentInstructionOptions,
 ): Promise<void> {
   await transport.writeFile(`${rAgentDir}/CLAUDE.md`, renderAgentClaudeMd(opts))
   await transport.writeFile(`${rAgentDir}/AGENTS.md`, renderAgentAgentsMd(opts))
@@ -411,9 +417,38 @@ async function writeAgentScaffold(
  * a rebuild. The repo's own `repo/CLAUDE.md`/`repo/AGENTS.md` are a separate tier the tools
  * discover natively and quimby never touches.
  */
+/**
+ * An agent's own place in the authority graph, resolved to concrete names for its scaffold: who it
+ * may direct, and who it may escalate to (`@role` slots expanded). Rendered into its context on
+ * every launch and `quimby sync`, so a graph edit reaches it without a rebuild.
+ */
+export function resolveAgentGraph(
+  state: Readonly<QuimbyState>,
+  name: string,
+): { directs: string[]; escalatesTo: string[] } {
+  return {
+    directs: resolveDirectedRecipients(state, name),
+    escalatesTo: escalationTargets(state, name),
+  }
+}
+
+/**
+ * What the Quimby-tier scaffold needs to render. `directs`/`escalatesTo` are the agent's own place
+ * in the authority graph, already `@role`-expanded to concrete names by the caller (which holds the
+ * state) — without them the context can only speak of "your director" in the abstract, and the
+ * agent has no way to learn who that is.
+ */
+export interface AgentInstructionOptions {
+  agentName: string
+  agentId: string
+  runtime?: string
+  directs?: readonly string[]
+  escalatesTo?: readonly string[]
+}
+
 export async function writeAgentInstructions(
   agentDir: string,
-  opts: { agentName: string; agentId: string; runtime?: string },
+  opts: AgentInstructionOptions,
 ): Promise<void> {
   await writeText(join(agentDir, 'CLAUDE.md'), renderAgentClaudeMd(opts))
   await writeText(join(agentDir, 'AGENTS.md'), renderAgentAgentsMd(opts))

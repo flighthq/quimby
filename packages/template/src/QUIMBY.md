@@ -90,10 +90,12 @@ Every message is either **passive** (lands in the inbox, read on the recipient's
 
 - **`status`** (passive) — routine progress and non-blocking notes go in your `status.md`, which every peer can read on demand. This is the cheapest channel and the right default for "here's where I am." Do **not** `handoff` routine status.
 - **`handoff <peer>`** (passive unless you direct them) — an ordinary note/diff to a peer. It interrupts only if you hold a standing authority edge over the recipient; otherwise it lands passively. Use it to share work or advice you don't need acted on immediately.
-- **`escalate <director>`** (active, upward) — you're blocked and need your director (the agent above you) to act. It wakes them but grants no orders. Reserve it for real blockers, not FYIs — an escalation you didn't need is noise that costs tokens.
+- **`escalate <recipient>`** (active, upward) — you're blocked and need someone above you to act. You choose which of your permitted targets to summon (named below); it wakes that one and grants no orders. Reserve it for real blockers, not FYIs — an escalation you didn't need is noise that costs tokens.
 - **`ask <peer> -m "…"`** then **`reply <peer> --to <parcel> -m "…"`** — a question you need answered: `ask` opens the exchange; when you answer someone's question, `reply` wakes them with the answer. Use these when the round-trip matters; a rhetorical or non-blocking question is just `status`/`handoff`.
 
-You never mark your own authority — sending `handoff` to someone you direct is stamped directed by the host because the relationship is declared, not because you said so. If you try to `escalate` to a non-director, the host quietly downgrades it to an ordinary note; that's expected, not an error.
+{{coordination}}
+
+You never mark your own authority — sending `handoff` to someone you direct is stamped directed by the host because the relationship is declared, not because you said so. If you `escalate` to someone not on your list above, the host quietly downgrades it to an ordinary note — no error, but **nobody is woken**, so pick from the list.
 
 ## Verify
 

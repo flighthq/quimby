@@ -1,4 +1,8 @@
-import { configureLocalAgentIdentity, writeAgentInstructions } from '@quimbyhq/agent'
+import {
+  configureLocalAgentIdentity,
+  resolveAgentGraph,
+  writeAgentInstructions,
+} from '@quimbyhq/agent'
 import {
   getAgentDir,
   getAgentRepoDir,
@@ -119,6 +123,9 @@ export async function prepareLocalTmuxLaunch(
       agentName: agent.name,
       agentId: agent.id,
       runtime,
+      // Name the agent's own place in the authority graph, so "escalate to your director" resolves
+      // to actual peers rather than a guess the host would silently downgrade.
+      ...resolveAgentGraph(state, agent.name),
     })
     // Seed this agent's peer roster so `ls status/` is correct even with no server running —
     // a placeholder per current peer, orphans swept. Idempotent; the poller refreshes content.

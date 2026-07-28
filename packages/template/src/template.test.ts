@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   renderAgentAgentsMd,
   renderAgentClaudeMd,
+  renderCoordinationClause,
   renderQuimbyContext,
   renderResolveConflictRequest,
   renderResumeRequest,
@@ -36,7 +37,44 @@ describe('renderAgentClaudeMd', () => {
   })
 })
 
+describe('renderCoordinationClause', () => {
+  it('names who the agent directs and who it may escalate to', () => {
+    const out = renderCoordinationClause(['builder1', 'builder2'], ['review1', 'integration'])
+    expect(out).toContain('`builder1`, `builder2`')
+    expect(out).toContain('`review1`, `integration`')
+    expect(out).toContain('Name exactly one per')
+  })
+
+  it('says plainly that everything is advisory when the agent has no edges', () => {
+    const out = renderCoordinationClause()
+    expect(out).toContain('advisory')
+    expect(out).not.toContain('Your place in the graph')
+  })
+
+  it('omits the half the agent does not have', () => {
+    expect(renderCoordinationClause(undefined, ['review1'])).not.toContain('You **direct**')
+    expect(renderCoordinationClause(['builder1'])).not.toContain('escalate** to')
+  })
+})
+
 describe('renderQuimbyContext', () => {
+  it('names the agent’s concrete peers, so "escalate to your director" is not a guess', () => {
+    const out = renderQuimbyContext({
+      agentName: 'builder1',
+      agentId: 'b1',
+      directs: [],
+      escalatesTo: ['review1', 'review2'],
+    })
+    expect(out).toContain('`review1`, `review2`')
+    expect(out).not.toContain('{{coordination}}')
+  })
+
+  it('leaves no placeholder behind when the agent has no edges', () => {
+    const out = renderQuimbyContext({ agentName: 'solo', agentId: 's1' })
+    expect(out).not.toContain('{{coordination}}')
+    expect(out).toContain('advisory')
+  })
+
   it('substitutes the agent name work-first, leaks no tokens, and omits framework identity', () => {
     const out = renderQuimbyContext({ agentName: 'my-agent', agentId: 'agent-id-123' })
     expect(out).toContain('**my-agent**')
