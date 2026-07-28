@@ -5,6 +5,7 @@ import type {
   CheckConfig,
   ConfiguredAgent,
   HostAliasConfig,
+  NudgeHoldPolicy,
   PresetConfig,
   QuimbyConfig,
   RuntimeProfileConfig,
@@ -252,6 +253,17 @@ export async function saveMergeModeDefault(
   return path
 }
 
+/**
+ * How an automated nudge treats an attached session (coordination-proposals §7), from the
+ * optional `nudge.overAttached` key: unset ⇒ focus-aware (hold only the agent you're working in),
+ * `true` ⇒ never hold, `false` ⇒ the blunt pre-focus rule (hold whenever any client is attached).
+ */
+export function resolveNudgeHoldPolicy(config: Readonly<QuimbyConfig>): NudgeHoldPolicy {
+  const overAttached = config.nudge?.overAttached
+  if (overAttached === undefined) return 'focus'
+  return overAttached ? 'never' : 'always'
+}
+
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {
   if (check === undefined) return undefined
   return typeof check === 'string' ? { command: check } : check
@@ -277,6 +289,7 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     if (config.mergeMode !== undefined) out.mergeMode = config.mergeMode
     // Per-key so a project can set a ceiling while user config keeps the reap threshold.
     if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
+    if (config.nudge) out.nudge = { ...(out.nudge ?? {}), ...defined(config.nudge) }
   }
   return out
 }

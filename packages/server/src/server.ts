@@ -8,7 +8,7 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { formatDuration, writeText } from '@quimbyhq/utils'
-import { loadQuimbyConfig, loadState } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, loadState, resolveNudgeHoldPolicy } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
@@ -47,9 +47,10 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   let stateMtime = 0
   // Read once at startup: auto-reaping is a standing policy, so a config edit takes effect on the
   // next `quimby serve` rather than mid-run. Unset (the default) means the server never reaps.
-  const idleTimeoutMs = getPoolIdleTimeoutMs(
-    await loadQuimbyConfig(repoRoot).catch(() => undefined),
-  )
+  const serverConfig = await loadQuimbyConfig(repoRoot).catch(() => undefined)
+  const idleTimeoutMs = getPoolIdleTimeoutMs(serverConfig)
+  // Likewise standing policy: how an auto-dispatch nudge treats a session you're attached to (§7).
+  const nudgeHold = resolveNudgeHoldPolicy(serverConfig ?? {})
   // The actual bound port, set once the server is listening (see bindServer below).
   let boundPort = 0
 
@@ -98,7 +99,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           reporter.warn(`[${name}] roster reconcile failed: ${err}`)
         }
       }
-      if (autoDispatch) await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter)
+      if (autoDispatch)
+        await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter, nudgeHold)
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
       reporter.error(`Poll error: ${err}`)

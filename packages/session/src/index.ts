@@ -1,3 +1,4 @@
+export * from './focus'
 export * from './killSession'
 export * from './nudge'
 export * from './renameWindow'

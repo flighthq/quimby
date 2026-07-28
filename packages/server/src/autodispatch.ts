@@ -6,7 +6,7 @@ import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import type { AgentState, QuimbyState } from '@quimbyhq/types'
+import type { AgentState, NudgeHoldPolicy, QuimbyState } from '@quimbyhq/types'
 import { join } from 'pathe'
 
 export interface OutboxDispatchTracker {
@@ -19,6 +19,7 @@ export async function autoDispatchOutboxes(
   state: Readonly<QuimbyState>,
   tracker: OutboxDispatchTracker,
   reporter: Reporter = silentReporter,
+  nudgeHold: NudgeHoldPolicy = 'focus',
 ): Promise<void> {
   // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
   // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
@@ -109,7 +110,13 @@ export async function autoDispatchOutboxes(
       entry.descriptors.length === 1
         ? entry.descriptors[0]
         : `${entry.descriptors.length} new parcels from ${[...entry.senders].join(', ')}`
-    await nudgeAgentSession({ agent: entry.agent, displayName: recipient, courier, reporter })
+    await nudgeAgentSession({
+      agent: entry.agent,
+      displayName: recipient,
+      courier,
+      reporter,
+      holdWhenAttached: nudgeHold,
+    })
   }
 }
 

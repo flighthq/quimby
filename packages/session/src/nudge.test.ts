@@ -3,10 +3,19 @@ import { sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildRemoteNudgeCommand, hasAgentSession, nudgeAgentSession } from './nudge'
+import {
+  buildRemoteNudgeCommand,
+  hasAgentSession,
+  nudgeAgentSession,
+  shouldHoldNudge,
+} from './nudge'
 
 const execa = vi.hoisted(() => vi.fn())
 const getSessionState = vi.hoisted(() => vi.fn(async () => 'running' as string))
+const getFocused = vi.hoisted(() =>
+  vi.fn(async () => ({ ids: new Set<string>(), names: new Set<string>() })),
+)
+const hasLocalWindow = vi.hoisted(() => vi.fn(async () => true))
 
 vi.mock('execa', () => ({ execa }))
 // The `/clear` settle delay is real time — collapse it so the clear-path test is fast.
@@ -14,6 +23,12 @@ vi.mock('node:timers/promises', () => ({ setTimeout: vi.fn(async () => {}) }))
 // The §7 attached-skip probes getAgentSessionState; default it to `running` (skip bypassed) so the
 // existing send/warn tests are unaffected — the attached-skip tests override it to `attached`.
 vi.mock('./sessionState', () => ({ getAgentSessionState: getSessionState }))
+// §7 is focus-aware: an attached session only holds when its window is the one being typed in.
+// Default to "focused on nothing" so the existing send/warn tests are unaffected.
+vi.mock('./focus', () => ({
+  getFocusedTmuxWindows: getFocused,
+  hasLocalWindowNamed: hasLocalWindow,
+}))
 
 let prevTmux: string | undefined
 
@@ -21,6 +36,10 @@ beforeEach(() => {
   execa.mockReset()
   getSessionState.mockReset()
   getSessionState.mockResolvedValue('running')
+  getFocused.mockReset()
+  getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
+  hasLocalWindow.mockReset()
+  hasLocalWindow.mockResolvedValue(true)
   // No quimby tmux server in test: `has-session` (and every tmux call) fails by
   // default, so a nudge warns rather than pretending a live session exists.
   execa.mockRejectedValue(new Error('no tmux server'))
@@ -277,14 +296,25 @@ describe('nudgeAgentSession', () => {
     expect(warn).not.toContain('quimby run')
   })
 
-  it('holds the nudge (no send-keys) when the recipient is attached — §7', async () => {
+  it('holds the nudge (no send-keys) when the recipient is the window you are in — §7', async () => {
     getSessionState.mockResolvedValueOnce('attached')
+    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
     execa.mockResolvedValue({})
     const { reporter, events } = collectingReporter()
     await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
     expect(sentKeys).toBe(false)
     expect(events.some((e) => e.message.includes('Held nudge'))).toBe(true)
+  })
+
+  it('sends to an attached agent you are NOT focused on (the dashboard sibling case)', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['builder']) })
+    execa.mockResolvedValue({ stdout: '@99' })
+    const { reporter } = collectingReporter()
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(true)
   })
 
   it('forces the nudge into an attached session when force is set', async () => {
@@ -300,5 +330,57 @@ describe('nudgeAgentSession', () => {
     })
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
     expect(sentKeys).toBe(true)
+  })
+})
+
+describe('shouldHoldNudge', () => {
+  const sshAgent = {
+    id: 'a3',
+    name: 'researcher',
+    location: { type: 'ssh', host: 'user@box', base: '~' },
+  } as AgentState
+
+  it('never holds when the session is not attached', async () => {
+    getSessionState.mockResolvedValue('running')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
+  })
+
+  it('holds an attached agent whose window is focused, by name or by window id', async () => {
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(true)
+
+    getFocused.mockResolvedValue({ ids: new Set(['@7']), names: new Set<string>() })
+    execa.mockResolvedValue({ stdout: '@7' })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(true)
+  })
+
+  it('does not hold an attached agent you are not focused on — the dashboard fix', async () => {
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set(['@7']), names: new Set(['builder']) })
+    execa.mockResolvedValue({ stdout: '@99' })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
+  })
+
+  it('holds an attached SSH agent with no local window — a bare `quimby run` in a terminal', async () => {
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
+    hasLocalWindow.mockResolvedValue(false)
+    expect(await shouldHoldNudge(sshAgent, 'researcher')).toBe(true)
+
+    // …but an SSH agent shown as an unfocused dashboard tab does have one, so it sends.
+    hasLocalWindow.mockResolvedValue(true)
+    expect(await shouldHoldNudge(sshAgent, 'researcher')).toBe(false)
+  })
+
+  it('honors the policy: "never" always sends, "always" holds without consulting focus', async () => {
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'never')).toBe(false)
+
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'always')).toBe(true)
+    expect(getFocused).not.toHaveBeenCalled()
   })
 })

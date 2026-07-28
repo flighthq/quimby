@@ -4,10 +4,11 @@ import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState } from '@quimbyhq/types'
+import type { AgentState, NudgeHoldPolicy } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 
+import { getFocusedTmuxWindows, hasLocalWindowNamed } from './focus'
 import { getAgentSessionState } from './sessionState'
 
 // Every quimby tmux command targets the dedicated `-L quimby` server, or it would look
@@ -34,6 +35,41 @@ const SUBMIT_SETTLE_MS = 150
 // the agent's AGENTS.md rather than repeated on every line. Absence of the lead means the user is
 // typing directly — the agent's top authority.
 export const COURIER_PREFIX = 'quimby · '
+
+/**
+ * Whether an automated nudge should stand down rather than type into this agent (§7).
+ *
+ * The rule is deliberately about *focus*, not attachment. A dashboard attaches a client to every
+ * pane it shows — and for an SSH agent that client is a real `ssh … tmux attach` to the agent's own
+ * session — so "is a client attached?" reads true for an entire layout while the human is typing in
+ * exactly one pane. That held every nudge for every agent in a dashboard, which is the whole
+ * problem §7 was meant to be a narrow exception to.
+ *
+ * So a hold requires the session to be attached *and* the agent's window to be the endpoint of the
+ * human's focus chain. Matching is by `window_id` (stable across `link-window`, so a local agent's
+ * shared window matches whether it is reached through its own session or a dashboard tab) and by
+ * window name (an SSH agent's window lives on another tmux server, where ids are meaningless, and
+ * its dashboard window is created with the agent's name). One conservative fallback: an SSH agent
+ * whose remote session is attached with no local quimby window carrying its name is a bare
+ * `quimby run <agent>` in a plain terminal — no local focus information exists, so it holds.
+ */
+export async function shouldHoldNudge(
+  agent: Readonly<AgentState>,
+  displayName: string,
+  policy: NudgeHoldPolicy = 'focus',
+): Promise<boolean> {
+  if (policy === 'never') return false
+  if ((await getAgentSessionState(agent)) !== 'attached') return false
+  if (policy === 'always') return true
+
+  const focused = await getFocusedTmuxWindows()
+  if (focused.names.has(displayName)) return true
+
+  if (isSSH(agent.location)) return !(await hasLocalWindowNamed(displayName))
+
+  const windowId = await getAgentWindowId(tmuxSessionName(agent.id))
+  return windowId !== null && focused.ids.has(windowId)
+}
 
 /**
  * Whether the agent has a live tmux session right now (`tmux has-session`). False for
@@ -107,6 +143,11 @@ export async function nudgeAgentSession(opts: {
    * since that is the human deliberately typing into the session.
    */
   force?: boolean
+  /**
+   * How the §7 hold decides (default `focus`). Resolved from config by the caller, since this
+   * package sits below `@quimbyhq/workspace` and cannot read config itself.
+   */
+  holdWhenAttached?: NudgeHoldPolicy
   reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, dashboardSession } = opts
@@ -133,12 +174,12 @@ export async function nudgeAgentSession(opts: {
 
   const session = tmuxSessionName(agent.id)
 
-  // §7 (coordination-proposals): never inject into a session a human is attached to — it types
-  // over their input, and the work is already durable in the inbox/assignment, so a deferred nudge
-  // loses nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
-  if (!opts.force && (await getAgentSessionState(agent)) === 'attached') {
+  // §7 (coordination-proposals): never inject into a session a human is typing in — it types over
+  // their input, and the work is already durable in the inbox/assignment, so a deferred nudge loses
+  // nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
+  if (!opts.force && (await shouldHoldNudge(agent, displayName, opts.holdWhenAttached))) {
     reporter.info(
-      `Held nudge for "${displayName}" — you're attached to it; it'll pick up the delivered ` +
+      `Held nudge for "${displayName}" — you're working in it; it'll pick up the delivered ` +
         `work on your next turn (\`quimby nudge ${displayName}\` forces it).`,
     )
     return
@@ -257,6 +298,25 @@ async function sendKeysLocal(session: string, text: string): Promise<void> {
  * hence meaningless to compare across servers). Guards against a nudge typing into the user's
  * own shell, where the text would run as a command. Any probe failure is treated as "not us".
  */
+// The window id of a local session's active window. An agent session holds exactly one window, and
+// `link-window` shares that same window object into a dashboard, so this id identifies the agent's
+// window from either side. Null when the session or the tmux server is gone.
+async function getAgentWindowId(session: string): Promise<string | null> {
+  try {
+    const { stdout } = await execa('tmux', [
+      ...TMUX,
+      'display-message',
+      '-p',
+      '-t',
+      session,
+      '#{window_id}',
+    ])
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}
+
 async function isTargetOurOwnPane(session: string): Promise<boolean> {
   const tmuxEnv = process.env.TMUX
   if (!tmuxEnv) return false

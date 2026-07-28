@@ -17,6 +17,7 @@ import {
   resolveConfiguredAgent,
   resolveHostAlias,
   resolveLayoutExpr,
+  resolveNudgeHoldPolicy,
   resolvePreset,
   resolvePresetLayout,
   resolveRole,
@@ -327,6 +328,18 @@ describe('resolveLayoutExpr', () => {
 
   it('passes an unknown name through as a raw expression', () => {
     expect(resolveLayoutExpr(config, 'a | b')).toBe('a | b')
+  })
+})
+
+describe('resolveNudgeHoldPolicy', () => {
+  it('is focus-aware by default, so a dashboard only holds the pane you are in', () => {
+    expect(resolveNudgeHoldPolicy({})).toBe('focus')
+    expect(resolveNudgeHoldPolicy({ nudge: {} })).toBe('focus')
+  })
+
+  it('maps overAttached true/false onto never/always', () => {
+    expect(resolveNudgeHoldPolicy({ nudge: { overAttached: true } })).toBe('never')
+    expect(resolveNudgeHoldPolicy({ nudge: { overAttached: false } })).toBe('always')
   })
 })
 

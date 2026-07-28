@@ -374,6 +374,20 @@ Status is the "to whom it may concern" channel, and availability is universal be
 
 The server also **auto-dispatches queued parcels**: on the same poll cycle it scans each agent's `out/queued/` and carries any _settled_ parcel to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. The partial-write race is prevented **by construction**: agents author under the unscanned `out/draft/` and publish with one atomic `mv` into `out/queued/`, so a parcel appears in the queue complete or not at all. The settle-debounce is kept as a cheap **fallback** (protecting an agent that writes directly into `out/queued/`, skipping draft): a parcel is dispatched only once its newest file has been unchanged for a full poll cycle. An atomically-published parcel lands complete and settles in one cycle, so net latency is ≤1 poll cycle. Each exact parcel version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored parcel (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. Dispatch (directed, discrete parcels) and status mirroring (ambient status) are orthogonal channels; auto-dispatch is on by default, and `quimby serve --no-dispatch` disables it, leaving only status mirroring.
 
+### When a nudge stands down (§7)
+
+An automated nudge (assign, handoff, dispatch, auto-dispatch) never types into the session you are **working in** — it would land mid-keystroke, and the work is already durable in the inbox or `assignment.md`, so deferring costs nothing. The test is _focus_, not attachment: quimby walks the focus chain from each real terminal client (wrapper session → active pane → the nested client that pane hosts → …) and holds only when the agent's window is where that chain ends.
+
+This distinction is load-bearing for a dashboard, which attaches a client to **every** pane it shows — and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session. A session-wide "is anyone attached?" therefore reads true for an entire layout, which would hold every nudge for every agent while you sit in one pane. Local agents are reached by `link-window` (shared window, no client), so they were never affected; SSH fleets were, completely.
+
+A bare `quimby run <agent>` in a plain terminal still holds, including for SSH agents (there is no local window to reason about, so quimby stays conservative). The explicit `quimby nudge <agent>` always forces. To change the policy wholesale:
+
+```yaml
+nudge:
+  overAttached: true # never hold — accept that a nudge can land mid-keystroke
+  # overAttached: false  # hold whenever any client is attached (the blunt pre-focus rule)
+```
+
 ### Agent-side mechanics (`agent.sh`)
 
 The comms conventions above are enacted **inside** the sandbox by the agent, and several of the steps are fiddly and silent-failure-prone: assignment/status persistence, the atomic author-then-publish move, the exact `quimby-attest` block with a correctly-keyed `atCommit`, and the inbox received → processed lifecycle. Quimby scaffolds a small **agent-side coordination tool** — `agent.sh` (with a Windows `agent.cmd` twin) — into every agent directory so the agent runs these mechanics reliably instead of hand-formatting them each time. It is regenerated on every launch, so a renamed or updated tool reaches an existing agent with no rebuild; the older `quimby-agent.sh`/`.cmd` names are removed on that same regeneration rather than shimmed, so the agent dir shows only the current tool.
