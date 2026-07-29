@@ -194,6 +194,16 @@ describe('renderResumeRequest', () => {
 })
 
 describe('renderTmuxConfig', () => {
+  it('sizes a shared window to its LARGEST viewer, so a stale small client cannot shrink an agent', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('window-size largest')
+    // It must land after the user's own config, or a personal `window-size` would win and the
+    // agent could be reflowed to a leftover terminal's width.
+    expect(conf.indexOf('window-size largest')).toBeGreaterThan(
+      conf.indexOf('source-file -q ~/.tmux.conf'),
+    )
+  })
+
   it('enables mouse mode for out-of-the-box scrolling', () => {
     expect(renderTmuxConfig()).toContain('mouse on')
   })

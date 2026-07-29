@@ -55,6 +55,14 @@ export function renderTmuxConfig(): string {
       'set -ga terminal-overrides ",*:Tc"',
       'set -g  mouse on',
       'set -g  history-limit 50000',
+      // A dashboard SHARES an agent's window (link-window), so the agent's own session and every
+      // dashboard showing it are separate clients on one window. Under tmux's default
+      // (`window-size latest`) the window follows whichever client was used last, so a leftover
+      // `quimby run <agent>` terminal drags the agent down to its size — the app reflows to 90
+      // columns and stays there while the dashboard pane is twice that. `largest` makes the biggest
+      // viewer win instead: a small client sees a clipped view (recoverable by looking elsewhere),
+      // where a wrongly-reflowed TUI is not.
+      'set -g  window-size largest',
       'set -g  automatic-rename off',
       'set -g  allow-rename off',
       'set -g  bell-action none',
