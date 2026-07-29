@@ -281,6 +281,14 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
       }
     }
   }
+  for (const [name, value] of nudgeSettings(config)) {
+    if (typeof value === 'string' && !normalizeNudgePolicy(value)) {
+      warnings.push(
+        `${name}: "${value}" is not a nudge policy — ignored (falls back to the default). ` +
+          'Valid: all | directed | never.',
+      )
+    }
+  }
   for (const [roleName, role] of Object.entries(config.roles ?? {})) {
     for (const key of Object.keys(role ?? {})) {
       if (AGENT_ROLE_KEYS.has(key)) continue
@@ -302,7 +310,13 @@ export function resolveNudgePolicy(
   return normalizeNudgePolicy(agent?.nudge) ?? normalizeNudgePolicy(config.nudge) ?? 'directed'
 }
 
-function normalizeNudgePolicy(value: string | undefined): NudgePolicy | undefined {
+/**
+ * A `nudge` value in canonical form, or undefined when it names nothing. Exported because the value
+ * is read in two places — the workspace default here, and an agent's own stored setting at dispatch
+ * — and normalizing in only one of them is how `nudge: always` came to be honored for the fleet but
+ * silently ignored per agent.
+ */
+export function normalizeNudgePolicy(value: string | undefined): NudgePolicy | undefined {
   if (value === 'all' || value === 'always') return 'all'
   if (value === 'directed' || value === 'focus') return 'directed'
   if (value === 'never') return 'never'
@@ -454,3 +468,20 @@ const CONFIGURED_AGENT_KEYS = new Set([
   'location',
   'count',
 ])
+
+// Every place a `nudge` policy can be declared, labelled for the warning.
+function nudgeSettings(config: Readonly<QuimbyConfig>): [string, unknown][] {
+  const out: [string, unknown][] = []
+  if (config.nudge !== undefined) out.push(['nudge', config.nudge])
+  for (const [role, cfg] of Object.entries(config.roles ?? {})) {
+    if (cfg?.nudge !== undefined) out.push([`roles.${role}.nudge`, cfg.nudge])
+  }
+  for (const [preset, cfg] of Object.entries(config.presets ?? {})) {
+    for (const [agent, entry] of Object.entries(cfg.agents ?? {})) {
+      if (typeof entry === 'object' && entry !== null && entry.nudge !== undefined) {
+        out.push([`presets.${preset}.agents.${agent}.nudge`, entry.nudge])
+      }
+    }
+  }
+  return out
+}

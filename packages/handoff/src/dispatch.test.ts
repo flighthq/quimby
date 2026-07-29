@@ -228,6 +228,18 @@ describe('dispatchOutbox', () => {
     expect(result.userDirected).toBeFalsy()
   })
 
+  it('honors the legacy `always` spelling stored on an agent, not just the canonical `all`', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    const state = stateWith('review', 'builder')
+    // What a pre-normalization `quimby sync` wrote from `nudge: always` in config.
+    state.agents.review.nudge = 'always' as 'all'
+    await stageDraft(dir, 'builder', 'review', 'upward advisory')
+
+    const [result] = await dispatchOutbox({ state, repoRoot: dir, sender: 'builder' })
+    expect(result.interrupts).toBe(true)
+  })
+
   it('wakes for nothing when the recipient policy is `never`, even a directed parcel', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

@@ -4,7 +4,7 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { AgentAttestation, NudgePolicy, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { directsRecipient, honorsEscalation } from '@quimbyhq/workspace'
+import { directsRecipient, honorsEscalation, normalizeNudgePolicy } from '@quimbyhq/workspace'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
 import {
@@ -159,7 +159,7 @@ export async function dispatchOutbox(opts: {
       // The recipient's own `nudge` policy decides how much reaches it: `all` wakes it for every
       // parcel (the unattended-fleet setting — nobody has to relay overnight), `never` for none,
       // and the default `directed` only for work the graph says is aimed at it (§6a).
-      const policy = recip.nudge ?? opts.defaultNudge ?? 'directed'
+      const policy = normalizeNudgePolicy(recip.nudge) ?? opts.defaultNudge ?? 'directed'
       const interrupts =
         policy === 'never' ? false : policy === 'all' || userDirected || escalation || replyHonored
       // The sender asked to interrupt and the graph said no — surfaced so the operator can see the

@@ -98,6 +98,25 @@ describe('collectConfigWarnings', () => {
     expect(warnings[0]).toContain('Valid keys:')
   })
 
+  it('flags a nudge value that names no policy, wherever it is declared', () => {
+    const warnings = collectConfigWarnings({
+      nudge: 'sometimes' as 'all',
+      presets: { d: { agents: { review: { nudge: 'loud' as 'all' } } } },
+    })
+    expect(warnings).toHaveLength(2)
+    expect(warnings.join(' ')).toContain('all | directed | never')
+    expect(warnings.join(' ')).toContain('presets.d.agents.review.nudge')
+  })
+
+  it('accepts the legacy always/focus spellings without warning', () => {
+    expect(
+      collectConfigWarnings({
+        nudge: 'always' as 'all',
+        presets: { d: { agents: { review: { nudge: 'focus' as 'directed' } } } },
+      }),
+    ).toEqual([])
+  })
+
   it('flags an unknown role key too', () => {
     const [warning] = collectConfigWarnings({ roles: { builder: { wakes: 'always' } as never } })
     expect(warning).toContain('roles.builder.wakes')

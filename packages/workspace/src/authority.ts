@@ -6,6 +6,8 @@ import type {
   QuimbyState,
 } from '@quimbyhq/types'
 
+import { normalizeNudgePolicy } from './config'
+
 /**
  * The concrete recipients an agent may DIRECT — its `directs` entries with any `@role` slot
  * expanded to every instance of that role (mirroring the layout role-slot rule: an agent whose
@@ -37,7 +39,8 @@ export function resolveConfiguredAgentEdges(
 
   const directs = entry?.directs ?? role?.directs
   const escalatesTo = entry?.escalatesTo ?? role?.escalatesTo
-  const nudge = entry?.nudge ?? role?.nudge
+  // Canonicalize here so state never holds a legacy spelling the dispatch gate would miss.
+  const nudge = normalizeNudgePolicy(entry?.nudge ?? role?.nudge)
   return {
     ...(directs?.length ? { directs: [...directs] } : {}),
     // An empty list declares nothing, so it reads as absent rather than as "escalate nowhere".
