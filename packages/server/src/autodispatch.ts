@@ -19,7 +19,7 @@ export async function autoDispatchOutboxes(
   state: Readonly<QuimbyState>,
   tracker: OutboxDispatchTracker,
   reporter: Reporter = silentReporter,
-  policy: NudgePolicy = 'focus',
+  defaultNudge: NudgePolicy = 'directed',
 ): Promise<void> {
   // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
   // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
@@ -66,6 +66,7 @@ export async function autoDispatchOutboxes(
       repoRoot,
       sender,
       recipients: stable,
+      defaultNudge,
       resolveAttestation: (name) =>
         state.agents[name]
           ? getAgentAttestation(repoRoot, state.id, state.agents[name])
@@ -126,7 +127,6 @@ export async function autoDispatchOutboxes(
       displayName: recipient,
       courier,
       reporter,
-      policy,
     })
   }
 }

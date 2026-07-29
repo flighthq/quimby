@@ -377,21 +377,34 @@ Status is the "to whom it may concern" channel, and availability is universal be
 
 The server also **auto-dispatches queued parcels**: on the same poll cycle it scans each agent's `out/queued/` and carries any _settled_ parcel to its recipient — the automatic twin of `quimby dispatch`, so a reviewer's authored parcel is enacted without a human relaying it. The partial-write race is prevented **by construction**: agents author under the unscanned `out/draft/` and publish with one atomic `mv` into `out/queued/`, so a parcel appears in the queue complete or not at all. The settle-debounce is kept as a cheap **fallback** (protecting an agent that writes directly into `out/queued/`, skipping draft): a parcel is dispatched only once its newest file has been unchanged for a full poll cycle. An atomically-published parcel lands complete and settles in one cycle, so net latency is ≤1 poll cycle. Each exact parcel version is attempted at most once, so a bounced (unknown recipient) or failed carry never retries in a loop, and a re-authored parcel (new mtime) is treated as fresh. A running recipient is nudged, exactly as with manual dispatch. Dispatch (directed, discrete parcels) and status mirroring (ambient status) are orthogonal channels; auto-dispatch is on by default, and `quimby serve --no-dispatch` disables it, leaving only status mirroring.
 
-### When a nudge stands down (§7)
+### Which parcels wake an agent (`nudge`)
 
-An automated nudge (assign, handoff, dispatch, auto-dispatch) never types into the session you are **working in** — it would land mid-keystroke, and the work is already durable in the inbox or `assignment.md`, so deferring costs nothing. The test is _focus_, not attachment: quimby walks the focus chain from each real terminal client (wrapper session → active pane → the nested client that pane hosts → …) and holds only when the agent's window is where that chain ends.
-
-This distinction is load-bearing for a dashboard, which attaches a client to **every** pane it shows — and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session. A session-wide "is anyone attached?" therefore reads true for an entire layout, which would hold every nudge for every agent while you sit in one pane. Local agents are reached by `link-window` (shared window, no client), so they were never affected; SSH fleets were, completely.
-
-A bare `quimby run <agent>` in a plain terminal still holds, including for SSH agents (there is no local window to reason about, so quimby stays conservative). The explicit `quimby nudge <agent>` always forces. The optional top-level `nudge` key names when an automated nudge may land — a monotone scale, most permissive first:
+By default only work the graph aims at an agent wakes it: a `directs` handoff, an honored escalation, or a reply to its own question. Routine peer chatter lands passively — read on the recipient's own turn. The `nudge` policy changes that, and the **recipient's** setting governs, since it is the one being interrupted:
 
 ```yaml
-nudge: focus # the default; `always` injects even into the pane you're in, `never` never injects
+nudge: directed # workspace default (all | directed | never)
+
+roles:
+  builder:
+    nudge: all # every parcel wakes a builder…
+presets:
+  default:
+    agents:
+      review2:
+        nudge: never # …while this one is never interrupted
 ```
 
-`never` is a real setting, not just "off": parcels still arrive and the agent reads them on its own next turn — it is the fully passive courier. An unrecognized value falls back to `focus` rather than failing a courier run over a config typo.
+- **`all`** — every delivered parcel wakes the recipient, advisory notes included. This is the "keep the fleet moving unattended" setting: work continues overnight with nobody relaying.
+- **`directed`** (default) — only directed / escalation / reply, per §6a.
+- **`never`** — nothing wakes it; parcels still arrive and are read on its next turn.
 
-**A conflict nudge is not subject to any of this.** When a `sync` or `merge` fails on a rebase conflict, quimby offers to send the agent the "rebase onto `<ref>` and resolve conflicts" request, and that nudge is **forced** — it is the direct answer to a command you just ran, and holding it is what left you with a failed sync and nothing to tell the agent. Interactive runs ask first (`y/N`, defaulting to yes) and print the ready-to-paste `quimby nudge …` if you decline. Non-interactively, `merge` fires it (its long-standing behavior) while `sync` only prints it — waking an agent onto a conflicted baseline stays your call, the same reason `assign` suppresses its nudge when the pre-sync fails.
+Resolution is recipient's own setting → its role → the workspace default → `directed`. It is stored on agent state and refreshed by `quimby sync`, exactly like the coordination edges, so a config edit reaches a live agent without a rebuild. (`always` and `focus` are accepted as legacy spellings of `all` and `directed`.) A parcel that arrives without waking anyone now says so, and a refused escalation names the missing edge — silence there is indistinguishable from a broken courier.
+
+Human-initiated verbs are unaffected: `quimby assign`, `handoff`, and `delegate` follow their own nudge rules, because you naming one agent is already the decision to interrupt it.
+
+**Separately, quimby never types into the one pane you are actively working in** — whatever the policy. That guard is about not clobbering live keystrokes, not about how much work interrupts you: it holds exactly one window and releases the moment you look elsewhere. It matters for a dashboard, which attaches a client to _every_ pane it shows (and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session), so a session-wide check would hold an entire layout. A bare `quimby run <agent>` in a plain terminal still holds; `quimby nudge <agent>` forces.
+
+**A conflict nudge is never held.** When a `sync` or `merge` fails on a rebase conflict, quimby offers to send the agent the "rebase onto `<ref>` and resolve conflicts" request, forced — it is the direct answer to a command you just ran. Interactive runs ask first (`y/N`, default yes) and print the ready-to-paste `quimby nudge …` if you decline; non-interactively `merge` fires it while `sync` only prints, since waking an agent onto a conflicted baseline stays your call.
 
 ### Agent-side mechanics (`agent.sh`)
 

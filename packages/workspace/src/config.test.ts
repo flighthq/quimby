@@ -73,31 +73,40 @@ const config = {
 }
 
 describe('collectConfigWarnings', () => {
-  it('flags a per-agent `nudge`, which looks right but is a top-level policy', () => {
-    const warnings = collectConfigWarnings({
-      presets: {
-        default: {
-          agents: {
-            review: { role: 'review', directs: ['builder'], nudge: 'always' } as never,
-            builder: { role: 'builder', nudge: 'always' } as never,
+  it('accepts `nudge` on an agent entry and on a role — the recipient governs', () => {
+    expect(
+      collectConfigWarnings({
+        roles: { builder: { nudge: 'all' } },
+        presets: {
+          default: {
+            agents: {
+              review: { role: 'review', directs: ['builder'], nudge: 'all' },
+              builder: { role: 'builder', nudge: 'never' },
+            },
           },
         },
-      },
-    })
-    expect(warnings).toHaveLength(2)
-    expect(warnings[0]).toContain('presets.default.agents.review.nudge')
-    expect(warnings[0]).toContain('TOP-LEVEL')
+      }),
+    ).toEqual([])
   })
 
-  it('flags an unknown role key and lists what is valid', () => {
-    const [warning] = collectConfigWarnings({ roles: { builder: { escalate: 'review' } as never } })
-    expect(warning).toContain('roles.builder.escalate')
+  it('flags a key quimby will ignore, so a plausible-looking typo is not silent', () => {
+    const warnings = collectConfigWarnings({
+      presets: { default: { agents: { review: { role: 'review', escalate: 'x' } as never } } },
+    })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('presets.default.agents.review.escalate')
+    expect(warnings[0]).toContain('Valid keys:')
+  })
+
+  it('flags an unknown role key too', () => {
+    const [warning] = collectConfigWarnings({ roles: { builder: { wakes: 'always' } as never } })
+    expect(warning).toContain('roles.builder.wakes')
   })
 
   it('is silent for a correct config', () => {
     expect(
       collectConfigWarnings({
-        nudge: 'always',
+        nudge: 'all',
         roles: { builder: { runtime: 'sbx', escalatesTo: ['review'] } },
         presets: {
           default: { agents: { builder: { role: 'builder', count: 4, runtimeProfile: 'codex' } } },
@@ -368,17 +377,22 @@ describe('resolveLayoutExpr', () => {
 })
 
 describe('resolveNudgePolicy', () => {
-  it('defaults to focus, so a dashboard only holds the pane you are in', () => {
-    expect(resolveNudgePolicy({})).toBe('focus')
+  it('defaults to directed — only work the graph aims at you', () => {
+    expect(resolveNudgePolicy({})).toBe('directed')
   })
 
-  it('passes an explicit always/never through', () => {
-    expect(resolveNudgePolicy({ nudge: 'always' })).toBe('always')
-    expect(resolveNudgePolicy({ nudge: 'never' })).toBe('never')
+  it('lets the recipient override the workspace default', () => {
+    expect(resolveNudgePolicy({ nudge: 'never' }, { nudge: 'all' })).toBe('all')
+    expect(resolveNudgePolicy({ nudge: 'all' })).toBe('all')
+  })
+
+  it('accepts the legacy always/focus spellings', () => {
+    expect(resolveNudgePolicy({ nudge: 'always' as 'all' })).toBe('all')
+    expect(resolveNudgePolicy({}, { nudge: 'focus' })).toBe('directed')
   })
 
   it('falls back to the default on a typo rather than failing a courier run', () => {
-    expect(resolveNudgePolicy({ nudge: 'sometimes' as 'always' })).toBe('focus')
+    expect(resolveNudgePolicy({ nudge: 'sometimes' as 'all' })).toBe('directed')
   })
 })
 

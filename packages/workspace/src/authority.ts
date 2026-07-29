@@ -32,16 +32,19 @@ export function resolveConfiguredAgentEdges(
 ): AgentCoordinationEdges | null {
   const entry = findConfiguredAgent(config, agent.name)
   const role = config.roles?.[entry?.role ?? agent.role ?? '']
-  if (!entry && !role?.directs?.length && !hasEscalationRefs(role?.escalatesTo)) return null
+  if (!entry && !role?.directs?.length && !hasEscalationRefs(role?.escalatesTo) && !role?.nudge)
+    return null
 
   const directs = entry?.directs ?? role?.directs
   const escalatesTo = entry?.escalatesTo ?? role?.escalatesTo
+  const nudge = entry?.nudge ?? role?.nudge
   return {
     ...(directs?.length ? { directs: [...directs] } : {}),
     // An empty list declares nothing, so it reads as absent rather than as "escalate nowhere".
     ...(hasEscalationRefs(escalatesTo)
       ? { escalatesTo: typeof escalatesTo === 'string' ? escalatesTo : [...escalatesTo!] }
       : {}),
+    ...(nudge ? { nudge } : {}),
   }
 }
 

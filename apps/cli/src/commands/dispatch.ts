@@ -57,6 +57,7 @@ export async function runDispatchCommand({
         ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
         : undefined,
       resolveAttestation: attestationResolver(repoRoot, state),
+      defaultNudge: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
     },
     consolaReporter,
   )
@@ -90,7 +91,6 @@ export async function runDispatchCommand({
               displayName: result.recipient,
               courier: `${kind} ${result.parcelName} from ${sender}`,
               reporter: consolaReporter,
-              policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
             })
           }
         }

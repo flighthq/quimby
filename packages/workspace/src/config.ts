@@ -254,10 +254,10 @@ export async function saveMergeModeDefault(
 }
 
 /**
- * When an automated nudge may type into a live session (coordination-proposals §7), from the
- * optional top-level `nudge` key. Defaults to `focus` — everything except the pane you are
- * working in. An unrecognized value falls back to the default rather than failing a courier run
- * over a config typo.
+ * Which parcels wake an agent (coordination-proposals §6a): the recipient's own `nudge` setting if
+ * it has one, else the workspace default, else `directed`. The RECIPIENT governs — this is its
+ * tolerance for interruption. `always`/`focus` are accepted as legacy spellings of `all`/`directed`;
+ * an unrecognized value falls back to the default rather than failing a courier run over a typo.
  */
 /**
  * Advisory warnings about config keys quimby will ignore — a misplaced or misspelled key in
@@ -275,7 +275,7 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
         warnings.push(
           `presets.${presetName}.agents.${agentName}.${key} is not an agent setting — ignored.` +
             (key === 'nudge'
-              ? ' `nudge` is a TOP-LEVEL policy (always | focus | never) covering every agent.'
+              ? ' Did you mean the top-level `nudge`? (all | directed | never)'
               : ` Valid keys: ${[...CONFIGURED_AGENT_KEYS].sort().join(', ')}.`),
         )
       }
@@ -286,16 +286,27 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
       if (AGENT_ROLE_KEYS.has(key)) continue
       warnings.push(
         `roles.${roleName}.${key} is not a role setting — ignored.` +
-          (key === 'nudge' ? ' `nudge` is a TOP-LEVEL policy (always | focus | never).' : ''),
+          (key === 'nudge'
+            ? ' `nudge` is valid on a role or top-level (all | directed | never).'
+            : ''),
       )
     }
   }
   return warnings
 }
 
-export function resolveNudgePolicy(config: Readonly<QuimbyConfig>): NudgePolicy {
-  const policy = config.nudge
-  return policy === 'always' || policy === 'never' ? policy : 'focus'
+export function resolveNudgePolicy(
+  config: Readonly<QuimbyConfig>,
+  agent?: Readonly<{ nudge?: string }>,
+): NudgePolicy {
+  return normalizeNudgePolicy(agent?.nudge) ?? normalizeNudgePolicy(config.nudge) ?? 'directed'
+}
+
+function normalizeNudgePolicy(value: string | undefined): NudgePolicy | undefined {
+  if (value === 'all' || value === 'always') return 'all'
+  if (value === 'directed' || value === 'focus') return 'directed'
+  if (value === 'never') return 'never'
+  return undefined
 }
 
 export function normalizeCheck(check: string | CheckConfig | undefined): CheckConfig | undefined {
@@ -424,6 +435,7 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
 // The keys each config container actually reads. Kept beside the interfaces they mirror; a new
 // field must be added here too, or `collectConfigWarnings` will report it as unknown.
 const AGENT_ROLE_KEYS = new Set([
+  'nudge',
   'runtimeProfile',
   'runtime',
   'entrypoint',

@@ -21,6 +21,8 @@ export interface AgentRoleConfig {
    */
   directs?: string[]
   escalatesTo?: string | string[]
+  /** Which parcels wake agents of this role (`all` | `directed` | `never`). */
+  nudge?: NudgePolicy
 }
 
 export interface ConfiguredAgent {
@@ -54,6 +56,11 @@ export interface ConfiguredAgent {
    * escalation — never a fan-out that wakes them all. Entries may be `@role` slots.
    */
   escalatesTo?: string | string[]
+  /**
+   * Which parcels wake THIS agent (`all` | `directed` | `never`), overriding its role and the
+   * workspace default. The recipient's setting governs — it is the one being interrupted.
+   */
+  nudge?: NudgePolicy
 }
 
 export interface LayoutConfig {

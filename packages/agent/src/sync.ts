@@ -274,6 +274,12 @@ export function applyAgentCoordinationEdges(
     changed = true
   }
 
+  if (agent.nudge !== edges.nudge) {
+    if (edges.nudge) agent.nudge = edges.nudge
+    else delete agent.nudge
+    changed = true
+  }
+
   return changed
 }
 

@@ -1,14 +1,19 @@
 /**
- * When an automated nudge (assign / handoff / dispatch / auto-dispatch) may type into a live agent
- * session — coordination-proposals §7. A monotone scale, most permissive first:
+ * Which delivered parcels wake an agent — coordination-proposals §6a/§7. Most permissive first:
  *
- * - `always` — always inject, even into the pane you are working in. Accepts that a nudge can land
- *   mid-keystroke.
- * - `focus` (the default) — considers focus: inject unless the agent's window is the one you are
- *   working in. A dashboard attaches a client per pane, so anything coarser holds every agent in a
- *   layout while you type in exactly one of them.
- * - `never` — never inject. Parcels still arrive; the agent reads them on its own next turn.
+ * - `all` — every parcel that reaches this agent wakes it, advisory notes included. The "keep the
+ *   fleet moving unattended" setting: work continues overnight without a human relaying.
+ * - `directed` (the default) — only work the graph says is directed at it: a `directs` handoff, an
+ *   honored escalation, or a reply to its own question. Routine peer chatter lands passively.
+ * - `never` — nothing wakes it. Parcels still arrive; it reads them on its own next turn.
  *
- * The explicit `quimby nudge <agent>` is the human deliberately typing, so it bypasses all three.
+ * Set it top-level for the workspace, or per agent/role (the RECIPIENT's setting governs — it is
+ * that agent's tolerance for interruption). `always` and `focus` are accepted as legacy spellings
+ * of `all` and `directed`.
+ *
+ * Orthogonal to this: quimby never types into the one pane a human is actively working in, whatever
+ * the policy. That guard is about not clobbering live keystrokes, not about how much work interrupts
+ * you — it holds exactly one window and releases the moment you look elsewhere. The explicit
+ * `quimby nudge <agent>` forces past it.
  */
-export type NudgePolicy = 'always' | 'focus' | 'never'
+export type NudgePolicy = 'all' | 'directed' | 'never'

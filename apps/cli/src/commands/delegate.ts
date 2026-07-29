@@ -1,6 +1,6 @@
 import { handoffWork } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { consolaReporter } from '../reporter'
@@ -55,6 +55,5 @@ export async function runDelegateCommand({
     displayName: result.to,
     courier: `delegated task ${result.parcelName} from ${result.from}`,
     reporter: consolaReporter,
-    policy: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
   })
 }

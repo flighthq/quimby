@@ -374,15 +374,11 @@ describe('shouldHoldNudge', () => {
     expect(await shouldHoldNudge(sshAgent, 'researcher')).toBe(false)
   })
 
-  it('honors the policy: "always" sends even into the focused pane, "never" always holds', async () => {
-    getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'always')).toBe(false)
-
+  it('is about live keystrokes only — the `nudge` policy is settled before this runs', async () => {
+    // A detached session is never held, however interrupt-hungry the fleet's policy is: the guard
+    // exists to avoid typing over a human, and there is no human here.
     getSessionState.mockResolvedValue('running')
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'never')).toBe(true)
-    // both short-circuit — neither probes the session state or the focus chain
-    expect(getFocused).not.toHaveBeenCalled()
-    expect(getSessionState).not.toHaveBeenCalled()
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
   })
 })

@@ -1,4 +1,5 @@
 import type { AgentLocation } from './AgentLocation'
+import type { NudgePolicy } from './NudgePolicy'
 
 export interface AgentDefaults {
   /** Named runtime profile from quimby config. The profile is resolved at launch time. */
@@ -80,4 +81,10 @@ export interface AgentState {
    * See coordination-proposals §6b.
    */
   escalatesTo?: string | string[]
+  /**
+   * Which parcels wake THIS agent (`all` | `directed` | `never`). Copied from config at creation and
+   * refreshed by `quimby sync`; falls back to the workspace default. The recipient governs, since
+   * it is the one being interrupted.
+   */
+  nudge?: NudgePolicy
 }

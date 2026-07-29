@@ -2,7 +2,7 @@ import { QuimbyError } from '@quimbyhq/errors'
 import { getStagingHandoffDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
-import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
+import type { AgentAttestation, NudgePolicy, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { directsRecipient, honorsEscalation } from '@quimbyhq/workspace'
 
@@ -64,6 +64,8 @@ export async function dispatchOutboxes(
     all: boolean
     beforeStage?: (codeSourceName: string) => Promise<void>
     resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
+    /** Workspace default when a recipient declares no `nudge` of its own. */
+    defaultNudge?: NudgePolicy
   },
   reporter: Reporter = silentReporter,
 ): Promise<DispatchOutboxesResult> {
@@ -85,6 +87,7 @@ export async function dispatchOutboxes(
     // dispatch path (recipient listing, note reading) sees it. No-op for local agents.
     await pickupRemoteOutbox(repoRoot, state.agents[sender], state.id)
     const results = await dispatchOutbox({
+      defaultNudge: opts.defaultNudge,
       state,
       repoRoot,
       sender,
@@ -108,6 +111,8 @@ export async function dispatchOutbox(opts: {
   recipients?: readonly string[]
   beforeStage?: (codeSourceName: string) => Promise<void>
   resolveAttestation?: (codeSourceName: string) => Promise<AgentAttestation | null | undefined>
+  /** Workspace default when a recipient declares no `nudge` of its own (`directed` if omitted). */
+  defaultNudge?: NudgePolicy
 }): Promise<DispatchOutboxResult[]> {
   const { state, repoRoot, sender } = opts
   const senderState = state.agents[sender]
@@ -149,7 +154,12 @@ export async function dispatchOutbox(opts: {
       const replyHonored = draft.replyTo
         ? await hasInboxParcel(repoRoot, senderState, state.id, draft.replyTo)
         : false
-      const interrupts = userDirected || escalation || replyHonored
+      // The recipient's own `nudge` policy decides how much reaches it: `all` wakes it for every
+      // parcel (the unattended-fleet setting — nobody has to relay overnight), `never` for none,
+      // and the default `directed` only for work the graph says is aimed at it (§6a).
+      const policy = recip.nudge ?? opts.defaultNudge ?? 'directed'
+      const interrupts =
+        policy === 'never' ? false : policy === 'all' || userDirected || escalation || replyHonored
       // The sender asked to interrupt and the graph said no — surfaced so the operator can see the
       // missing edge rather than an inexplicably quiet recipient.
       const downgraded: 'escalation' | 'reply' | undefined =

@@ -215,6 +215,45 @@ describe('dispatchOutbox', () => {
     expect(toReview.downgraded).toBeUndefined()
   })
 
+  it('wakes the recipient for ANY parcel when its nudge policy is `all` (unattended fleet)', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    const state = stateWith('review', 'builder')
+    state.agents.review.nudge = 'all' // review takes every parcel as a wake, advisory included
+    await stageDraft(dir, 'builder', 'review', 'plain advisory, no edge, no escalate')
+
+    const [result] = await dispatchOutbox({ state, repoRoot: dir, sender: 'builder' })
+    expect(result.interrupts).toBe(true)
+    // it woke because of the policy, not because the graph made it directed
+    expect(result.userDirected).toBeFalsy()
+  })
+
+  it('wakes for nothing when the recipient policy is `never`, even a directed parcel', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    const state = stateWith('review', 'builder')
+    state.agents.review.directs = ['builder']
+    state.agents.builder.nudge = 'never'
+    await stageDraft(dir, 'review', 'builder', 'do the thing')
+
+    const [result] = await dispatchOutbox({ state, repoRoot: dir, sender: 'review' })
+    expect(result.interrupts).toBe(false)
+  })
+
+  it('takes the workspace default when the recipient declares no policy of its own', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await stageDraft(dir, 'builder', 'review', 'plain advisory')
+
+    const [result] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'builder',
+      defaultNudge: 'all',
+    })
+    expect(result.interrupts).toBe(true)
+  })
+
   it('flags an ordinary advisory as not downgraded — passive by design, not a refused interrupt', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

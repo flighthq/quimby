@@ -1,3 +1,5 @@
+import type { NudgePolicy } from './NudgePolicy'
+
 /**
  * The coordination edges declared for an agent in config (coordination-proposals §6): who it may
  * DIRECT, and where it escalates. Resolved from `quimby.yaml` and applied onto `AgentState` — at
@@ -9,4 +11,6 @@ export interface AgentCoordinationEdges {
   directs?: string[]
   /** Who this agent may escalate to (else every agent that directs it) — an allow-list. */
   escalatesTo?: string | string[]
+  /** Which parcels wake this agent — carried alongside the edges by the same sync refresh. */
+  nudge?: NudgePolicy
 }
