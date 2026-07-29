@@ -6,7 +6,12 @@ import { getSSHTransport } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { loadQuimbyConfig, resolveSSHConnection, resolveWorkspace } from '@quimbyhq/workspace'
+import {
+  collectConfigWarnings,
+  loadQuimbyConfig,
+  resolveSSHConnection,
+  resolveWorkspace,
+} from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
@@ -45,6 +50,7 @@ export async function runDoctorCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
+  for (const warning of collectConfigWarnings(config)) logger.warn(warning)
   const agent = args.agent ? state.agents[args.agent] : undefined
   if (args.agent && !agent) throw new QuimbyError(`Agent "${args.agent}" not found`)
 

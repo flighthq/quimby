@@ -259,6 +259,40 @@ export async function saveMergeModeDefault(
  * working in. An unrecognized value falls back to the default rather than failing a courier run
  * over a config typo.
  */
+/**
+ * Advisory warnings about config keys quimby will ignore — a misplaced or misspelled key in
+ * `quimby.yaml` is otherwise **silent**, which reads as "quimby is broken" rather than "that key
+ * isn't a thing here". (`nudge` is the one that bites: it is a top-level policy, but it looks like
+ * it should sit on an agent.) Never fatal, and never a schema check — only keys we know are wrong.
+ */
+export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] {
+  const warnings: string[] = []
+  for (const [presetName, preset] of Object.entries(config.presets ?? {})) {
+    for (const [agentName, entry] of Object.entries(preset.agents ?? {})) {
+      if (typeof entry !== 'object' || entry === null) continue
+      for (const key of Object.keys(entry)) {
+        if (CONFIGURED_AGENT_KEYS.has(key)) continue
+        warnings.push(
+          `presets.${presetName}.agents.${agentName}.${key} is not an agent setting — ignored.` +
+            (key === 'nudge'
+              ? ' `nudge` is a TOP-LEVEL policy (always | focus | never) covering every agent.'
+              : ` Valid keys: ${[...CONFIGURED_AGENT_KEYS].sort().join(', ')}.`),
+        )
+      }
+    }
+  }
+  for (const [roleName, role] of Object.entries(config.roles ?? {})) {
+    for (const key of Object.keys(role ?? {})) {
+      if (AGENT_ROLE_KEYS.has(key)) continue
+      warnings.push(
+        `roles.${roleName}.${key} is not a role setting — ignored.` +
+          (key === 'nudge' ? ' `nudge` is a TOP-LEVEL policy (always | focus | never).' : ''),
+      )
+    }
+  }
+  return warnings
+}
+
 export function resolveNudgePolicy(config: Readonly<QuimbyConfig>): NudgePolicy {
   const policy = config.nudge
   return policy === 'always' || policy === 'never' ? policy : 'focus'
@@ -386,3 +420,25 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
     Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined),
   ) as Partial<T>
 }
+
+// The keys each config container actually reads. Kept beside the interfaces they mirror; a new
+// field must be added here too, or `collectConfigWarnings` will report it as unknown.
+const AGENT_ROLE_KEYS = new Set([
+  'runtimeProfile',
+  'runtime',
+  'entrypoint',
+  'check',
+  'verifyByDefault',
+  'syncRef',
+  'tmux',
+  'directs',
+  'escalatesTo',
+])
+
+const CONFIGURED_AGENT_KEYS = new Set([
+  ...AGENT_ROLE_KEYS,
+  'role',
+  'hostAlias',
+  'location',
+  'count',
+])

@@ -1,7 +1,8 @@
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { createMissingPresetAgents } from '@quimbyhq/layout'
-import { ensureWorkspace, loadQuimbyConfig } from '@quimbyhq/workspace'
+import { logger } from '@quimbyhq/utils'
+import { collectConfigWarnings, ensureWorkspace, loadQuimbyConfig } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -30,6 +31,8 @@ export async function runUpCommand({ args }: { args: { preset?: string; default?
 
   await ensureWorkspace(repoRoot)
   const config = await loadQuimbyConfig(repoRoot)
+  // Surface keys quimby will ignore. Advisory only — a stray key never blocks creation.
+  for (const warning of collectConfigWarnings(config)) logger.warn(warning)
   const presetName = resolveUpPresetName(config.default, args)
   await createMissingPresetAgents(repoRoot, config, presetName)
 }

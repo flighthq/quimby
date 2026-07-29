@@ -7,6 +7,7 @@ import { join } from 'pathe'
 import { describe, expect, it } from 'vitest'
 
 import {
+  collectConfigWarnings,
   getUserConfigPath,
   isHostAliasBound,
   loadQuimbyConfig,
@@ -70,6 +71,41 @@ const config = {
     gpu: { type: 'ssh' as const, host: 'me@gpu', port: 2222, base: '/srv/quimby' },
   },
 }
+
+describe('collectConfigWarnings', () => {
+  it('flags a per-agent `nudge`, which looks right but is a top-level policy', () => {
+    const warnings = collectConfigWarnings({
+      presets: {
+        default: {
+          agents: {
+            review: { role: 'review', directs: ['builder'], nudge: 'always' } as never,
+            builder: { role: 'builder', nudge: 'always' } as never,
+          },
+        },
+      },
+    })
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toContain('presets.default.agents.review.nudge')
+    expect(warnings[0]).toContain('TOP-LEVEL')
+  })
+
+  it('flags an unknown role key and lists what is valid', () => {
+    const [warning] = collectConfigWarnings({ roles: { builder: { escalate: 'review' } as never } })
+    expect(warning).toContain('roles.builder.escalate')
+  })
+
+  it('is silent for a correct config', () => {
+    expect(
+      collectConfigWarnings({
+        nudge: 'always',
+        roles: { builder: { runtime: 'sbx', escalatesTo: ['review'] } },
+        presets: {
+          default: { agents: { builder: { role: 'builder', count: 4, runtimeProfile: 'codex' } } },
+        },
+      }),
+    ).toEqual([])
+  })
+})
 
 describe('getUserConfigPath', () => {
   it('names config.yaml under the user config dir', () => {
