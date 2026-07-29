@@ -15,6 +15,7 @@ import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatc
 import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
+import { createInboxReminderTracker, remindUnreadInboxes } from './remind'
 import { routeRequest } from './router'
 
 export interface ServerOptions {
@@ -43,6 +44,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
 
   const statusCache = new Map<string, StatusSnapshot>()
   const outboxTracker = createOutboxDispatchTracker()
+  const reminderTracker = createInboxReminderTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
   // Read once at startup: auto-reaping is a standing policy, so a config edit takes effect on the
@@ -99,8 +101,13 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           reporter.warn(`[${name}] roster reconcile failed: ${err}`)
         }
       }
-      if (autoDispatch)
+      if (autoDispatch) {
         await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter, nudgePolicy)
+        // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
+        // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
+        // the fleet moving without me".
+        await remindUnreadInboxes(repoRoot, state, reminderTracker, Date.now(), reporter)
+      }
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
       reporter.error(`Poll error: ${err}`)

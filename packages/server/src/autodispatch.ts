@@ -44,11 +44,13 @@ export async function autoDispatchOutboxes(
     const present = new Set<string>()
     const stable: string[] = []
 
+    const mtimes = new Map<string, number>()
     for (const recipient of recipients) {
       const key = `${sender}/${recipient}`
       present.add(key)
       const mtime = await outboxDraftMtime(repoRoot, senderId, recipient)
       if (mtime === null) continue
+      mtimes.set(recipient, mtime)
       if (classifyOutboxDraft(tracker, key, mtime) === 'dispatch') stable.push(recipient)
     }
 
@@ -111,7 +113,14 @@ export async function autoDispatchOutboxes(
       } else if (result.status === 'unknown') {
         reporter.warn(`  "${result.recipient}" is not an agent — left in "${sender}" outbox to fix`)
       } else {
-        reporter.warn(`  failed "${sender}" → "${result.recipient}": ${result.error}`)
+        // A FAILED carry (unreachable host, transient fs error) is retried on the next cycle:
+        // forget the attempt so the unchanged draft classifies as dispatchable again. Attempt-once
+        // still holds for a BOUNCE (`unknown`) — retrying a typo'd recipient can never succeed and
+        // would warn forever. Un-delivered work stranded until morning is the worse failure.
+        forgetOutboxAttempt(tracker, `${sender}/${result.recipient}`, mtimes.get(result.recipient))
+        reporter.warn(
+          `  failed "${sender}" → "${result.recipient}": ${result.error} (will retry next cycle)`,
+        )
       }
     }
   }
@@ -146,6 +155,20 @@ export function classifyOutboxDraft(
     return 'dispatch'
   }
   return 'wait'
+}
+
+/**
+ * Drop the record of a dispatch attempt so an unchanged draft is tried again next cycle. Used for a
+ * failed carry: the attempt-once rule exists to stop a bad address looping, not to strand work
+ * behind a transient error.
+ */
+export function forgetOutboxAttempt(
+  tracker: OutboxDispatchTracker,
+  key: string,
+  mtime: number | undefined,
+): void {
+  if (mtime === undefined) return
+  tracker.done.delete(`${key}@${mtime}`)
 }
 
 export function createOutboxDispatchTracker(): OutboxDispatchTracker {

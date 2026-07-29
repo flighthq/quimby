@@ -455,7 +455,8 @@ The API is read-only — status routing is automatic (mirror-to-all), so there i
 2. For each agent, check `status.md` (local: mtime; SSH: content comparison)
 3. If changed, read content, update cache, and mirror it into **every other agent's** `status/<name>.md` (local or remote) — no subscription filter
 4. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
-5. When `pool.idleTimeout` is configured, reap this project's agent sessions idle past it (see [The Agent Pool](#the-agent-pool)) — skipped when unset (the default), and it never touches an attached session
+5. Re-announce any parcels an idle agent still hasn't read (spaced by 10 minutes, and at most 3 times for an unchanged inbox before it reports the agent as stuck) — the safety net that keeps an unattended fleet from stalling on a lost wake; skipped under `--no-dispatch`
+6. When `pool.idleTimeout` is configured, reap this project's agent sessions idle past it (see [The Agent Pool](#the-agent-pool)) — skipped when unset (the default), and it never touches an attached session
 
 The server writes `.quimby/server.json` (pid, port, startedAt) on startup and removes it on shutdown. CLI commands use this file to detect a running server and display its status.
 

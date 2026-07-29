@@ -15,6 +15,7 @@ import {
   autoDispatchOutboxes,
   classifyOutboxDraft,
   createOutboxDispatchTracker,
+  forgetOutboxAttempt,
 } from './autodispatch'
 
 const nudgeAgentSession = vi.hoisted(() => vi.fn(async () => {}))
@@ -266,5 +267,28 @@ describe('createOutboxDispatchTracker', () => {
     const tracker = createOutboxDispatchTracker()
     expect(tracker.seen.size).toBe(0)
     expect(tracker.done.size).toBe(0)
+  })
+})
+
+describe('forgetOutboxAttempt', () => {
+  it('retries a failed carry on the next cycle instead of stranding it', async () => {
+    // A transient failure must not be attempt-once: the draft is unchanged, so the very next cycle
+    // has to try again or the work waits for a human.
+    const tracker = createOutboxDispatchTracker()
+    const key = 'builder/review'
+    expect(classifyOutboxDraft(tracker, key, 100)).toBe('wait')
+    expect(classifyOutboxDraft(tracker, key, 100)).toBe('dispatch')
+    expect(classifyOutboxDraft(tracker, key, 100)).toBe('wait')
+
+    forgetOutboxAttempt(tracker, key, 100)
+    expect(classifyOutboxDraft(tracker, key, 100)).toBe('dispatch')
+  })
+
+  it('ignores an unknown mtime, so forgetting is never a no-op that silently loops', () => {
+    const tracker = createOutboxDispatchTracker()
+    classifyOutboxDraft(tracker, 'a/b', 1)
+    classifyOutboxDraft(tracker, 'a/b', 1)
+    forgetOutboxAttempt(tracker, 'a/b', undefined)
+    expect(classifyOutboxDraft(tracker, 'a/b', 1)).toBe('wait')
   })
 })

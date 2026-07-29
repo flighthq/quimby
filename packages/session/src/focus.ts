@@ -7,6 +7,8 @@ const TMUX = ['-L', quimbyTmuxSocket]
 export interface TmuxClientInfo {
   tty: string
   session: string
+  /** `#{client_activity}` — epoch seconds of this client's last input. */
+  activity?: number
 }
 
 /** One pane, as `list-panes -a` reports it — enough to walk from a session to its focused pane. */
@@ -41,7 +43,11 @@ export async function getFocusedTmuxWindows(): Promise<FocusedWindows> {
       execa('tmux', [...TMUX, 'list-clients', '-F', CLIENT_FORMAT]),
       execa('tmux', [...TMUX, 'list-panes', '-a', '-F', PANE_FORMAT]),
     ])
-    return resolveFocusedWindows(parseClients(clientsOut.stdout), parsePanes(panesOut.stdout))
+    return resolveFocusedWindows(
+      parseClients(clientsOut.stdout),
+      parsePanes(panesOut.stdout),
+      Math.floor(Date.now() / 1000),
+    )
   } catch {
     return { ids: new Set(), names: new Set() }
   }
@@ -70,7 +76,19 @@ export async function hasLocalWindowNamed(name: string): Promise<boolean> {
 export function resolveFocusedWindows(
   clients: readonly TmuxClientInfo[],
   panes: readonly TmuxPaneInfo[],
+  nowSeconds?: number,
 ): FocusedWindows {
+  // A client that hasn't taken input in minutes is a window left open, not a human mid-keystroke —
+  // overnight, every pane looks "focused" forever. Treating those as focus would hold the nudge for
+  // the one agent you most need woken until morning, and an unwoken agent is worse than a nudge
+  // landing under an idle cursor. Clients that report no activity time are treated as active.
+  const live = clients.filter(
+    (c) =>
+      nowSeconds === undefined ||
+      c.activity === undefined ||
+      nowSeconds - c.activity <= FOCUS_IDLE_GRACE_SECONDS,
+  )
+  clients = live.length > 0 ? live : []
   // A client is a root when nothing else is displaying it: either it draws on a real terminal (its
   // tty is no pane's tty), or the pane hosting it belongs to a session no client is attached to —
   // so the chain genuinely starts there. Checking the *host session* rather than just "is it a
@@ -110,8 +128,11 @@ export function resolveFocusedWindows(
   return { ids, names }
 }
 
+// How long a client may sit without input before its window stops counting as focused.
+const FOCUS_IDLE_GRACE_SECONDS = 180
+
 const SEPARATOR = '|'
-const CLIENT_FORMAT = ['#{client_tty}', '#{client_session}'].join(SEPARATOR)
+const CLIENT_FORMAT = ['#{client_tty}', '#{client_activity}', '#{client_session}'].join(SEPARATOR)
 const PANE_FORMAT = [
   '#{pane_tty}',
   '#{session_name}',
@@ -126,9 +147,11 @@ function parseClients(stdout: string): TmuxClientInfo[] {
     .split('\n')
     .filter(Boolean)
     .flatMap((line) => {
-      const [tty, ...rest] = line.split(SEPARATOR)
+      const [tty, activity, ...rest] = line.split(SEPARATOR)
       const session = rest.join(SEPARATOR)
-      return tty && session ? [{ tty, session }] : []
+      if (!tty || !session) return []
+      const seconds = Number(activity)
+      return [{ tty, session, ...(Number.isFinite(seconds) ? { activity: seconds } : {}) }]
     })
 }
 

@@ -28,6 +28,25 @@ describe('hasLocalWindowNamed', () => {
 })
 
 describe('resolveFocusedWindows', () => {
+  it('stops treating a window as focused once its client goes idle (the overnight case)', () => {
+    const now = 1_000_000
+    const clients: TmuxClientInfo[] = [
+      { tty: '/dev/pts/0', session: 'qb-builder', activity: now - 20 },
+    ]
+    const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
+    // actively typing → held
+    expect(resolveFocusedWindows(clients, panes, now).names.has('builder')).toBe(true)
+    // same window, but nobody has touched the keyboard for an hour → nudge it
+    const idle = [{ ...clients[0], activity: now - 3600 }]
+    expect(resolveFocusedWindows(idle, panes, now).names.size).toBe(0)
+  })
+
+  it('treats a client with no activity time as active, never inventing an idle window', () => {
+    const clients: TmuxClientInfo[] = [{ tty: '/dev/pts/0', session: 'qb-builder' }]
+    const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
+    expect(resolveFocusedWindows(clients, panes, 1_000_000).names.has('builder')).toBe(true)
+  })
+
   it('reports the attached session’s active window for a plain single attach', () => {
     const clients: TmuxClientInfo[] = [{ tty: '/dev/pts/0', session: 'qb-builder' }]
     const panes = [

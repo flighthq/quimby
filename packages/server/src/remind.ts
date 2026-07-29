@@ -1,0 +1,105 @@
+import { readInboxParcelNames } from '@quimbyhq/handoff'
+import { remoteAgentHandoffInReceivedDir } from '@quimbyhq/paths'
+import type { Reporter } from '@quimbyhq/reporter'
+import { silentReporter } from '@quimbyhq/reporter'
+import { getAgentSessionState, nudgeAgentSession } from '@quimbyhq/session'
+import { getSSHTransport, sq } from '@quimbyhq/transport'
+import type { AgentState, QuimbyState } from '@quimbyhq/types'
+import { isSSH } from '@quimbyhq/types'
+
+export interface InboxReminderTracker {
+  /** Per agent: the inbox it was last reminded about, when, and how many times. */
+  seen: Map<string, { signature: string; remindedAt: number; count: number }>
+}
+
+export function createInboxReminderTracker(): InboxReminderTracker {
+  return { seen: new Map() }
+}
+
+/**
+ * Re-announce parcels an idle agent still hasn't read — the safety net for an unattended fleet.
+ *
+ * Delivery is durable but the *wake* is not: a nudge can be lost to a dead session, a send-keys
+ * failure, a coalesce that fired while the agent was mid-restart, or simply a parcel that never
+ * warranted an interrupt. Any of those strands the work until a human looks, which overnight means
+ * until morning. Since an unwoken agent is a worse failure than a duplicate nudge, this sweeps for
+ * agents sitting on unread parcels and pokes them again.
+ *
+ * Three bounds keep it from becoming noise: only **idle** sessions are reminded (never an attached
+ * one, and never a stopped one — there is nothing to type into), reminders are spaced by
+ * {@link REMIND_INTERVAL_MS}, and an inbox that does not change is reminded at most
+ * {@link MAX_REMINDERS} times before the sweep concludes the agent is stuck and says so instead of
+ * poking it all night.
+ */
+export async function remindUnreadInboxes(
+  repoRoot: string,
+  state: Readonly<QuimbyState>,
+  tracker: InboxReminderTracker,
+  now: number,
+  reporter: Reporter = silentReporter,
+): Promise<void> {
+  for (const [name, agent] of Object.entries(state.agents)) {
+    if (agent.enabled === false) continue
+    const unread = await readUnreadParcels(repoRoot, state.id, agent)
+    const signature = unread.join(',')
+
+    if (unread.length === 0) {
+      tracker.seen.delete(name)
+      continue
+    }
+
+    const previous = tracker.seen.get(name)
+    const sameInbox = previous?.signature === signature
+    if (sameInbox && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
+    if (sameInbox && previous.count >= MAX_REMINDERS) continue
+
+    // Only an idle session can be usefully reminded: an attached one has a human on it, and a
+    // stopped one has no prompt to type into (the work is on disk for its next launch).
+    if ((await getAgentSessionState(agent)) !== 'running') continue
+
+    const count = sameInbox ? previous.count + 1 : 1
+    tracker.seen.set(name, { signature, remindedAt: now, count })
+
+    if (count >= MAX_REMINDERS) {
+      reporter.warn(
+        `[remind] "${name}" has ignored ${unread.length} parcel(s) across ${count} reminders — ` +
+          'it may be stuck or out of context. No further reminders until its inbox changes.',
+      )
+    }
+    reporter.info(`[remind] "${name}" still has ${unread.length} unread parcel(s) — re-announcing`)
+    await nudgeAgentSession({
+      agent,
+      displayName: name,
+      courier:
+        unread.length === 1
+          ? `parcel ${unread[0]} unread in your inbox`
+          : `${unread.length} unread parcels in your inbox`,
+      reporter,
+    })
+  }
+}
+
+/** How long an unread inbox sits before the sweep re-announces it. */
+export const REMIND_INTERVAL_MS = 10 * 60 * 1000
+
+/** Reminders for one unchanged inbox before the sweep gives up on it. */
+export const MAX_REMINDERS = 3
+
+// The agent's unprocessed parcels, wherever it lives. Best-effort: an unreachable SSH host reads as
+// "nothing unread" rather than aborting the sweep for every other agent.
+async function readUnreadParcels(
+  repoRoot: string,
+  projectId: string,
+  agent: Readonly<AgentState>,
+): Promise<string[]> {
+  if (!isSSH(agent.location)) {
+    return readInboxParcelNames(repoRoot, agent.id).catch(() => [])
+  }
+  const dir = remoteAgentHandoffInReceivedDir(projectId, agent.id, agent.location.base)
+  try {
+    const out = await getSSHTransport(agent.location).exec(`ls -1 ${sq(dir)} 2>/dev/null || true`)
+    return out.split('\n').filter(Boolean).sort()
+  } catch {
+    return []
+  }
+}
