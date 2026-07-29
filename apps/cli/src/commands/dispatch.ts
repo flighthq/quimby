@@ -1,12 +1,11 @@
 import { rebaseAgentOntoBase } from '@quimbyhq/agent'
-import { dispatchOutboxes } from '@quimbyhq/handoff'
+import { dispatchOutboxes, passiveDeliveryNotice } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
 import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { attestationResolver } from '../attestation'
-import { passiveDeliveryNotice } from '../dispatchNotice'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({

@@ -130,7 +130,15 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   reporter.info(`Polling every ${pollInterval / 1000}s`)
   reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
   reporter.info('Mirroring status to every agent')
-  if (autoDispatch) reporter.info('Auto-dispatching outboxes on change')
+  if (autoDispatch) {
+    reporter.info('Auto-dispatching outboxes on change')
+    // Name the resolved policy: "delivered, nobody woken" is otherwise indistinguishable from a
+    // broken courier, and this is read ONCE at startup — so a config edit needs a server restart.
+    reporter.info(
+      `Nudge policy: ${nudgePolicy} (workspace default; an agent's own \`nudge\` overrides it, ` +
+        'applied by `quimby sync`). Read at startup — restart the server after editing it.',
+    )
+  }
   if (idleTimeoutMs) {
     reporter.info(`Reaping agent sessions idle over ${formatDuration(idleTimeoutMs)}`)
   }

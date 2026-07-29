@@ -1,7 +1,12 @@
 import { readdir, stat } from 'node:fs/promises'
 
 import { getAgentAttestation } from '@quimbyhq/agent'
-import { dispatchOutbox, pickupRemoteOutbox, readOutboxRecipients } from '@quimbyhq/handoff'
+import {
+  dispatchOutbox,
+  passiveDeliveryNotice,
+  pickupRemoteOutbox,
+  readOutboxRecipients,
+} from '@quimbyhq/handoff'
 import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
@@ -83,16 +88,12 @@ export async function autoDispatchOutboxes(
         // §6a: only a directed / escalation / reply parcel interrupts. Advisory parcels land
         // passively (the recipient reads them on its own turn), so no nudge is accrued for them —
         // but a REFUSED interrupt is reported, or the operator just sees a quiet recipient.
-        if (result.downgraded === 'escalation') {
-          reporter.warn(
-            `  "${sender}" tried to escalate to "${result.recipient}" — not permitted by its graph, ` +
-              `delivered as advisory (not woken). Declare escalatesTo, then \`quimby sync ${sender}\`.`,
-          )
-        } else if (result.downgraded === 'reply') {
-          reporter.warn(
-            `  "${sender}" replied to "${result.replyTo ?? '(unnamed)'}", which is not in its inbox — ` +
-              'delivered as advisory (not woken). Wrong name, or swept by a `quimby sync`.',
-          )
+        // Say why nothing woke — in `serve` above all, where a silent delivery is the only thing
+        // the operator sees and is indistinguishable from a broken courier.
+        if (!result.interrupts) {
+          const notice = `  ${passiveDeliveryNotice(sender, result)}`
+          if (result.downgraded) reporter.warn(notice)
+          else reporter.info(notice)
         }
         const recip = state.agents[result.recipient]
         if (recip && result.interrupts && result.parcelName) {

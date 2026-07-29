@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { passiveDeliveryNotice } from './dispatchNotice'
+import { passiveDeliveryNotice } from './passiveNotice'
 
 describe('passiveDeliveryNotice', () => {
   it('names the missing edge and the fix when an escalation was refused', () => {

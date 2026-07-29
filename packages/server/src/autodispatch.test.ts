@@ -223,6 +223,22 @@ describe('autoDispatchOutboxes', () => {
     await autoDispatchOutboxes(dir, stateWith('review'), createOutboxDispatchTracker(), reporter)
     expect(events).toEqual([])
   })
+
+  it('says why a delivered parcel woke nobody, so serve is never silently passive', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('builder', 'review', 'an ordinary advisory')
+    const state = stateWith('review', 'builder')
+    const tracker = createOutboxDispatchTracker()
+    const { reporter, events } = collectingReporter()
+
+    await autoDispatchOutboxes(dir, state, tracker, reporter)
+    await autoDispatchOutboxes(dir, state, tracker, reporter)
+
+    const said = events.map((e) => e.message).join('\n')
+    expect(said).toContain('advisory')
+    expect(said).toContain('review')
+  })
 })
 
 describe('classifyOutboxDraft', () => {
