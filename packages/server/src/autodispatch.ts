@@ -78,7 +78,18 @@ export async function autoDispatchOutboxes(
           `  delivered "${sender}" → "${result.recipient}" (${result.parcelName})${fileSuffix}`,
         )
         // §6a: only a directed / escalation / reply parcel interrupts. Advisory parcels land
-        // passively (the recipient reads them on its own turn), so no nudge is accrued for them.
+        // passively (the recipient reads them on its own turn), so no nudge is accrued for them —
+        // but a REFUSED interrupt is reported, or the operator just sees a quiet recipient.
+        if (result.downgraded === 'escalation') {
+          reporter.warn(
+            `  "${sender}" tried to escalate to "${result.recipient}" — not permitted by its graph, ` +
+              `delivered as advisory (not woken). Declare escalatesTo, then \`quimby sync ${sender}\`.`,
+          )
+        } else if (result.downgraded === 'reply') {
+          reporter.warn(
+            `  "${sender}" marked a reply to a parcel not in its inbox — delivered as advisory (not woken).`,
+          )
+        }
         const recip = state.agents[result.recipient]
         if (recip && result.interrupts && result.parcelName) {
           const kind = result.escalation

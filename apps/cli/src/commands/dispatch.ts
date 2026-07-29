@@ -6,6 +6,7 @@ import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyh
 import { defineCommand } from 'citty'
 
 import { attestationResolver } from '../attestation'
+import { passiveDeliveryNotice } from '../dispatchNotice'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -69,6 +70,13 @@ export async function runDispatchCommand({
         logger.success(`Delivered "${sender}" → "${result.recipient}"${fileSuffix}`)
         // §6a: only a directed / escalation / reply parcel interrupts the recipient. An advisory
         // parcel lands passively in the inbox (read on the recipient's own turn), so no nudge.
+        if (!result.interrupts) {
+          // Say why nothing woke. A downgraded escalation is a config gap worth a warning; an
+          // ordinary advisory is by design, so it reports at info.
+          const notice = passiveDeliveryNotice(sender, result)
+          if (result.downgraded) logger.warn(notice)
+          else logger.info(notice)
+        }
         if (args.nudge && result.interrupts && result.parcelName) {
           const recip = state.agents[result.recipient]
           if (recip) {

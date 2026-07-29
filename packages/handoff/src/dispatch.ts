@@ -33,6 +33,12 @@ export interface DispatchOutboxResult {
    * or a reply. Advisory parcels are passive (false), so the caller does not nudge for them.
    */
   interrupts?: boolean
+  /**
+   * Set when the sender ASKED for an interrupt the graph didn't grant, so the parcel was carried as
+   * an ordinary advisory instead. Callers report this: a silent downgrade is indistinguishable from
+   * "quimby is broken" — the parcel arrives, nobody wakes, and nothing says why.
+   */
+  downgraded?: 'escalation' | 'reply'
   error?: string
 }
 
@@ -144,6 +150,14 @@ export async function dispatchOutbox(opts: {
         ? await hasInboxParcel(repoRoot, senderState, state.id, draft.replyTo)
         : false
       const interrupts = userDirected || escalation || replyHonored
+      // The sender asked to interrupt and the graph said no — surfaced so the operator can see the
+      // missing edge rather than an inexplicably quiet recipient.
+      const downgraded: 'escalation' | 'reply' | undefined =
+        draft.escalate && !escalation
+          ? 'escalation'
+          : draft.replyTo && !replyHonored
+            ? 'reply'
+            : undefined
       const tags = {
         userDirected,
         escalation,
@@ -205,6 +219,7 @@ export async function dispatchOutbox(opts: {
         userDirected: meta.userDirected,
         escalation: escalation || undefined,
         interrupts,
+        downgraded,
       })
     } catch (err) {
       results.push({

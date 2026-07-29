@@ -210,6 +210,23 @@ describe('dispatchOutbox', () => {
     // integration is not builder's escalation target → normalized to an ordinary advisory (passive).
     expect(toIntegration.escalation).toBeFalsy()
     expect(toIntegration.interrupts).toBeFalsy()
+    // …and the refusal is reported, so a missing edge never reads as a silently quiet recipient.
+    expect(toIntegration.downgraded).toBe('escalation')
+    expect(toReview.downgraded).toBeUndefined()
+  })
+
+  it('flags an ordinary advisory as not downgraded — passive by design, not a refused interrupt', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    await stageDraft(dir, 'builder', 'review', 'just an fyi')
+
+    const [result] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'builder',
+    })
+    expect(result.interrupts).toBeFalsy()
+    expect(result.downgraded).toBeUndefined()
   })
 
   it('honors a reply-interrupt only when the replyTo parcel is in the replier’s inbox (§6c)', async () => {
