@@ -39,6 +39,8 @@ export interface DispatchOutboxResult {
    * "quimby is broken" — the parcel arrives, nobody wakes, and nothing says why.
    */
   downgraded?: 'escalation' | 'reply'
+  /** The parcel name a refused `reply` named, so the operator can see *which* correlation failed. */
+  replyTo?: string
   error?: string
 }
 
@@ -230,6 +232,7 @@ export async function dispatchOutbox(opts: {
         escalation: escalation || undefined,
         interrupts,
         downgraded,
+        replyTo: draft.replyTo,
       })
     } catch (err) {
       results.push({

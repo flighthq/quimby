@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -174,6 +174,8 @@ describe('renderAgentScript', () => {
     runSh(root, ['ask', 'builder', '-m', 'which auth did you use?'])
     expect(read('builder')).toBe('---\nexpects-reply: true\n---\nwhich auth did you use?\n')
 
+    // a reply names a parcel actually received — the host honors the interrupt only then
+    mkdirSync(join(root, 'handoff', 'in', 'received', 'manager-abc123'), { recursive: true })
     runSh(root, ['reply', 'manager', '--to', 'manager-abc123', '-m', 'used OAuth'])
     expect(read('manager')).toBe('---\nreply-to: manager-abc123\n---\nused OAuth\n')
   })
@@ -181,6 +183,28 @@ describe('renderAgentScript', () => {
   it.runIf(posix)('reply requires --to <parcel>', () => {
     const root = makeAgentWorkspace()
     expect(() => runSh(root, ['reply', 'manager', '-m', 'answer'])).toThrow()
+  })
+
+  it.runIf(posix)('reply refuses a parcel this agent never received, listing what it has', () => {
+    const root = makeAgentWorkspace()
+    mkdirSync(join(root, 'handoff', 'in', 'received', 'review-real01'), { recursive: true })
+
+    // Fails HERE rather than publishing a parcel the host would silently downgrade to advisory.
+    expect(() => runSh(root, ['reply', 'review', '--to', 'review-typo99', '-m', 'answer'])).toThrow(
+      /review-real01/,
+    )
+    expect(existsSync(join(root, 'handoff', 'out', 'queued', 'review'))).toBe(false)
+  })
+
+  it.runIf(posix)('reply accepts a parcel swept into the processed ledger by a sync', () => {
+    const root = makeAgentWorkspace()
+    // `quimby sync` removes in/processed/ but records the names — the reply window survives GC.
+    writeFileSync(join(root, 'handoff', 'in', 'processed.ledger'), 'review-swept1\n')
+
+    runSh(root, ['reply', 'review', '--to', 'review-swept1', '-m', 'answer'])
+    expect(
+      readFileSync(join(root, 'handoff', 'out', 'queued', 'review', 'README.md'), 'utf-8'),
+    ).toContain('reply-to: review-swept1')
   })
 
   it.runIf(posix)('inbox show reads a delivered parcel', () => {

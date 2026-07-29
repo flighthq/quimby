@@ -88,7 +88,8 @@ export async function autoDispatchOutboxes(
           )
         } else if (result.downgraded === 'reply') {
           reporter.warn(
-            `  "${sender}" marked a reply to a parcel not in its inbox — delivered as advisory (not woken).`,
+            `  "${sender}" replied to "${result.replyTo ?? '(unnamed)'}", which is not in its inbox — ` +
+              'delivered as advisory (not woken). Wrong name, or swept by a `quimby sync`.',
           )
         }
         const recip = state.agents[result.recipient]

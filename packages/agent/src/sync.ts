@@ -1,15 +1,17 @@
-import { rm } from 'node:fs/promises'
+import { appendFile, readdir, rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
   getAgentDir,
   getAgentHandoffInProcessedDir,
+  getAgentHandoffInProcessedLedgerPath,
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
   QUIMBY_DIRNAME,
   remoteAgentDir,
   remoteAgentHandoffInProcessedDir,
+  remoteAgentHandoffInProcessedLedgerPath,
   remoteAgentHandoffOutSentDir,
   remoteAgentRepoDir,
   remoteProjectRoot,
@@ -295,15 +297,30 @@ export async function pruneAgentMailboxCaches(
   agent: Readonly<AgentState>,
   stateId: string,
 ): Promise<void> {
+  // Record the processed parcel NAMES before sweeping them. The parcels carry diffs and are pure
+  // cache, but the reply-interrupt correlation asks "did I ever receive this?" — so wiping them
+  // silently broke every reply to an already-processed parcel (delivered as advisory, nobody woken).
+  // The ledger is a few bytes per name and survives the GC.
   if (isSSH(agent.location)) {
     const base = agent.location.base
+    const processed = remoteAgentHandoffInProcessedDir(stateId, agent.id, base)
+    const ledger = remoteAgentHandoffInProcessedLedgerPath(stateId, agent.id, base)
     await getSSHTransport(agent.location).exec(
-      `rm -rf ${remoteAgentHandoffOutSentDir(stateId, agent.id, base)} ${remoteAgentHandoffInProcessedDir(stateId, agent.id, base)}`,
+      `if [ -d ${processed} ]; then ls -1 ${processed} 2>/dev/null >> ${ledger} || true; fi; ` +
+        `rm -rf ${remoteAgentHandoffOutSentDir(stateId, agent.id, base)} ${processed}`,
     )
     return
   }
+  const processedDir = getAgentHandoffInProcessedDir(repoRoot, agent.id)
+  const names = await readdir(processedDir).catch(() => [] as string[])
+  if (names.length > 0) {
+    await appendFile(
+      getAgentHandoffInProcessedLedgerPath(repoRoot, agent.id),
+      `${names.join('\n')}\n`,
+    )
+  }
   await rm(getAgentHandoffOutSentDir(repoRoot, agent.id), { recursive: true, force: true })
-  await rm(getAgentHandoffInProcessedDir(repoRoot, agent.id), { recursive: true, force: true })
+  await rm(processedDir, { recursive: true, force: true })
 }
 
 /**

@@ -184,6 +184,17 @@ describe('hasInboxParcel', () => {
     expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q1')).toBe(true)
     expect(await hasInboxParcel(dir, agent, 'proj', 'ghost-q9')).toBe(false)
   })
+
+  it('still resolves a parcel a `quimby sync` swept, via the processed ledger', async () => {
+    const { getAgentHandoffInProcessedLedgerPath } = await import('@quimbyhq/paths')
+    await setupAgentRepo(dir, 'review')
+    await writeFile(getAgentHandoffInProcessedLedgerPath(dir, 'review'), 'builder-q7\nother-q8\n')
+
+    // Without this the GC would silently revoke the agent's right to answer — the reply would be
+    // delivered as an advisory and wake nobody.
+    expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q7')).toBe(true)
+    expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q')).toBe(false)
+  })
 })
 
 describe('markHandoffSent', () => {

@@ -306,6 +306,23 @@ describe('getAgentWorkSummary', () => {
 })
 
 describe('pruneAgentMailboxCaches', () => {
+  it('records processed parcel names in the ledger before sweeping them', async () => {
+    const { getAgentHandoffInProcessedLedgerPath } = await import('@quimbyhq/paths')
+    await mkdir(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'review-abc123'), {
+      recursive: true,
+    })
+    const state = await loadState(dir)
+    state.agents.led = { id: 'gc-id', name: 'led', location: { type: 'local' } } as AgentState
+
+    await pruneAgentMailboxCaches(dir, state.agents.led, state.id)
+
+    // the parcel is gone, but its NAME survives — the reply-interrupt correlation still resolves
+    expect(await exists(getAgentHandoffInProcessedDir(dir, 'gc-id'))).toBe(false)
+    expect(await readFile(getAgentHandoffInProcessedLedgerPath(dir, 'gc-id'), 'utf-8')).toContain(
+      'review-abc123',
+    )
+  })
+
   it('sweeps out/sent and in/processed but leaves active parcels, assignment, and status', async () => {
     await registerLocalAgentClone('carol', 'carol-id')
     const agentDir = getAgentDir(dir, 'carol-id')

@@ -480,7 +480,7 @@ A handoff is assembled on demand and carried; it is not deposited in any archive
 
 **Consumption (the recipient).** Parcels sit in `handoff/in/received/` until the agent processes them and moves them to `handoff/in/processed/`. Identity is content-derived, so a re-carried identical parcel overwrites in place rather than piling up.
 
-**Garbage collection.** `out/sent/` and `in/processed/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the `out/sent/` ledger and `in/processed/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active queued/received parcels, `assignment.md`, and `status.md` untouched; `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
+**Garbage collection.** `out/sent/` and `in/processed/` are caches, not the hot path — bounded by agent lifetime (everything dies with the agent) and pruned by `sync`/`rebuild` rather than a dedicated `gc` verb. `quimby sync` sweeps the `out/sent/` ledger and `in/processed/` archive after it advances the agent (best-effort — a prune failure never fails the sync), leaving active queued/received parcels, `assignment.md`, and `status.md` untouched. The processed parcels' **names** are appended to `handoff/in/processed.ledger` before they are swept, because the reply-interrupt is authorized by correlation against the inbox — without the ledger, a sync would silently revoke an agent's right to answer a question it had already marked done. `rebuild` clears the whole mailbox anyway. GC is archiving-then-pruning, never silent deletion on carry.
 
 ## Merge (crossing the boundary)
 

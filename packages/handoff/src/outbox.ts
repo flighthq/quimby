@@ -2,12 +2,14 @@ import { readdir, readFile, rename, rm } from 'node:fs/promises'
 
 import {
   getAgentHandoffInProcessedDir,
+  getAgentHandoffInProcessedLedgerPath,
   getAgentHandoffInReceivedParcelDir,
   getAgentHandoffOutQueuedDir,
   getAgentHandoffOutQueuedRecipientDir,
   getAgentHandoffOutSentDir,
   getAgentHandoffOutSentRecipientDir,
   remoteAgentHandoffInProcessedDir,
+  remoteAgentHandoffInProcessedLedgerPath,
   remoteAgentHandoffInReceivedDir,
   remoteAgentHandoffOutQueuedDir,
   remoteAgentHandoffOutSentDir,
@@ -147,9 +149,11 @@ export async function hasInboxParcel(
   if (isSSH(agent.location)) {
     const received = remoteAgentHandoffInReceivedDir(projectId, agent.id, agent.location.base)
     const processed = remoteAgentHandoffInProcessedDir(projectId, agent.id, agent.location.base)
+    const ledger = remoteAgentHandoffInProcessedLedgerPath(projectId, agent.id, agent.location.base)
     try {
       await getSSHTransport(agent.location).exec(
-        `test -d ${sq(join(received, parcelName))} || test -d ${sq(join(processed, parcelName))}`,
+        `test -d ${sq(join(received, parcelName))} || test -d ${sq(join(processed, parcelName))} || ` +
+          `grep -qxF ${sq(parcelName)} ${sq(ledger)}`,
       )
       return true
     } catch {
@@ -158,7 +162,14 @@ export async function hasInboxParcel(
   }
   const received = getAgentHandoffInReceivedParcelDir(repoRoot, agent.id, parcelName)
   const processed = join(getAgentHandoffInProcessedDir(repoRoot, agent.id), parcelName)
-  return (await exists(received)) || (await exists(processed))
+  if ((await exists(received)) || (await exists(processed))) return true
+  // …and the ledger, so a `quimby sync` that swept the processed parcel doesn't silently revoke
+  // the agent's right to answer it.
+  const ledger = await readFile(
+    getAgentHandoffInProcessedLedgerPath(repoRoot, agent.id),
+    'utf-8',
+  ).catch(() => '')
+  return ledger.split('\n').includes(parcelName)
 }
 
 /** List recipients with a queued parcel in `out/queued/` (local agents). */

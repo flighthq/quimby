@@ -10,9 +10,15 @@ describe('passiveDeliveryNotice', () => {
     expect(out).toContain('NOT woken')
   })
 
-  it('explains an uncorrelated reply', () => {
-    const out = passiveDeliveryNotice('builder1', { recipient: 'review', downgraded: 'reply' })
-    expect(out).toContain("isn't in its inbox")
+  it('names the parcel an uncorrelated reply aimed at, and both ways that happens', () => {
+    const out = passiveDeliveryNotice('builder1', {
+      recipient: 'review',
+      downgraded: 'reply',
+      replyTo: 'review-abc123',
+    })
+    expect(out).toContain('review-abc123')
+    expect(out).toContain('not in its inbox')
+    expect(out).toContain('quimby sync')
   })
 
   it('states plainly that an ordinary advisory is passive by design', () => {

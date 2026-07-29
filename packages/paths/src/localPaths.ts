@@ -191,6 +191,15 @@ export function getAgentHandoffInReceivedParcelDir(
 }
 
 // `in/processed/<sender>-<hash>` — parcels the recipient has acted on (was `inbox/.done/…`).
+/**
+ * The names-only ledger of parcels this agent has processed. `sync` sweeps the processed parcels
+ * themselves (they carry diffs), but the reply-interrupt correlation only needs to know a name was
+ * once received — so the names outlive the GC here, at a few bytes each.
+ */
+export function getAgentHandoffInProcessedLedgerPath(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'processed.ledger')
+}
+
 export function getAgentHandoffInProcessedDir(repoRoot: string, agentId: string): string {
   return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'processed')
 }

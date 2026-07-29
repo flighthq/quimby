@@ -5,7 +5,7 @@
  */
 export function passiveDeliveryNotice(
   sender: string,
-  result: Readonly<{ recipient: string; downgraded?: 'escalation' | 'reply' }>,
+  result: Readonly<{ recipient: string; downgraded?: 'escalation' | 'reply'; replyTo?: string }>,
 ): string {
   if (result.downgraded === 'escalation') {
     return (
@@ -17,8 +17,9 @@ export function passiveDeliveryNotice(
   }
   if (result.downgraded === 'reply') {
     return (
-      `"${sender}" marked this a reply, but the parcel it answers isn't in its inbox — delivered ` +
-      `as an advisory, so "${result.recipient}" was NOT woken.`
+      `"${sender}" replied to "${result.replyTo ?? '(unnamed)'}", which is not in its inbox — ` +
+      `delivered as an advisory, so "${result.recipient}" was NOT woken. Either the name is wrong ` +
+      `(it must match a parcel \`agent.sh inbox\` lists) or the parcel was swept by a \`quimby sync\`.`
     )
   }
   return `advisory — landed in "${result.recipient}"'s inbox, read on its own turn (no nudge)`
