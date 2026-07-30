@@ -119,6 +119,19 @@ export function getStagingDir(repoRoot: string): string {
   return join(repoRoot, '.quimby', 'staging')
 }
 
+/**
+ * Cross-process lock roots. Deliberately OUTSIDE `staging/`, which is torn down wholesale by the
+ * merge auto-heal and by each parcel's own assembly — a lock living in there could be deleted by
+ * the very concurrency it exists to prevent.
+ */
+export function getLocksDir(repoRoot: string): string {
+  return join(repoRoot, '.quimby', 'locks')
+}
+
+export function getParcelLockDir(repoRoot: string, key: string): string {
+  return join(getLocksDir(repoRoot), `${key}.lock`)
+}
+
 export function getStagingHandoffDir(repoRoot: string, name: string): string {
   return join(repoRoot, '.quimby', 'staging', name)
 }

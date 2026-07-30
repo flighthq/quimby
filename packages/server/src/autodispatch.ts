@@ -117,6 +117,11 @@ export async function autoDispatchOutboxes(
           entry.senders.add(sender)
           pending.set(result.recipient, entry)
         }
+      } else if (result.status === 'busy') {
+        // Another process is carrying this exact parcel. Forget the attempt so the unchanged draft
+        // is reconsidered next cycle — if the other side finishes, the draft is gone and this is a
+        // no-op; if it failed, this cycle picks it up.
+        forgetOutboxAttempt(tracker, `${sender}/${result.recipient}`, mtimes.get(result.recipient))
       } else if (result.status === 'unknown') {
         reporter.warn(`  "${result.recipient}" is not an agent — left in "${sender}" outbox to fix`)
       } else {

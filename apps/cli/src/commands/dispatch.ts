@@ -99,6 +99,10 @@ export async function runDispatchCommand({
             })
           }
         }
+      } else if (result.status === 'busy') {
+        logger.info(
+          `Skipping "${result.recipient}" — another dispatch is carrying it (left queued)`,
+        )
       } else if (result.status === 'unknown') {
         logger.warn(`Skipping "${result.recipient}" — no such agent (left queued to fix)`)
       } else {

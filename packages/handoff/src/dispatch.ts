@@ -7,6 +7,7 @@ import { isSSH } from '@quimbyhq/types'
 import { directsRecipient, honorsEscalation, normalizeNudgePolicy } from '@quimbyhq/workspace'
 
 import { assembleHandoff, assembleRemoteHandoff } from './assemble'
+import { withParcelLock } from './lock'
 import {
   clearRemoteOutboxDraft,
   copyOutboxExtraFiles,
@@ -20,7 +21,7 @@ import { deliverHandoff, discardHandoff } from './parcel'
 
 export interface DispatchOutboxResult {
   recipient: string
-  status: 'delivered' | 'unknown' | 'failed'
+  status: 'delivered' | 'unknown' | 'failed' | 'busy'
   parcelName?: string
   hasNote?: boolean
   /** Extra files the sender attached (via `agent.sh handoff --file`) that were carried along. */
@@ -136,113 +137,123 @@ export async function dispatchOutbox(opts: {
       continue
     }
     try {
-      const draft = await readOutboxDraft(repoRoot, senderId, recipient)
-      const codeSourceName = draft.attach ?? sender
-      const codeSource = Object.hasOwn(state.agents, codeSourceName)
-        ? state.agents[codeSourceName]
-        : undefined
-      if (!codeSource) {
-        results.push({
+      // One carry per parcel across ALL processes: the server's cycle and a hand-run
+      // `quimby dispatch` share `.quimby/staging/<parcel>/`, and assembly opens by removing it.
+      // (sender, recipient) identifies the outbox draft uniquely, so it is the parcel's key and is
+      // known before the expensive diff that derives the content name.
+      const carried = await withParcelLock(repoRoot, `${sender}-${recipient}`, async () => {
+        const draft = await readOutboxDraft(repoRoot, senderId, recipient)
+        const codeSourceName = draft.attach ?? sender
+        const codeSource = Object.hasOwn(state.agents, codeSourceName)
+          ? state.agents[codeSourceName]
+          : undefined
+        if (!codeSource) {
+          return {
+            recipient,
+            status: 'failed' as const,
+            error: `code source "${codeSourceName}" not found`,
+          }
+        }
+        if (opts.beforeStage) await opts.beforeStage(codeSourceName)
+
+        // Classify the parcel's interrupt kind from sender intent + the directs graph (§6). The host
+        // validates intent against authority: a declared `directs` edge (or an explicit delegate)
+        // makes it directed; an `escalate` is honored only to the sender's escalation target, else
+        // normalized to an ordinary advisory. A reply (`replyTo`) interrupts the asker by correlation.
+        const userDirected = Boolean(draft.delegated) || directsRecipient(state, sender, recipient)
+        const escalation = Boolean(draft.escalate) && honorsEscalation(state, sender, recipient)
+        // A reply interrupts the asker only if it answers a parcel actually in the replier's inbox
+        // (§6c) — else a stray `replyTo` is normalized to an ordinary advisory.
+        const replyHonored = draft.replyTo
+          ? await hasInboxParcel(repoRoot, senderState, state.id, draft.replyTo)
+          : false
+        // The recipient's own `nudge` policy decides how much reaches it: `all` wakes it for every
+        // parcel (the unattended-fleet setting — nobody has to relay overnight), `never` for none,
+        // and the default `directed` only for work the graph says is aimed at it (§6a).
+        const policy = normalizeNudgePolicy(recip.nudge) ?? opts.defaultNudge ?? 'directed'
+        const interrupts =
+          policy === 'never'
+            ? false
+            : policy === 'all' || userDirected || escalation || replyHonored
+        // The sender asked to interrupt and the graph said no — surfaced so the operator can see the
+        // missing edge rather than an inexplicably quiet recipient.
+        const downgraded: 'escalation' | 'reply' | undefined =
+          draft.escalate && !escalation
+            ? 'escalation'
+            : draft.replyTo && !replyHonored
+              ? 'reply'
+              : undefined
+        const tags = {
+          userDirected,
+          escalation,
+          expectsReply: draft.expectsReply,
+          replyTo: draft.replyTo,
+        }
+
+        const meta = isSSH(codeSource.location)
+          ? await assembleRemoteHandoff({
+              repoRoot,
+              from: sender,
+              codeSource: codeSourceName,
+              codeSourceId: codeSource.id,
+              codeSourceLocation: codeSource.location,
+              projectId: state.id,
+              to: recipient,
+              note: draft.note || undefined,
+              ...tags,
+              resolveAttestation: opts.resolveAttestation,
+            })
+          : await assembleHandoff({
+              repoRoot,
+              from: sender,
+              codeSource: codeSourceName,
+              codeSourceId: codeSource.id,
+              to: recipient,
+              note: draft.note || undefined,
+              ...tags,
+              resolveAttestation: opts.resolveAttestation,
+            })
+
+        // Carry any files the sender attached beyond the note + diff. They were staged into
+        // the queued parcel by `agent.sh handoff --file`; without copying them into the
+        // assembled staging parcel here they would be dropped and never reach the inbox.
+        const skippedFiles: string[] = []
+        const files = await copyOutboxExtraFiles(
+          repoRoot,
+          senderId,
           recipient,
-          status: 'failed',
-          error: `code source "${codeSourceName}" not found`,
+          getStagingHandoffDir(repoRoot, meta.name),
+          (names) => skippedFiles.push(...names),
+        )
+
+        await deliverHandoff({
+          repoRoot,
+          name: meta.name,
+          to: recipient,
+          toId: recip.id,
+          toLocation: recip.location,
+          projectId: state.id,
         })
-        continue
-      }
-      if (opts.beforeStage) await opts.beforeStage(codeSourceName)
-
-      // Classify the parcel's interrupt kind from sender intent + the directs graph (§6). The host
-      // validates intent against authority: a declared `directs` edge (or an explicit delegate)
-      // makes it directed; an `escalate` is honored only to the sender's escalation target, else
-      // normalized to an ordinary advisory. A reply (`replyTo`) interrupts the asker by correlation.
-      const userDirected = Boolean(draft.delegated) || directsRecipient(state, sender, recipient)
-      const escalation = Boolean(draft.escalate) && honorsEscalation(state, sender, recipient)
-      // A reply interrupts the asker only if it answers a parcel actually in the replier's inbox
-      // (§6c) — else a stray `replyTo` is normalized to an ordinary advisory.
-      const replyHonored = draft.replyTo
-        ? await hasInboxParcel(repoRoot, senderState, state.id, draft.replyTo)
-        : false
-      // The recipient's own `nudge` policy decides how much reaches it: `all` wakes it for every
-      // parcel (the unattended-fleet setting — nobody has to relay overnight), `never` for none,
-      // and the default `directed` only for work the graph says is aimed at it (§6a).
-      const policy = normalizeNudgePolicy(recip.nudge) ?? opts.defaultNudge ?? 'directed'
-      const interrupts =
-        policy === 'never' ? false : policy === 'all' || userDirected || escalation || replyHonored
-      // The sender asked to interrupt and the graph said no — surfaced so the operator can see the
-      // missing edge rather than an inexplicably quiet recipient.
-      const downgraded: 'escalation' | 'reply' | undefined =
-        draft.escalate && !escalation
-          ? 'escalation'
-          : draft.replyTo && !replyHonored
-            ? 'reply'
-            : undefined
-      const tags = {
-        userDirected,
-        escalation,
-        expectsReply: draft.expectsReply,
-        replyTo: draft.replyTo,
-      }
-
-      const meta = isSSH(codeSource.location)
-        ? await assembleRemoteHandoff({
-            repoRoot,
-            from: sender,
-            codeSource: codeSourceName,
-            codeSourceId: codeSource.id,
-            codeSourceLocation: codeSource.location,
-            projectId: state.id,
-            to: recipient,
-            note: draft.note || undefined,
-            ...tags,
-            resolveAttestation: opts.resolveAttestation,
-          })
-        : await assembleHandoff({
-            repoRoot,
-            from: sender,
-            codeSource: codeSourceName,
-            codeSourceId: codeSource.id,
-            to: recipient,
-            note: draft.note || undefined,
-            ...tags,
-            resolveAttestation: opts.resolveAttestation,
-          })
-
-      // Carry any files the sender attached beyond the note + diff. They were staged into
-      // the queued parcel by `agent.sh handoff --file`; without copying them into the
-      // assembled staging parcel here they would be dropped and never reach the inbox.
-      const skippedFiles: string[] = []
-      const files = await copyOutboxExtraFiles(
-        repoRoot,
-        senderId,
-        recipient,
-        getStagingHandoffDir(repoRoot, meta.name),
-        (names) => skippedFiles.push(...names),
-      )
-
-      await deliverHandoff({
-        repoRoot,
-        name: meta.name,
-        to: recipient,
-        toId: recip.id,
-        toLocation: recip.location,
-        projectId: state.id,
+        await discardHandoff(repoRoot, meta.name)
+        await markHandoffSent(repoRoot, senderId, recipient)
+        await clearRemoteOutboxDraft(senderState, state.id, recipient)
+        return {
+          recipient,
+          status: 'delivered' as const,
+          parcelName: meta.name,
+          hasNote: Boolean(draft.note),
+          files: files.length > 0 ? files : undefined,
+          skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+          userDirected: meta.userDirected,
+          escalation: escalation || undefined,
+          interrupts,
+          downgraded,
+          replyTo: draft.replyTo,
+        }
       })
-      await discardHandoff(repoRoot, meta.name)
-      await markHandoffSent(repoRoot, senderId, recipient)
-      await clearRemoteOutboxDraft(senderState, state.id, recipient)
-      results.push({
-        recipient,
-        status: 'delivered',
-        parcelName: meta.name,
-        hasNote: Boolean(draft.note),
-        files: files.length > 0 ? files : undefined,
-        skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
-        userDirected: meta.userDirected,
-        escalation: escalation || undefined,
-        interrupts,
-        downgraded,
-        replyTo: draft.replyTo,
-      })
+      // `null` means another process holds this parcel's lock and is carrying it right now. The
+      // draft stays queued and undrained, so nothing is lost — this side simply yields its turn.
+      results.push(carried ?? { recipient, status: 'busy' })
     } catch (err) {
       results.push({
         recipient,
