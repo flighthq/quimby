@@ -27,11 +27,22 @@ export const AGENT_SCRIPT_LEGACY_SH_FILENAME = 'quimby-agent.sh'
 export const AGENT_SCRIPT_SH_FILENAME = 'agent.sh'
 
 /**
+ * The coordination graph baked into the generated tool, resolved by the caller (which holds the
+ * state) exactly like the `{{coordination}}` clause in the agent's instructions.
+ */
+export interface AgentScriptGraph {
+  /** Every OTHER current agent — who this one may address at all. */
+  roster?: readonly string[]
+  /** Who this one may escalate to, already `@role`-expanded. */
+  escalatesTo?: readonly string[]
+}
+
+/**
  * The POSIX `sh` implementation — the canonical one, since every place `quimby-agent` actually
  * runs (Docker Sandbox, OpenShell, SSH to Linux/macOS) is POSIX. Deps: `sh` + `git` + coreutils.
  */
-export function renderAgentScript(): string {
-  return SH_LINES.join('\n') + '\n'
+export function renderAgentScript(graph: Readonly<AgentScriptGraph> = {}): string {
+  return applyGraph(SH_LINES.join('\n') + '\n', graph)
 }
 
 /**
@@ -40,8 +51,25 @@ export function renderAgentScript(): string {
  * canonical behavior. If it misbehaves, the CLAUDE.md prose conventions are the fallback. Deps:
  * `cmd` + `git`.
  */
-export function renderAgentScriptCmd(): string {
-  return CMD_LINES.join('\r\n') + '\r\n'
+export function renderAgentScriptCmd(graph: Readonly<AgentScriptGraph> = {}): string {
+  return applyGraph(CMD_LINES.join('\r\n') + '\r\n', graph)
+}
+
+// Substitute the resolved graph into the rendered script. Names are roster-validated upstream
+// (`[A-Za-z0-9_-]`), but this filters anyway: a name carrying a quote or space would otherwise
+// break out of the single-quoted shell assignment it lands in.
+function applyGraph(script: string, graph: Readonly<AgentScriptGraph>): string {
+  // `roster` is what every caller resolves (via resolveAgentGraph), so its presence — not its
+  // emptiness — is the signal that a graph was rendered. A lone agent legitimately has an empty
+  // roster and must still refuse every recipient.
+  return script
+    .replaceAll('{{graph}}', graph.roster === undefined ? '' : '1')
+    .replaceAll('{{roster}}', safeNames(graph.roster))
+    .replaceAll('{{escalate}}', safeNames(graph.escalatesTo))
+}
+
+function safeNames(names: readonly string[] | undefined): string {
+  return (names ?? []).filter((name) => /^[A-Za-z0-9_-]+$/.test(name)).join(' ')
 }
 
 // Each line is a JS double-quoted string: sh `"` is escaped `\"`, sh `\` is escaped `\\` (so a
@@ -57,6 +85,30 @@ const SH_LINES = [
   'set -eu',
   '',
   'qa_die() { echo "agent.sh: $1" >&2; exit 1; }',
+  '',
+  '# The coordination graph, resolved by the host and baked in here — refreshed on every launch and',
+  '# every `quimby sync`, exactly like the CLAUDE.md coordination clause. Without it this tool could',
+  '# only check that a recipient is non-empty, so addressing a removed agent published happily and',
+  '# then bounced host-side, where the sender never sees it: the parcel sits in out/queued forever',
+  '# and (bounces being attempt-once) stops even warning. Checking here is the only place the sender',
+  '# learns. QA_ROSTER = every other current agent; QA_ESCALATE = who this one may summon.',
+  '# QA_GRAPH marks that a graph was rendered AT ALL. Without it an empty QA_ESCALATE is ambiguous',
+  '# — "the host told us nothing" (an old or ungraphed script, where blocking would be wrong) versus',
+  '# "you genuinely have no escalation target" (where saying so is the whole point). Every check',
+  '# below is gated on it, so a tool rendered without a graph behaves exactly as it did before.',
+  "QA_GRAPH='{{graph}}'",
+  "QA_ROSTER='{{roster}}'",
+  "QA_ESCALATE='{{escalate}}'",
+  '',
+  '# Is $1 in the space-separated list $2? Callers gate on QA_GRAPH first, so reaching here with an',
+  '# empty list means the host really said "nobody" — which must MISS, not pass.',
+  'qa_in_list() {',
+  '  [ -n "$2" ] || return 1',
+  '  for qa_n in $2; do',
+  '    [ "$qa_n" = "$1" ] && return 0',
+  '  done',
+  '  return 1',
+  '}',
   '',
   '# mkdir -p, but on failure name the most likely cause. A host-side `quimby rebuild` replaces',
   '# handoff/{in,out} under the guest mount, and a virtiofs/9p guest can keep a stale dentry: the',
@@ -210,6 +262,33 @@ const SH_LINES = [
   '  case $recipient in',
   '    */*|.|..) qa_die "handoff: invalid recipient \'$recipient\'" ;;',
   '  esac',
+  '  # Refuse an address that cannot be delivered, rather than queueing a parcel that bounces where',
+  '  # only the host sees it. Named the same way `reply --to` refuses an unknown parcel.',
+  '  if [ -n "$QA_GRAPH" ] && ! qa_in_list "$recipient" "$QA_ROSTER"; then',
+  '    printf \'agent.sh: %s: "%s" is not an agent.\\n\' "$mode" "$recipient" >&2',
+  '    printf \'  roster: %s\\n\' "$QA_ROSTER" >&2',
+  '    qa_die "$mode: address one of those (the roster refreshes on launch and on quimby sync)"',
+  '  fi',
+  '  # An --attach naming no agent fails host-side as a FAILED carry, which retries every cycle —',
+  '  # so it warns forever rather than once. Cheaper to refuse here.',
+  '  if [ -n "$QA_GRAPH" ] && [ -n "$attach" ] && ! qa_in_list "$attach" "$QA_ROSTER"; then',
+  '    printf \'agent.sh: %s: --attach "%s" is not an agent.\\n\' "$mode" "$attach" >&2',
+  '    printf \'  roster: %s\\n\' "$QA_ROSTER" >&2',
+  '    qa_die "$mode: attach one of those, or drop --attach to send your own work"',
+  '  fi',
+  '  # An escalation aimed outside the permitted set is silently normalized to an ordinary advisory',
+  '  # by the host — delivered, but waking nobody. That silence is the whole failure, so name it.',
+  '  if [ -n "$QA_GRAPH" ] && [ "$mode" = escalate ]; then',
+  '    if [ -z "$QA_ESCALATE" ]; then',
+  "      printf 'agent.sh: escalate: you have no escalation target.\\n' >&2",
+  '      qa_die "escalate: everything you send is advisory — use handoff, or record it with status"',
+  '    fi',
+  '    if ! qa_in_list "$recipient" "$QA_ESCALATE"; then',
+  '      printf \'agent.sh: escalate: you may not escalate to "%s".\\n\' "$recipient" >&2',
+  '      printf \'  permitted: %s\\n\' "$QA_ESCALATE" >&2',
+  '      qa_die "escalate: name exactly one of those (an unpermitted escalation wakes nobody)"',
+  '    fi',
+  '  fi',
   '  [ "$mode" != delegate ] || [ -n "$message" ] || qa_die "delegate: message required"',
   '  [ "$mode" != reply ] || [ -n "$replyto" ] || qa_die "reply: --to <parcel> required (the question you are answering)"',
   '  # Fail here, not silently at the host: the reply-interrupt is honored only if the named parcel',
@@ -457,6 +536,11 @@ const CMD_LINES = [
   'rem remote sandboxes are POSIX, so this only matters for a Windows-hosted agent. If it misbehaves,',
   'rem the CLAUDE.md prose conventions are the fallback. Deps: cmd + git.',
   '',
+  'rem The coordination graph, baked in by the host (see the .sh twin). Empty = nothing rendered.',
+  'set "QA_GRAPH={{graph}}"',
+  'set "QA_ROSTER={{roster}}"',
+  'set "QA_ESCALATE={{escalate}}"',
+  '',
   'call :find_root',
   'if "%ROOT%"=="" ( echo agent.cmd: not inside an agent workspace 1>&2 & exit /b 1 )',
   '',
@@ -487,6 +571,13 @@ const CMD_LINES = [
   'if "%PARENT%"=="%D%" exit /b 0',
   'set "D=%PARENT%"',
   'goto :fr_loop',
+  '',
+  'rem Exit 0 when %~1 is NOT in the space-separated list %~2 (an empty list is never a mismatch),',
+  'rem so the callers above read as `call :not_in_list ... && (complain)`.',
+  ':not_in_list',
+  'if "%~2"=="" exit /b 0',
+  'for %%N in (%~2) do if /I "%%~N"=="%~1" exit /b 1',
+  'exit /b 0',
   '',
   ':assignment',
   'set "SUB=%~1"',
@@ -559,6 +650,27 @@ const CMD_LINES = [
   'echo agent.cmd: handoff: unexpected arg %~1 1>&2 & exit /b 1',
   ':ho_done',
   'if "%RECIP%"=="" ( echo agent.cmd: %MODE%: recipient required 1>&2 & exit /b 1 )',
+  // Roster / escalation gate — the .sh twin's qa_in_list, in cmd. An empty list means the host
+  // rendered nothing, so it passes rather than blocking a send on missing data.
+  'if not "%QA_GRAPH%"=="" call :not_in_list "%RECIP%" "%QA_ROSTER%" && (',
+  '  echo agent.cmd: %MODE%: "%RECIP%" is not an agent. 1>&2',
+  '  echo   roster: %QA_ROSTER% 1>&2',
+  '  exit /b 1',
+  ')',
+  'if not "%QA_GRAPH%"=="" if not "%ATTACH%"=="" call :not_in_list "%ATTACH%" "%QA_ROSTER%" && (',
+  '  echo agent.cmd: %MODE%: --attach "%ATTACH%" is not an agent. 1>&2',
+  '  echo   roster: %QA_ROSTER% 1>&2',
+  '  exit /b 1',
+  ')',
+  'if not "%QA_GRAPH%"=="" if "%MODE%"=="escalate" if "%QA_ESCALATE%"=="" (',
+  '  echo agent.cmd: escalate: you have no escalation target — everything you send is advisory. 1>&2',
+  '  exit /b 1',
+  ')',
+  'if not "%QA_GRAPH%"=="" if "%MODE%"=="escalate" call :not_in_list "%RECIP%" "%QA_ESCALATE%" && (',
+  '  echo agent.cmd: escalate: you may not escalate to "%RECIP%". 1>&2',
+  '  echo   permitted: %QA_ESCALATE% 1>&2',
+  '  exit /b 1',
+  ')',
   'if "%MODE%"=="delegate" if "%MSG%"=="" ( echo agent.cmd: delegate: message required 1>&2 & exit /b 1 )',
   'if "%MODE%"=="reply" if "%REPLYTO%"=="" ( echo agent.cmd: reply: --to ^<parcel^> required 1>&2 & exit /b 1 )',
   // The interrupt-intent tag by verb; the host validates it against the directs graph (§6).

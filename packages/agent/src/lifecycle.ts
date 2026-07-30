@@ -314,9 +314,9 @@ export async function writeRemoteAgentInstructions(
   // which is why the old quimby-agent.* names are removed here rather than shimmed, keeping the
   // agent dir showing exactly the current tool.
   const shPath = `${rAgentDir}/${AGENT_SCRIPT_SH_FILENAME}`
-  await transport.writeFile(shPath, renderAgentScript())
+  await transport.writeFile(shPath, renderAgentScript(opts))
   await transport.exec(`chmod +x ${sp(shPath)}`)
-  await transport.writeFile(`${rAgentDir}/${AGENT_SCRIPT_CMD_FILENAME}`, renderAgentScriptCmd())
+  await transport.writeFile(`${rAgentDir}/${AGENT_SCRIPT_CMD_FILENAME}`, renderAgentScriptCmd(opts))
   await transport.exec(
     `rm -f ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_SH_FILENAME}`)} ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_CMD_FILENAME}`)}`,
   )
@@ -425,10 +425,13 @@ async function writeAgentScaffold(
 export function resolveAgentGraph(
   state: Readonly<QuimbyState>,
   name: string,
-): { directs: string[]; escalatesTo: string[] } {
+): { directs: string[]; escalatesTo: string[]; roster: string[] } {
   return {
     directs: resolveDirectedRecipients(state, name),
     escalatesTo: escalationTargets(state, name),
+    // Who it may address at all — the check `agent.sh` needs to refuse an undeliverable recipient
+    // at the source instead of letting it bounce where only the host sees it.
+    roster: Object.keys(state.agents).filter((peer) => peer !== name),
   }
 }
 
@@ -445,6 +448,12 @@ export interface AgentInstructionOptions {
   directs?: readonly string[]
   escalatesTo?: readonly string[]
   instructions?: string
+  /**
+   * Every OTHER current agent. Baked into `agent.sh` so it can refuse an undeliverable recipient
+   * at the source; without it a parcel addressed to a removed agent publishes cleanly and bounces
+   * where only the host sees it.
+   */
+  roster?: readonly string[]
 }
 
 export async function writeAgentInstructions(
@@ -459,9 +468,9 @@ export async function writeAgentInstructions(
   // (not shimmed), so a renamed tool propagates without a rebuild and the dir shows only the current
   // tool.
   const shPath = join(agentDir, AGENT_SCRIPT_SH_FILENAME)
-  await writeText(shPath, renderAgentScript())
+  await writeText(shPath, renderAgentScript(opts))
   await chmod(shPath, 0o755)
-  await writeText(join(agentDir, AGENT_SCRIPT_CMD_FILENAME), renderAgentScriptCmd())
+  await writeText(join(agentDir, AGENT_SCRIPT_CMD_FILENAME), renderAgentScriptCmd(opts))
   await rm(join(agentDir, AGENT_SCRIPT_LEGACY_SH_FILENAME), { force: true })
   await rm(join(agentDir, AGENT_SCRIPT_LEGACY_CMD_FILENAME), { force: true })
 }

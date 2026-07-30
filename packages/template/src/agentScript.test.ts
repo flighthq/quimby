@@ -43,7 +43,10 @@ function parseAttach(readme: string): { note: string; attach?: string } {
 
 const dirs: string[] = []
 
-function makeAgentWorkspace(): string {
+function makeAgentWorkspace(graph?: {
+  roster?: readonly string[]
+  escalatesTo?: readonly string[]
+}): string {
   const root = mkdtempSync(join(tmpdir(), 'qa-'))
   dirs.push(root)
   mkdirSync(join(root, 'handoff', 'in', 'received'), { recursive: true })
@@ -64,7 +67,7 @@ function makeAgentWorkspace(): string {
   execFileSync('git', ['add', '.'], { cwd: repo, env: gitEnv })
   execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: repo, env: gitEnv })
   const shPath = join(root, 'agent.sh')
-  writeFileSync(shPath, renderAgentScript(), { mode: 0o755 })
+  writeFileSync(shPath, renderAgentScript(graph ?? {}), { mode: 0o755 })
   return root
 }
 
@@ -74,6 +77,21 @@ function runSh(root: string, args: string[], cwd = root, env?: Record<string, st
     encoding: 'utf-8',
     env: { ...process.env, ...env },
   })
+}
+
+// The script exits non-zero on a refusal, so capture stderr instead of letting execFileSync throw.
+function runShFail(root: string, args: string[]): { status: number; stderr: string } {
+  try {
+    execFileSync('sh', [join(root, 'agent.sh'), ...args], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    const e = err as { status?: number; stderr?: string }
+    return { status: e.status ?? -1, stderr: e.stderr ?? '' }
+  }
+  return { status: 0, stderr: '' }
 }
 
 afterEach(() => {
@@ -87,6 +105,62 @@ afterEach(() => {
 })
 
 describe('renderAgentScript', () => {
+  it('refuses a recipient that is not on the roster, and names the roster', () => {
+    const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
+    const { status, stderr } = runShFail(root, ['handoff', 'review', '-m', 'take a look'])
+    expect(status).toBe(1)
+    expect(stderr).toContain('"review" is not an agent')
+    expect(stderr).toContain('builder-2 manager')
+    // Nothing was queued — the point is that it never becomes a parcel that bounces host-side.
+    expect(existsSync(join(root, 'handoff', 'out', 'queued', 'review'))).toBe(false)
+  })
+
+  it('refuses an --attach naming no agent (a bad attach retries host-side forever)', () => {
+    const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
+    const { status, stderr } = runShFail(root, [
+      'handoff',
+      'manager',
+      '-m',
+      'ship it',
+      '--attach',
+      'review',
+    ])
+    expect(status).toBe(1)
+    expect(stderr).toContain('--attach "review" is not an agent')
+  })
+
+  it('refuses an escalation to a permitted-set outsider, and names the permitted set', () => {
+    const root = makeAgentWorkspace({
+      roster: ['manager', 'integration'],
+      escalatesTo: ['manager'],
+    })
+    const { status, stderr } = runShFail(root, ['escalate', 'integration', '-m', 'blocked'])
+    expect(status).toBe(1)
+    expect(stderr).toContain('may not escalate to "integration"')
+    expect(stderr).toContain('permitted: manager')
+  })
+
+  it('refuses any escalation when the agent has no escalation target at all', () => {
+    const root = makeAgentWorkspace({ roster: ['manager'] })
+    const { status, stderr } = runShFail(root, ['escalate', 'manager', '-m', 'blocked'])
+    expect(status).toBe(1)
+    expect(stderr).toContain('you have no escalation target')
+  })
+
+  it('allows a roster recipient and a permitted escalation target', () => {
+    const root = makeAgentWorkspace({
+      roster: ['manager', 'integration'],
+      escalatesTo: ['manager'],
+    })
+    expect(runSh(root, ['handoff', 'integration', '-m', 'fyi'])).toContain('queued parcel')
+    expect(runSh(root, ['escalate', 'manager', '-m', 'blocked'])).toContain('queued parcel')
+  })
+
+  it('never blocks a send when the host rendered no graph — stale data must not wedge the tool', () => {
+    const root = makeAgentWorkspace()
+    expect(runSh(root, ['handoff', 'anyone-at-all', '-m', 'hi'])).toContain('queued parcel')
+  })
+
   it('is a POSIX sh script with strict mode and no bashisms or ${...} interpolation', () => {
     const sh = renderAgentScript()
     expect(sh.startsWith('#!/bin/sh\n')).toBe(true)
