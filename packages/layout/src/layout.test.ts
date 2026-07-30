@@ -377,8 +377,36 @@ describe('roleInstanceResolver', () => {
     },
   } as never
 
-  it('resolves a role to its instances in creation order', () => {
+  it('resolves a role to its instances in natural name order, not the order state happens to hold', () => {
     expect(roleInstanceResolver(state)('builder')).toEqual(['builder', 'builder-2'])
+
+    // The reported bug: state listed builder2 first, so the pane tabbed "builder2, builder,
+    // builder3, builder4". Tab order has to be predictable from the names, not from state order.
+    const shuffled = {
+      agents: {
+        builder2: { role: 'builder' },
+        builder: { role: 'builder' },
+        builder4: { role: 'builder' },
+        builder3: { role: 'builder' },
+      },
+    } as never
+    expect(roleInstanceResolver(shuffled)('builder')).toEqual([
+      'builder',
+      'builder2',
+      'builder3',
+      'builder4',
+    ])
+  })
+
+  it('orders numbered instances numerically, so builder10 follows builder2', () => {
+    const many = {
+      agents: {
+        builder10: { role: 'builder' },
+        builder2: { role: 'builder' },
+        builder: { role: 'builder' },
+      },
+    } as never
+    expect(roleInstanceResolver(many)('builder')).toEqual(['builder', 'builder2', 'builder10'])
   })
 
   it('includes a legacy agent named after the role, mirroring the launch fallback', () => {

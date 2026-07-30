@@ -136,12 +136,18 @@ export function pruneLayoutNames(
 
 // A `@role` slot resolves to every agent whose `role` is that role, plus a legacy agent literally
 // named after it (mirroring `resolveAgentLaunchDefaults`'s `agent.role ?? agent.name` fallback),
-// in creation order — so `builder`, `builder-2`, `builder-3` tab in the order they were made.
+// in NATURAL-SORTED name order, so the tab strip reads `builder, builder2, builder3, builder10`.
+// Creation order was the obvious first choice and is the wrong one: it is invisible (you cannot see
+// it without reading state.yaml), and it drifts — a rename or a rebuilt agent re-inserts its key, so
+// a pool silently reorders itself. Sorting on the name makes the tab order predictable from the
+// names alone, and the numeric-aware compare keeps `builder10` after `builder2` rather than before.
 export function roleInstanceResolver(
   state: Readonly<QuimbyState>,
 ): (role: string) => readonly string[] {
   return (role) =>
-    Object.keys(state.agents).filter((name) => state.agents[name].role === role || name === role)
+    Object.keys(state.agents)
+      .filter((name) => state.agents[name].role === role || name === role)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
 // True when a string uses layout operators (`|` `/` `(` `)`) or a `:N` size weight. A bare

@@ -201,7 +201,7 @@ describe('buildResolvedLayoutPlan', () => {
     ])
   })
 
-  it('expands a @role slot to every instance of that role, in creation order', async () => {
+  it('expands a @role slot to every instance of that role, in natural name order', async () => {
     const roleState: QuimbyState = structuredClone(state)
     roleState.agents.builder.role = 'builder'
     roleState.agents['builder-2'] = {
