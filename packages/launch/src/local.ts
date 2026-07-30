@@ -45,6 +45,8 @@ export interface LocalTmuxLaunch {
   shellCmd: string
   windowName: string
   runtimeLabel: string
+  /** `-x/-y` for `new-session`, so the agent's pty is born at the operator's terminal size. */
+  sizeArgs?: string[]
 }
 
 /** A foreground (non-tmux) local launch: the runtime's spawn spec plus display bits. */
@@ -87,6 +89,7 @@ export function localNewSessionArgs(
     'new-session',
     '-A',
     ...(opts.detached ? ['-d'] : []),
+    ...(launch.sizeArgs ?? []),
     '-s',
     launch.sessionName,
     '-n',
@@ -175,5 +178,23 @@ export async function prepareLocalTmuxLaunch(
     shellCmd,
     windowName: agent.name,
     runtimeLabel,
+    sizeArgs: resolveSessionSizeArgs(),
   }
+}
+
+/**
+ * `-x/-y` for a new agent session, from the launching terminal.
+ *
+ * Without this tmux creates a detached session at its default 80x24, and that is the size the
+ * agent's pty is born at. Linking the window into a wide dashboard resizes the tmux *window*
+ * afterwards — but a sandbox runtime that does not forward SIGWINCH to its container pty leaves the
+ * app rendering at 80x24 for the life of the process, which no amount of resizing, zooming,
+ * reattaching, or even restarting could fix (the restart created another 80x24 session). Being born
+ * at the operator's terminal size is the part quimby can control; forwarding the later resize is
+ * the runtime's job. Omitted when there is no TTY to measure, leaving tmux's default.
+ */
+export function resolveSessionSizeArgs(): string[] {
+  const width = process.stdout.columns
+  const height = process.stdout.rows
+  return width && height ? ['-x', String(width), '-y', String(height)] : []
 }

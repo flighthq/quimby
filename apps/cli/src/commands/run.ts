@@ -871,6 +871,9 @@ async function ensureLocalAgentSession(
       launch.tmuxConf,
       'new-session',
       '-d',
+      // Born at the operator's terminal size, not tmux's 80x24 default: a sandbox pty that never
+      // follows a later resize keeps whatever size it started with.
+      ...(launch.sizeArgs ?? []),
       '-s',
       launch.sessionName,
       '-n',

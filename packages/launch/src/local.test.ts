@@ -81,6 +81,23 @@ describe('localNewSessionArgs', () => {
     expect(args[at + 1]).toBe('-d')
   })
 
+  it('creates the session at the terminal size, not tmux’s 80x24 default', () => {
+    // The agent's pty is born here. A sandbox runtime that doesn't forward SIGWINCH keeps that
+    // size for the life of the process, so 80x24 would survive every resize, zoom, and restart.
+    const args = localNewSessionArgs(
+      { ...launch, sizeArgs: ['-x', '200', '-y', '50'] },
+      {
+        detached: true,
+      },
+    )
+    expect(args).toEqual(expect.arrayContaining(['-x', '200', '-y', '50']))
+    expect(args.indexOf('-x')).toBeLessThan(args.indexOf('-s'))
+  })
+
+  it('omits the size when there is no terminal to measure', () => {
+    expect(localNewSessionArgs(launch, { detached: true })).not.toContain('-x')
+  })
+
   it('threads env args through as -e pairs', () => {
     const args = localNewSessionArgs(launch, { detached: false })
     expect(args).toEqual(expect.arrayContaining(['-e', 'FOO=bar']))
