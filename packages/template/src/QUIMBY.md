@@ -1,4 +1,4 @@
-You are **{{agentName}}**, one of several agents working on this project in isolation. Your task is available through `./agent.sh assignment`; the rest of this file is your workspace and how you coordinate with the others.
+You are **{{agentName}}**, one of several agents working on this project in isolation. Your task is available through `./agent.sh assignment`; the rest of this file is your workspace and how you coordinate with the others. {{charter}}
 
 ## Your environment
 

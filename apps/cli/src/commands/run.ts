@@ -61,6 +61,7 @@ import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
 import { logger, writeText } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
+  resolveAgentInstructions,
   resolveLayoutExpr,
   resolvePresetLayout,
   resolveWorkspace,
@@ -937,6 +938,7 @@ async function buildSSHWindow(
       agentId: agent.id,
       runtime: agent.defaults?.runtime,
       ...resolveAgentGraph(state, name),
+      instructions: resolveAgentInstructions(await loadQuimbyConfig(repoRoot), agent),
     })
 
     state.agents[name].seedCommit = seedCommit
@@ -953,6 +955,7 @@ async function buildSSHWindow(
       agentId: agent.id,
       runtime: agent.defaults?.runtime,
       ...resolveAgentGraph(state, name),
+      instructions: resolveAgentInstructions(await loadQuimbyConfig(repoRoot), agent),
     })
   } catch {
     // Advisory; leave whatever the remote clone already has.

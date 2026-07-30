@@ -303,6 +303,22 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
   return warnings
 }
 
+/**
+ * The standing charter for an agent — its own `instructions`, else its role's. Rendered into the
+ * generated `CLAUDE.md`/`AGENTS.md` on every launch and `quimby sync`, so a fleet's division of
+ * labour lives in tracked config rather than in each agent's overwritable `assignment.md`.
+ */
+export function resolveAgentInstructions(
+  config: Readonly<QuimbyConfig>,
+  agent: Readonly<{ name: string; role?: string }>,
+): string | undefined {
+  for (const preset of Object.values(config.presets ?? {})) {
+    const entry = preset.agents?.[agent.name]
+    if (typeof entry === 'object' && entry?.instructions) return entry.instructions
+  }
+  return config.roles?.[agent.role ?? '']?.instructions
+}
+
 export function resolveNudgePolicy(
   config: Readonly<QuimbyConfig>,
   agent?: Readonly<{ nudge?: string }>,
@@ -449,6 +465,7 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
 // The keys each config container actually reads. Kept beside the interfaces they mirror; a new
 // field must be added here too, or `collectConfigWarnings` will report it as unknown.
 const AGENT_ROLE_KEYS = new Set([
+  'instructions',
   'nudge',
   'runtimeProfile',
   'runtime',

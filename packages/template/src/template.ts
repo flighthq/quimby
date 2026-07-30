@@ -153,12 +153,26 @@ export function renderQuimbyContext(opts: {
   directs?: readonly string[]
   /** Concrete agents this one may escalate to — already `@role`-expanded by the caller. */
   escalatesTo?: readonly string[]
+  /** The agent's standing charter from config (its own `instructions`, else its role's). */
+  instructions?: string
 }): string {
   // agentId is still accepted (callers pass it) but no longer surfaced to the agent — its UUID is
   // plumbing it never uses, and leading with it read as framework-forward "you are a managed agent".
   return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName)
     .replaceAll('{{capability}}', renderCapabilityClause(opts.runtime))
     .replaceAll('{{coordination}}', renderCoordinationClause(opts.directs, opts.escalatesTo))
+    .replaceAll('{{charter}}', renderCharterClause(opts.instructions))
+}
+
+/**
+ * The `{{charter}}` clause: the standing role description from config. Distinct from
+ * `assignment.md` on purpose — the assignment is the *current task* and is replaced by the next
+ * `quimby assign`, while this is who the agent is across every task it will ever be given. Absent
+ * for an agent whose config declares none, rendering nothing at all.
+ */
+export function renderCharterClause(instructions?: string): string {
+  const text = instructions?.trim()
+  return text ? `\n## Your role\n\n${text}\n` : ''
 }
 
 /**
@@ -210,6 +224,7 @@ export function renderAgentClaudeMd(opts: {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  instructions?: string
 }): string {
   return `${renderQuimbyContext(opts)}\n## Project instructions\n\n@repo/CLAUDE.md\n`
 }
@@ -226,6 +241,7 @@ export function renderAgentAgentsMd(opts: {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  instructions?: string
 }): string {
   return (
     `${renderQuimbyContext(opts)}\n## Project instructions\n\n` +

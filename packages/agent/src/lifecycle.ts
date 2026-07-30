@@ -444,6 +444,7 @@ export interface AgentInstructionOptions {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  instructions?: string
 }
 
 export async function writeAgentInstructions(

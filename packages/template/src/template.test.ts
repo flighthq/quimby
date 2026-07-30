@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   renderAgentAgentsMd,
   renderAgentClaudeMd,
+  renderCharterClause,
   renderCoordinationClause,
   renderQuimbyContext,
   renderResolveConflictRequest,
@@ -34,6 +35,18 @@ describe('renderAgentClaudeMd', () => {
     // Claude Code resolves @-imports, so the repo's own instructions load directly.
     expect(out).toContain('@repo/CLAUDE.md')
     expect(out.endsWith('\n')).toBe(true)
+  })
+})
+
+describe('renderCharterClause', () => {
+  it('renders the standing role description as its own section', () => {
+    expect(renderCharterClause('Keep every builder busy.')).toContain('## Your role')
+    expect(renderCharterClause('Keep every builder busy.')).toContain('Keep every builder busy.')
+  })
+
+  it('renders nothing at all when the agent has no charter', () => {
+    expect(renderCharterClause()).toBe('')
+    expect(renderCharterClause('   ')).toBe('')
   })
 })
 
@@ -72,7 +85,19 @@ describe('renderQuimbyContext', () => {
   it('leaves no placeholder behind when the agent has no edges', () => {
     const out = renderQuimbyContext({ agentName: 'solo', agentId: 's1' })
     expect(out).not.toContain('{{coordination}}')
+    expect(out).not.toContain('{{charter}}')
     expect(out).toContain('advisory')
+  })
+
+  it('carries the config charter into the agent’s own context', () => {
+    const out = renderQuimbyContext({
+      agentName: 'manager',
+      agentId: 'm1',
+      instructions: 'Batch builder reports; escalate to chief once with a synthesis.',
+    })
+    expect(out).toContain('## Your role')
+    expect(out).toContain('escalate to chief once with a synthesis')
+    expect(out).not.toContain('{{charter}}')
   })
 
   it('substitutes the agent name work-first, leaks no tokens, and omits framework identity', () => {

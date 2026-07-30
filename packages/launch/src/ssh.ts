@@ -23,7 +23,7 @@ import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
 import { isResolvedSSHLocation } from '@quimbyhq/types'
-import { loadQuimbyConfig, saveState } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveAgentInstructions, saveState } from '@quimbyhq/workspace'
 
 import type { LaunchOptions } from './local'
 import { resolveRuntimeSelection } from './runtime'
@@ -126,6 +126,7 @@ export async function prepareSshLaunch(
     agentId: agent.id,
     runtime,
     ...resolveAgentGraph(state, agent.name),
+    instructions: resolveAgentInstructions(config, agent),
   }
   try {
     await configureRemoteAgentIdentity(transport, rRepoDir, agent.name, repoRoot)

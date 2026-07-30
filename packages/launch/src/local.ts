@@ -17,7 +17,7 @@ import { renderTmuxConfig } from '@quimbyhq/template'
 import { sq } from '@quimbyhq/transport'
 import type { AgentState, QuimbyState, RunSpec } from '@quimbyhq/types'
 import { writeText } from '@quimbyhq/utils'
-import { loadQuimbyConfig } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveAgentInstructions } from '@quimbyhq/workspace'
 
 import { resolveRuntimeSelection } from './runtime'
 import { tmuxSetQuimbyRootShell } from './tmux'
@@ -126,6 +126,7 @@ export async function prepareLocalTmuxLaunch(
       // Name the agent's own place in the authority graph, so "escalate to your director" resolves
       // to actual peers rather than a guess the host would silently downgrade.
       ...resolveAgentGraph(state, agent.name),
+      instructions: resolveAgentInstructions(config, agent),
     })
     // Seed this agent's peer roster so `ls status/` is correct even with no server running —
     // a placeholder per current peer, orphans swept. Idempotent; the poller refreshes content.

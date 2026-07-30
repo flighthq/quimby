@@ -41,6 +41,7 @@ vi.mock('@quimbyhq/workspace', () => ({
       },
     },
   })),
+  resolveAgentInstructions: vi.fn(() => undefined),
 }))
 
 import { localNewSessionArgs, prepareLocalTmuxLaunch } from './local'

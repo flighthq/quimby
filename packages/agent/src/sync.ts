@@ -25,6 +25,7 @@ import { isSSH } from '@quimbyhq/types'
 import {
   loadQuimbyConfig,
   loadState,
+  resolveAgentInstructions,
   resolveConfiguredAgentEdges,
   saveState,
 } from '@quimbyhq/workspace'
@@ -237,9 +238,10 @@ export async function syncAgent(
   // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
   // upgrading quimby reaches an in-flight agent without a rebuild or a session kill. Best-effort:
   // a write failure never fails the sync.
-  await refreshAgentScaffold(repoRoot, state.id, agent, resolveAgentGraph(state, name)).catch(
-    () => {},
-  )
+  await refreshAgentScaffold(repoRoot, state.id, agent, {
+    ...resolveAgentGraph(state, name),
+    instructions: await resolveInstructionsFor(repoRoot, agent),
+  }).catch(() => {})
 
   // GC the delivery/processing caches now that the agent has advanced — folded into sync per
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
@@ -336,7 +338,7 @@ async function refreshAgentScaffold(
   repoRoot: string,
   stateId: string,
   agent: Readonly<AgentState>,
-  graph: Readonly<{ directs: string[]; escalatesTo: string[] }>,
+  graph: Readonly<{ directs: string[]; escalatesTo: string[]; instructions?: string }>,
 ): Promise<void> {
   const opts = {
     agentName: agent.name,
@@ -370,6 +372,19 @@ async function resolveConfiguredEdgesFor(
     return resolveConfiguredAgentEdges(await loadQuimbyConfig(repoRoot), agent)
   } catch {
     return null
+  }
+}
+
+// The agent's standing charter from config, for the scaffold refresh. Best-effort like the rest of
+// the refresh: unreadable config leaves the existing instructions in place.
+async function resolveInstructionsFor(
+  repoRoot: string,
+  agent: Readonly<AgentState>,
+): Promise<string | undefined> {
+  try {
+    return resolveAgentInstructions(await loadQuimbyConfig(repoRoot), agent)
+  } catch {
+    return undefined
   }
 }
 

@@ -13,6 +13,7 @@ import {
   loadQuimbyConfig,
   mergeConfigs,
   normalizeCheck,
+  resolveAgentInstructions,
   resolveAgentRoleConfig,
   resolveBoundHostAlias,
   resolveConfiguredAgent,
@@ -312,6 +313,36 @@ describe('normalizeCheck', () => {
   it('returns undefined for an unset check but wraps an empty-string command', () => {
     expect(normalizeCheck(undefined)).toBeUndefined()
     expect(normalizeCheck('')).toEqual({ command: '' })
+  })
+})
+
+describe('resolveAgentInstructions', () => {
+  const cfg = {
+    roles: { builder: { instructions: 'Do the work in repo/.' } },
+    presets: {
+      d: {
+        agents: {
+          builder: { role: 'builder' },
+          manager: { role: 'builder', instructions: 'Keep every builder busy.' },
+        },
+      },
+    },
+  }
+
+  it('falls back to the role charter', () => {
+    expect(resolveAgentInstructions(cfg, { name: 'builder', role: 'builder' })).toBe(
+      'Do the work in repo/.',
+    )
+  })
+
+  it('lets an agent entry replace its role charter', () => {
+    expect(resolveAgentInstructions(cfg, { name: 'manager', role: 'builder' })).toBe(
+      'Keep every builder busy.',
+    )
+  })
+
+  it('is undefined when nothing declares one', () => {
+    expect(resolveAgentInstructions({}, { name: 'solo' })).toBeUndefined()
   })
 })
 

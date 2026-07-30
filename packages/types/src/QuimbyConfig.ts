@@ -23,6 +23,12 @@ export interface AgentRoleConfig {
   escalatesTo?: string | string[]
   /** Which parcels wake agents of this role (`all` | `directed` | `never`). */
   nudge?: NudgePolicy
+  /**
+   * The role's standing charter, rendered into every agent of this role's `CLAUDE.md`/`AGENTS.md`.
+   * This is who the agent *is* — it persists across tasks, where `assignment.md` is the current
+   * task and is overwritten by the next `quimby assign`.
+   */
+  instructions?: string
 }
 
 export interface ConfiguredAgent {
@@ -61,6 +67,8 @@ export interface ConfiguredAgent {
    * workspace default. The recipient's setting governs — it is the one being interrupted.
    */
   nudge?: NudgePolicy
+  /** This agent's standing charter, replacing its role's. See {@link AgentRoleConfig.instructions}. */
+  instructions?: string
 }
 
 export interface LayoutConfig {
