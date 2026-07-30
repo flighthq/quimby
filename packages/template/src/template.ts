@@ -43,6 +43,12 @@ export function renderTmuxConfig(): string {
       'set -g window-status-current-format " #W "',
       'set -g window-status-current-style "fg=colour231,bg=colour238,bold"',
       'set -g message-style "bg=colour109,fg=colour235"',
+      // How long a status-line notice sits — notably the held-nudge flash, which tells you work
+      // arrived while you were typing. tmux's own default (750ms) is too brief to catch when you
+      // are looking at the pane, not the bar. In the overridable tier on purpose: this is the one
+      // knob for "the notification doesn't stay up long enough", so `set -g display-time <ms>` in
+      // your ~/.tmux.conf wins (it is sourced below).
+      'set -g display-time 4000',
       'set -g pane-border-style "fg=colour238"',
       'set -g pane-active-border-style "fg=colour109"',
       'set -g mode-keys vi',

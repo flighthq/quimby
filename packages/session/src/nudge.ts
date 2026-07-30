@@ -28,10 +28,6 @@ const CLEAR_SETTLE_MS = 600
 // submission rather than just another line-editing event.
 const SUBMIT_SETTLE_MS = 150
 
-// How long a held-nudge status flash stays up. Long enough to notice mid-typing, short enough
-// not to sit on the status bar as noise.
-const HELD_FLASH_MS = 4000
-
 // A courier-injected message leads with this so the agent can tell it from text the user typed
 // live: `quimby · <label>` (e.g. `parcel review-abc123 from review`, `assignment updated`,
 // `resume …`). The
@@ -313,24 +309,30 @@ async function flashHeldNudge(
   message: string,
 ): Promise<void> {
   const text = `${message}  (held while you type — press Enter when ready)`
-  try {
+  // `-N` makes the message ignore key presses. Without it tmux clears a status message on the
+  // client's *next key*, and this flash fires precisely because the user is mid-keystroke — so
+  // their very next character wiped it, however long a delay we asked for. How long it then sits
+  // is `display-time`, set in quimby's bundled tmux config and overridable from the user's own
+  // ~/.tmux.conf, rather than a constant only a recompile could change.
+  const flash = async (ignoreKeys: boolean): Promise<void> => {
     if (isSSH(agent.location)) {
       await getSSHTransport(agent.location).exec(
-        `${TMUX_CMD} display-message -d ${HELD_FLASH_MS} -t ${sq(session)} ${sq(text)}`,
+        `${TMUX_CMD} display-message ${ignoreKeys ? '-N ' : ''}-t ${sq(session)} ${sq(text)}`,
       )
       return
     }
-    await execa('tmux', [
-      ...TMUX,
-      'display-message',
-      '-d',
-      String(HELD_FLASH_MS),
-      '-t',
-      session,
-      text,
-    ])
+    const flags = ignoreKeys ? ['-N'] : []
+    await execa('tmux', [...TMUX, 'display-message', ...flags, '-t', session, text])
+  }
+  try {
+    await flash(true)
   } catch {
-    // No session, no client, or an unreachable host — the inbox still holds the work.
+    try {
+      // tmux predating `-N` rejects the flag outright; a brief flash beats none.
+      await flash(false)
+    } catch {
+      // No session, no client, or an unreachable host — the inbox still holds the work.
+    }
   }
 }
 

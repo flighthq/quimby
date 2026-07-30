@@ -296,6 +296,23 @@ describe('nudgeAgentSession', () => {
     expect(warn).not.toContain('quimby run')
   })
 
+  it('falls back to a flash without -N when tmux is too old to know the flag', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    execa.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('display-message') && args.includes('-N'))
+        throw new Error('unknown flag -N')
+      return {}
+    })
+    const { reporter } = collectingReporter()
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+
+    const flashes = execa.mock.calls.filter((c) => (c[1] as string[]).includes('display-message'))
+    expect(flashes).toHaveLength(2)
+    expect(flashes[1][1] as string[]).not.toContain('-N')
+    expect((flashes[1][1] as string[]).at(-1)).toContain('held while you type')
+  })
+
   it('holds the nudge (no send-keys) when the recipient is the window you are in — §7', async () => {
     getSessionState.mockResolvedValueOnce('attached')
     getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
@@ -311,6 +328,8 @@ describe('nudgeAgentSession', () => {
     const flash = execa.mock.calls.find((c) => (c[1] as string[]).includes('display-message'))
     expect(flash).toBeDefined()
     expect((flash![1] as string[]).at(-1)).toContain('held while you type')
+    // -N or the flash is wiped by the very keystroke that caused it to be held.
+    expect(flash![1] as string[]).toContain('-N')
   })
 
   it('sends to an attached agent you are NOT focused on (the dashboard sibling case)', async () => {

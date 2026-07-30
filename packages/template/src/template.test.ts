@@ -246,6 +246,12 @@ describe('renderTmuxConfig', () => {
     expect(renderTmuxConfig()).toContain('source-file -q ~/.tmux.conf')
   })
 
+  it('sets display-time above the overridable line, so ~/.tmux.conf can lengthen the flash', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('display-time 4000')
+    expect(conf.indexOf('display-time')).toBeLessThan(conf.indexOf('source-file -q ~/.tmux.conf'))
+  })
+
   it('enables true-color passthrough and a generous history limit', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('terminal-overrides ",*:Tc"')
