@@ -63,13 +63,22 @@ describe('remindUnreadInboxes', () => {
     expect(nudgeAgentSession).not.toHaveBeenCalled()
   })
 
-  it('never reminds an attached agent (a human is on it) or a stopped one', async () => {
+  it('never reminds a stopped agent — there is no prompt to type into', async () => {
     await giveInbox('builder-a1')
-    for (const sessionState of ['attached', 'stopped']) {
-      getAgentSessionState.mockResolvedValue(sessionState)
-      await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0)
-    }
+    getAgentSessionState.mockResolvedValue('stopped')
+    await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0)
     expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('reminds an ATTACHED agent, leaving the hold to §7', async () => {
+    // An SSH agent's dashboard tab is a real `tmux attach`, so every agent in an open dashboard
+    // reads `attached`. Skipping those here silently disabled the safety net for a whole fleet;
+    // nudgeAgentSession already holds for the one window the human is typing in.
+    await giveInbox('builder-a1')
+    getAgentSessionState.mockResolvedValue('attached')
+    await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0)
+    // Not forced — §7 must still be free to hold it for the one focused window.
+    expect(nudgeAgentSession).toHaveBeenCalledWith(expect.not.objectContaining({ force: true }))
   })
 
   it('spaces reminders by the interval rather than nudging every poll cycle', async () => {

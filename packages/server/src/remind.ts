@@ -25,8 +25,9 @@ export function createInboxReminderTracker(): InboxReminderTracker {
  * until morning. Since an unwoken agent is a worse failure than a duplicate nudge, this sweeps for
  * agents sitting on unread parcels and pokes them again.
  *
- * Three bounds keep it from becoming noise: only **idle** sessions are reminded (never an attached
- * one, and never a stopped one — there is nothing to type into), reminders are spaced by
+ * Three bounds keep it from becoming noise: a **stopped** session is skipped (nothing to type
+ * into) while a live one defers to §7, which holds only for the window the human is typing in
+ * (flashing its status line instead of injecting), reminders are spaced by
  * {@link REMIND_INTERVAL_MS}, and an inbox that does not change is reminded at most
  * {@link MAX_REMINDERS} times before the sweep concludes the agent is stuck and says so instead of
  * poking it all night.
@@ -53,9 +54,13 @@ export async function remindUnreadInboxes(
     if (sameInbox && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
     if (sameInbox && previous.count >= MAX_REMINDERS) continue
 
-    // Only an idle session can be usefully reminded: an attached one has a human on it, and a
-    // stopped one has no prompt to type into (the work is on disk for its next launch).
-    if ((await getAgentSessionState(agent)) !== 'running') continue
+    // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
+    // for its next launch. Everything live is attempted, and §7 (inside nudgeAgentSession) decides
+    // whether to inject: it holds only for the one window the human is actually typing in, and
+    // flashes that window's status line instead. Filtering on `attached` here was the same wrong
+    // predicate §7 itself was fixed for — an SSH agent's dashboard tab is a real `tmux attach`, so
+    // every agent in an open dashboard reads `attached` and the safety net silently never fired.
+    if ((await getAgentSessionState(agent)) === 'stopped') continue
 
     const count = sameInbox ? previous.count + 1 : 1
     tracker.seen.set(name, { signature, remindedAt: now, count })
