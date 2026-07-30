@@ -374,6 +374,22 @@ describe('syncAgent', () => {
     expect((await loadState(dir)).agents.review.directs).toEqual(['@builder'])
   })
 
+  it('refreshes a stale role from config, so a @role layout slot stops silently omitting it', async () => {
+    await registerLocalAgentClone('builder2', 'builder2-id')
+    // Created before its entry named a role (or by a bare `quimby add`) — the drift that makes
+    // `@builder` quietly resolve to a subset of the pool.
+    await writeFile(
+      join(dir, 'quimby.yaml'),
+      'presets:\n  fleet:\n    agents:\n      builder2:\n        role: builder\n',
+    )
+    await advanceHost('feature')
+
+    const result = await syncAgent(dir, 'builder2')
+
+    expect(result.edgesUpdated).toBe(true)
+    expect((await loadState(dir)).agents.builder2.role).toBe('builder')
+  })
+
   it('prunes the out/sent and in/processed caches after a successful sync', async () => {
     await registerLocalAgentClone('gc', 'gc-id')
     await mkdir(join(getAgentHandoffOutSentDir(dir, 'gc-id'), 'reviewer'), { recursive: true })

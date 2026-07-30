@@ -52,6 +52,21 @@ export function resolveConfiguredAgentEdges(
 }
 
 /**
+ * The role CONFIG declares for an agent, if any. Refreshed onto agent state by `quimby sync` for
+ * the same reason as the edges: `role` is snapshotted at creation, so an agent created before its
+ * entry named a role — or renamed into one — keeps a stale (often absent) role forever. That is
+ * invisible until a `@role` layout slot quietly omits it, or its launch config resolves through the
+ * wrong role. Returns undefined when config names no role, which never clears a hand-set one
+ * (`quimby set <agent> --role` stays meaningful for an agent no preset declares).
+ */
+export function resolveConfiguredAgentRole(
+  config: Readonly<QuimbyConfig>,
+  name: string,
+): string | undefined {
+  return findConfiguredAgent(config, name)?.role
+}
+
+/**
  * Does `from` DIRECT `to` — a declared `directs` edge? A directed handoff along this edge is
  * host-stamped `userDirected` and interrupts the recipient (coordination-proposals §6/§6a).
  */

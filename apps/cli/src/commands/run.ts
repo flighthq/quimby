@@ -1160,6 +1160,14 @@ async function runPanelDashboard(expr: string): Promise<void> {
   // so the rendered dashboard and the published plan agree. Then prune disabled agents so the
   // dashboard opens exactly the enabled set without editing the layout expr (§8).
   const expanded = expandRoleSlots(parsed, roleInstanceResolver(state))
+  // Name what the prune removed. A disabled agent dropping out of a layout is intended, but
+  // silently — so a pane that "should" hold four builders quietly holds two and looks like a bug.
+  const dropped = collectLayoutAgents(expanded).filter(
+    (name) => state.agents[name]?.enabled === false,
+  )
+  if (dropped.length > 0) {
+    logger.info(`Skipping disabled agent(s): ${dropped.join(', ')} (\`quimby enable <agent>\`)`)
+  }
   const layout = pruneLayoutNames(expanded, (name) => state.agents[name]?.enabled === false)
   if (!layout) {
     throw new QuimbyError(

@@ -6,6 +6,7 @@ import {
   escalationTargets,
   honorsEscalation,
   resolveConfiguredAgentEdges,
+  resolveConfiguredAgentRole,
   resolveDirectedRecipients,
 } from './authority'
 
@@ -135,6 +136,33 @@ describe('resolveConfiguredAgentEdges', () => {
   it('returns null when nothing in config declares the agent', () => {
     expect(resolveConfiguredAgentEdges(config, { name: 'stray' })).toBeNull()
     expect(resolveConfiguredAgentEdges({}, { name: 'manager' })).toBeNull()
+  })
+})
+
+describe('resolveConfiguredAgentRole', () => {
+  const config: QuimbyConfig = {
+    presets: {
+      fleet: {
+        agents: {
+          builder2: { role: 'builder' },
+          reviewer: 'review', // string shorthand is a role reference
+          builder: { role: 'builder', count: 4 },
+        },
+      },
+    },
+  }
+
+  it('reads the role config declares for an agent', () => {
+    expect(resolveConfiguredAgentRole(config, 'builder2')).toBe('builder')
+    expect(resolveConfiguredAgentRole(config, 'reviewer')).toBe('review')
+  })
+
+  it('covers a count-expanded replica', () => {
+    expect(resolveConfiguredAgentRole(config, 'builder-3')).toBe('builder')
+  })
+
+  it('is undefined for an agent no preset declares, so a hand-set role survives', () => {
+    expect(resolveConfiguredAgentRole(config, 'stray')).toBeUndefined()
   })
 })
 

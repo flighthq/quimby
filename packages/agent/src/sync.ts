@@ -27,6 +27,7 @@ import {
   loadState,
   resolveAgentInstructions,
   resolveConfiguredAgentEdges,
+  resolveConfiguredAgentRole,
   saveState,
 } from '@quimbyhq/workspace'
 
@@ -233,6 +234,11 @@ export async function syncAgent(
   // exactly as it already is for the scaffold. Best-effort: unreadable config never fails a sync.
   const edges = await resolveConfiguredEdgesFor(repoRoot, state.agents[name])
   const edgesUpdated = applyAgentCoordinationEdges(state.agents[name], edges)
+  // `role` drifts the same way and is worse when it does: a stale role drops the agent out of its
+  // `@role` layout slot and resolves its launch config through the wrong profile — both silently.
+  const configuredRole = await resolveConfiguredRoleFor(repoRoot, name)
+  const roleUpdated = Boolean(configuredRole) && state.agents[name].role !== configuredRole
+  if (roleUpdated) state.agents[name].role = configuredRole
   await saveState(repoRoot, state)
 
   // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
@@ -247,7 +253,7 @@ export async function syncAgent(
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
   await pruneAgentMailboxCaches(repoRoot, agent, state.id).catch(() => {})
 
-  return { ...result, edgesUpdated }
+  return { ...result, edgesUpdated: edgesUpdated || roleUpdated }
 }
 
 /**
@@ -372,6 +378,19 @@ async function resolveConfiguredEdgesFor(
     return resolveConfiguredAgentEdges(await loadQuimbyConfig(repoRoot), agent)
   } catch {
     return null
+  }
+}
+
+// The role config declares for this agent, for the state refresh. Best-effort: unreadable config
+// leaves the stored role alone.
+async function resolveConfiguredRoleFor(
+  repoRoot: string,
+  name: string,
+): Promise<string | undefined> {
+  try {
+    return resolveConfiguredAgentRole(await loadQuimbyConfig(repoRoot), name)
+  } catch {
+    return undefined
   }
 }
 

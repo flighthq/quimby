@@ -86,7 +86,8 @@ export async function syncAgents(
       const seedShort = result.newSeed.slice(0, 8)
       // The graph edit reached the agent — say so, since it takes effect on the next dispatch
       // and is otherwise invisible next to the seed advance.
-      if (result.edgesUpdated) reporter.info(`${name}: coordination edges updated from config`)
+      if (result.edgesUpdated)
+        reporter.info(`${name}: settings refreshed from config (role / edges / nudge)`)
       if (opts.force) {
         reporter.success(`${name}: hard-reset to ${syncRef} (${seedShort})`)
         outcomes.push({ name, outcome: 'forced', syncRef, newSeed: result.newSeed })
