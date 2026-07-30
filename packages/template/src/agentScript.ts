@@ -35,6 +35,10 @@ export interface AgentScriptGraph {
   roster?: readonly string[]
   /** Who this one may escalate to, already `@role`-expanded. */
   escalatesTo?: readonly string[]
+  /** Who this one may direct. */
+  directs?: readonly string[]
+  /** Who may direct THIS one — the inbound edge, which it cannot derive from anything it sees. */
+  directedBy?: readonly string[]
 }
 
 /**
@@ -66,6 +70,8 @@ function applyGraph(script: string, graph: Readonly<AgentScriptGraph>): string {
     .replaceAll('{{graph}}', graph.roster === undefined ? '' : '1')
     .replaceAll('{{roster}}', safeNames(graph.roster))
     .replaceAll('{{escalate}}', safeNames(graph.escalatesTo))
+    .replaceAll('{{directs}}', safeNames(graph.directs))
+    .replaceAll('{{directedby}}', safeNames(graph.directedBy))
 }
 
 function safeNames(names: readonly string[] | undefined): string {
@@ -99,6 +105,8 @@ const SH_LINES = [
   "QA_GRAPH='{{graph}}'",
   "QA_ROSTER='{{roster}}'",
   "QA_ESCALATE='{{escalate}}'",
+  "QA_DIRECTS='{{directs}}'",
+  "QA_DIRECTED_BY='{{directedby}}'",
   '',
   '# Is $1 in the space-separated list $2? Callers gate on QA_GRAPH first, so reaching here with an',
   '# empty list means the host really said "nobody" — which must MISS, not pass.',
@@ -429,7 +437,17 @@ const SH_LINES = [
   '  for f in "$sdir"/*.md; do',
   '    [ -f "$f" ] || continue',
   '    found=1',
-  '    basename "$f" .md',
+  '    p=$(basename "$f" .md)',
+  '    # Annotate the edge, so the roster is not a flat list of names to infer a hierarchy from.',
+  "    tag=''",
+  '    qa_in_list "$p" "$QA_DIRECTED_BY" && tag=\'  (directs you — their work is authoritative)\'',
+  '    if [ -z "$tag" ] && qa_in_list "$p" "$QA_DIRECTS"; then',
+  "      tag='  (you direct — a handoff wakes them)'",
+  '    fi',
+  '    if [ -z "$tag" ] && qa_in_list "$p" "$QA_ESCALATE"; then',
+  "      tag='  (you may escalate here)'",
+  '    fi',
+  '    printf \'%s%s\\n\' "$p" "$tag"',
   '  done',
   '  [ "$found" -eq 1 ] || echo \'(no peers)\'',
   '}',

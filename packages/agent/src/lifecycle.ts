@@ -25,6 +25,7 @@ import type { AgentDefaults, AgentLocation, AgentState, QuimbyState } from '@qui
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
 import {
+  directorsOf,
   ensureWorkspace,
   escalationTargets,
   loadState,
@@ -425,10 +426,14 @@ async function writeAgentScaffold(
 export function resolveAgentGraph(
   state: Readonly<QuimbyState>,
   name: string,
-): { directs: string[]; escalatesTo: string[]; roster: string[] } {
+): { directs: string[]; escalatesTo: string[]; directedBy: string[]; roster: string[] } {
   return {
     directs: resolveDirectedRecipients(state, name),
     escalatesTo: escalationTargets(state, name),
+    // The inbound edge. `directs` is declared on the sender, so this is the one relationship an
+    // agent cannot derive from anything it can see — without it, "who is above me" is guesswork
+    // off role names.
+    directedBy: directorsOf(state, name),
     // Who it may address at all — the check `agent.sh` needs to refuse an undeliverable recipient
     // at the source instead of letting it bounce where only the host sees it.
     roster: Object.keys(state.agents).filter((peer) => peer !== name),
@@ -447,6 +452,8 @@ export interface AgentInstructionOptions {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  /** Agents that may direct THIS one — the inbound authority edge. */
+  directedBy?: readonly string[]
   instructions?: string
   /**
    * Every OTHER current agent. Baked into `agent.sh` so it can refuse an undeliverable recipient

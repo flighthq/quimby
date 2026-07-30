@@ -166,6 +166,8 @@ export function renderQuimbyContext(opts: {
   directs?: readonly string[]
   /** Concrete agents this one may escalate to — already `@role`-expanded by the caller. */
   escalatesTo?: readonly string[]
+  /** Concrete agents that may DIRECT this one — the inbound edge, invisible from the sandbox. */
+  directedBy?: readonly string[]
   /** The agent's standing charter from config (its own `instructions`, else its role's). */
   instructions?: string
 }): string {
@@ -173,7 +175,10 @@ export function renderQuimbyContext(opts: {
   // plumbing it never uses, and leading with it read as framework-forward "you are a managed agent".
   return QUIMBY_CONTEXT.replaceAll('{{agentName}}', opts.agentName)
     .replaceAll('{{capability}}', renderCapabilityClause(opts.runtime))
-    .replaceAll('{{coordination}}', renderCoordinationClause(opts.directs, opts.escalatesTo))
+    .replaceAll(
+      '{{coordination}}',
+      renderCoordinationClause(opts.directs, opts.escalatesTo, opts.directedBy),
+    )
     .replaceAll('{{charter}}', renderCharterClause(opts.instructions))
 }
 
@@ -200,8 +205,19 @@ export function renderCharterClause(instructions?: string): string {
 export function renderCoordinationClause(
   directs?: readonly string[],
   escalatesTo?: readonly string[],
+  directedBy?: readonly string[],
 ): string {
   const lines: string[] = []
+  // The inbound edge first: it is the only one the agent cannot infer, and the one that decides how
+  // much weight an arriving note carries. Naming it also stops the roster's role names being read
+  // as a hierarchy — `manager` sounds authoritative whether or not it holds an edge.
+  if (directedBy?.length) {
+    lines.push(
+      `- You are **directed by**: ${list(directedBy)}. Work from them is authoritative — a ` +
+        'handoff along that edge is host-stamped and wakes you. Everyone else is a peer whose ' +
+        'notes are advisory, however senior their name sounds.',
+    )
+  }
   if (directs?.length) {
     lines.push(
       `- You **direct**: ${list(directs)}. A \`handoff\` to any of them is stamped directed by the ` +
@@ -217,7 +233,8 @@ export function renderCoordinationClause(
   }
   if (lines.length === 0) {
     return (
-      'You direct no one and have no escalation target, so every note you send is advisory: it ' +
+      'Nobody directs you, you direct no one, and you have no escalation target, so every note ' +
+      'you send is advisory: it ' +
       'lands in the inbox and is read on the recipient’s own turn. That is expected — say it with ' +
       '`status` or `handoff` and let them come to it.'
     )
@@ -237,6 +254,7 @@ export function renderAgentClaudeMd(opts: {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  directedBy?: readonly string[]
   instructions?: string
 }): string {
   return `${renderQuimbyContext(opts)}\n## Project instructions\n\n@repo/CLAUDE.md\n`
@@ -254,6 +272,7 @@ export function renderAgentAgentsMd(opts: {
   runtime?: string
   directs?: readonly string[]
   escalatesTo?: readonly string[]
+  directedBy?: readonly string[]
   instructions?: string
 }): string {
   return (

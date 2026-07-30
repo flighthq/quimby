@@ -51,6 +51,17 @@ describe('renderCharterClause', () => {
 })
 
 describe('renderCoordinationClause', () => {
+  it('names who directs the agent — the edge it cannot derive from anything it can see', () => {
+    const clause = renderCoordinationClause([], ['manager'], ['manager'])
+    expect(clause).toContain('**directed by**')
+    expect(clause).toContain('`manager`')
+    // …and says the rest are peers, so a senior-sounding role name is not read as authority.
+    expect(clause).toContain('however senior their name sounds')
+  })
+
+  it('reports having no inbound edge either, when the agent is wholly advisory', () => {
+    expect(renderCoordinationClause([], [], [])).toContain('Nobody directs you')
+  })
   it('names who the agent directs and who it may escalate to', () => {
     const out = renderCoordinationClause(['builder1', 'builder2'], ['review1', 'integration'])
     expect(out).toContain('`builder1`, `builder2`')

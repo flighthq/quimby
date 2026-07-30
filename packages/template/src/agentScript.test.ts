@@ -46,6 +46,8 @@ const dirs: string[] = []
 function makeAgentWorkspace(graph?: {
   roster?: readonly string[]
   escalatesTo?: readonly string[]
+  directs?: readonly string[]
+  directedBy?: readonly string[]
 }): string {
   const root = mkdtempSync(join(tmpdir(), 'qa-'))
   dirs.push(root)
@@ -105,6 +107,23 @@ afterEach(() => {
 })
 
 describe('renderAgentScript', () => {
+  it('annotates peers with their edge, so the roster is not a flat list to infer rank from', () => {
+    const root = makeAgentWorkspace({
+      roster: ['manager', 'integration', 'critic'],
+      directs: ['integration'],
+      escalatesTo: ['manager'],
+      directedBy: ['manager'],
+    })
+    for (const peer of ['manager', 'integration', 'critic']) {
+      writeFileSync(join(root, 'status', `${peer}.md`), 'idle\n')
+    }
+    const out = runSh(root, ['peers'])
+    expect(out).toMatch(/manager\s+\(directs you/)
+    expect(out).toMatch(/integration\s+\(you direct/)
+    // A peer holding no edge is listed plainly — no invented rank.
+    expect(out).toMatch(/^critic$/m)
+  })
+
   it('refuses a recipient that is not on the roster, and names the roster', () => {
     const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
     const { status, stderr } = runShFail(root, ['handoff', 'review', '-m', 'take a look'])

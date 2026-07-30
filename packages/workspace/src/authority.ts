@@ -91,8 +91,20 @@ export function escalationTargets(state: Readonly<QuimbyState>, from: string): s
     const refs = typeof override === 'string' ? [override] : override
     if (refs.length > 0) return expandAgentRefs(state, refs)
   }
+  return directorsOf(state, from)
+}
+
+/**
+ * Everyone who DIRECTS `name` — the inbound half of the authority edge, and the one an agent
+ * cannot work out for itself: `directs` is declared on the *sender*, so from inside the sandbox
+ * "who is above me" is invisible. Left unnamed, an agent infers it from role names in the roster
+ * (`manager` sounds authoritative, `critic` does not) — a guess that is wrong exactly when the
+ * names are least literal. Also the default escalation set, since the people who may direct you
+ * are the people it makes sense to take a blocker to.
+ */
+export function directorsOf(state: Readonly<QuimbyState>, name: string): string[] {
   return Object.keys(state.agents).filter(
-    (name) => name !== from && directsRecipient(state, name, from),
+    (peer) => peer !== name && directsRecipient(state, peer, name),
   )
 }
 
