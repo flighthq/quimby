@@ -82,7 +82,27 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     res.end(JSON.stringify(result.body))
   }
 
+  // setInterval fires on a fixed clock regardless of whether the previous callback finished, and a
+  // cycle over SSH (status poll + roster reconcile + dispatch assembly + reminder sweep, each a
+  // round trip per agent) routinely outruns the interval on a real fleet. Overlapping cycles then
+  // assemble the SAME parcel concurrently, and assembleParcel opens by `rm -rf`-ing the staging
+  // dir — so the later cycle deletes `commits/` out from under the earlier one's rsync, which
+  // surfaces as `mkstemp … No such file or directory`. One cycle at a time removes the race.
+  let cycleInFlight = false
+  let skipped = 0
   const poller = setInterval(async () => {
+    if (cycleInFlight) {
+      // Surface a persistently overrunning cycle rather than silently doing less every tick.
+      if (++skipped === 1 || skipped % SKIP_WARN_EVERY === 0) {
+        reporter.warn(
+          `Poll cycle still running after ${pollInterval / 1000}s — skipped ${skipped} tick(s). ` +
+            'Raise --poll if this persists; overlapping cycles are not run.',
+        )
+      }
+      return
+    }
+    skipped = 0
+    cycleInFlight = true
     try {
       state = await reloadStateIfChanged(repoRoot, state, stateMtime)
       const newMtime = await getFileMtime(join(getQuimbyDir(repoRoot), 'state.yaml'))
@@ -111,6 +131,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
       reporter.error(`Poll error: ${err}`)
+    } finally {
+      cycleInFlight = false
     }
   }, pollInterval)
 
@@ -236,3 +258,6 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('error', reject)
   })
 }
+
+/** Skipped ticks between repeat warnings, so a persistently slow cycle says so without spamming. */
+const SKIP_WARN_EVERY = 12

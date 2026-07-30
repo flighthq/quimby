@@ -2,12 +2,22 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { collectingReporter } from '@quimbyhq/reporter'
 import { exists } from '@quimbyhq/utils'
 import { ensureWorkspace, loadState, saveState } from '@quimbyhq/workspace'
 import { execa } from 'execa'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as PollerModule from './poller'
 import { type QuimbyServerHandle, startServer } from './server'
+
+// Only pollAgentStatus is stubbed, so the slow-cycle test can make a cycle overrun the interval.
+// Every other test polls once per ~17 minutes, so the stub never runs for them.
+const pollAgentStatus = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('./poller', async (importOriginal) => ({
+  ...(await importOriginal<typeof PollerModule>()),
+  pollAgentStatus,
+}))
 
 let dir: string
 let handle: QuimbyServerHandle | null
@@ -65,6 +75,27 @@ afterEach(async () => {
 })
 
 describe('startServer', () => {
+  it('never runs two poll cycles at once, and says when a cycle overruns the interval', async () => {
+    // The bug this guards: overlapping cycles assemble the same parcel concurrently, and
+    // assembleParcel opens by `rm -rf`-ing the staging dir — so the later cycle deletes commits/
+    // out from under the earlier one's rsync (`mkstemp … No such file or directory`).
+    let inFlight = 0
+    let maxInFlight = 0
+    pollAgentStatus.mockImplementation(async () => {
+      maxInFlight = Math.max(maxInFlight, ++inFlight)
+      await new Promise((r) => setTimeout(r, 120))
+      inFlight--
+    })
+    const { reporter, events } = collectingReporter()
+    handle = await startServer({ repoRoot: dir, port: 0, pollInterval: 20, reporter })
+
+    await new Promise((r) => setTimeout(r, 700))
+
+    expect(maxInFlight).toBe(1)
+    expect(events.some((e) => e.level === 'warn' && e.message.includes('still running'))).toBe(true)
+    pollAgentStatus.mockImplementation(async () => {})
+  })
+
   it('binds an ephemeral port and reports it in the handle + pidfile', async () => {
     const h = await startOnEphemeral()
     expect(h.port).toBeGreaterThan(0)
