@@ -219,6 +219,15 @@ describe('renderResumeRequest', () => {
 })
 
 describe('renderTmuxConfig', () => {
+  it('binds a re-fit that forces a SIGWINCH and then clears the manual pin it creates', () => {
+    const conf = renderTmuxConfig()
+    expect(conf).toContain('bind = run-shell -b')
+    expect(conf).toContain('resize-window -t "$TMUX_PANE" -L')
+    // Without the unset, `resize-window` leaves the window pinned to `manual` and it stops
+    // tracking clients entirely — a worse state than the stale size it was fixing.
+    expect(conf).toContain('set -w -t "$TMUX_PANE" -u window-size')
+  })
+
   it('sizes a shared window to its LARGEST viewer, so a stale small client cannot shrink an agent', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('window-size largest')
