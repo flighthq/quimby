@@ -164,6 +164,36 @@ describe('createMissingPresetAgents', () => {
     )
   })
 
+  it('places every agent on the defaults hostAlias, overridden by role then entry', async () => {
+    state.value.agents = {}
+    addAgent.mockClear()
+    const remote = {
+      ...config.value,
+      defaults: { hostAlias: 'remote' },
+      hosts: { ...config.value.hosts, remote: { host: 'me@remote' } },
+      roles: {
+        ...config.value.roles,
+        builder: { ...config.value.roles.builder, hostAlias: 'gpu' },
+      },
+    }
+
+    await createMissingPresetAgents('/repo', remote, 'loop')
+
+    // reviewer declares no alias anywhere but its own defaults — the whole point: a fleet says
+    // "remote" once instead of on every entry, and nothing silently lands on the local machine.
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      'reviewer',
+      expect.objectContaining({ location: { type: 'ssh', alias: 'remote' } }),
+    )
+    // builder's entry alias beats its role's, which beats defaults.
+    expect(addAgent).toHaveBeenCalledWith(
+      '/repo',
+      'builder',
+      expect.objectContaining({ location: { type: 'ssh', alias: 'gpu' } }),
+    )
+  })
+
   it('creates missing agents with resolved role defaults', async () => {
     state.value.agents = {}
     addAgent.mockClear()

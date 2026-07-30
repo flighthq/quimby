@@ -36,10 +36,13 @@ export async function createMissingPresetAgents(
     const configured = resolveConfiguredAgent(config, rawAgent)
     const role = resolveAgentRoleConfig(config, configured)
     const check = normalizeCheck(role.check)
-    if (configured.hostAlias) resolveHostAlias(config, configured.hostAlias)
+    // `role` has already merged entry over role over `defaults`, so this is the resolved alias:
+    // a fleet states "we live on the remote box" once on `defaults` instead of on every entry.
+    // An explicit `location` on the entry still wins, being the more specific statement.
+    if (role.hostAlias) resolveHostAlias(config, role.hostAlias)
     const location =
       configured.location ??
-      (configured.hostAlias ? { type: 'ssh' as const, alias: configured.hostAlias } : undefined)
+      (role.hostAlias ? { type: 'ssh' as const, alias: role.hostAlias } : undefined)
     await addAgent(repoRoot, name, {
       ...(configured.role ? { role: configured.role } : {}),
       // An explicit profile override on the entry is stored as the per-instance pin, so a replica

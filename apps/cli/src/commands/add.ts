@@ -130,12 +130,17 @@ export async function runAddCommand({
         : undefined
     if (args.host) {
       location = buildSSHLocation(args.host, args.port ? Number.parseInt(args.port, 10) : undefined)
-    } else if (args.hostAlias) {
-      // Store the alias reference, not a flattened address, so the concrete host is
-      // resolved from private config at launch (and a rebinding propagates). resolveHostAlias
-      // asserts the alias is at least declared in config.
-      resolveHostAlias(config, args.hostAlias)
-      location = { type: 'ssh', alias: args.hostAlias }
+    } else {
+      // The flag wins, then the role's alias, then the workspace `defaults` — so an agent added
+      // to a remote-by-default fleet lands remotely without having to remember the flag.
+      const hostAlias = args.hostAlias ?? roleCfg?.hostAlias
+      if (hostAlias) {
+        // Store the alias reference, not a flattened address, so the concrete host is
+        // resolved from private config at launch (and a rebinding propagates). resolveHostAlias
+        // asserts the alias is at least declared in config.
+        resolveHostAlias(config, hostAlias)
+        location = { type: 'ssh', alias: hostAlias }
+      }
     }
     syncRef = args.sync ?? roleCfg?.syncRef
     tmux = roleCfg?.tmux

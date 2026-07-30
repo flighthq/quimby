@@ -15,6 +15,13 @@ export interface AgentRoleConfig {
   syncRef?: string
   tmux?: boolean
   /**
+   * Host alias every agent resolving through this role (or, on `defaults`, every agent) runs on.
+   * Declared here so "this fleet lives on the remote box" is stated once instead of repeated on
+   * each preset entry — the omission that silently lands a whole fleet on the local machine.
+   * An agent entry's own `hostAlias` overrides it, and an explicit `location` overrides both.
+   */
+  hostAlias?: string
+  /**
    * Coordination edges declared for the whole role (coordination-proposals §6), so a fleet of
    * replicas — or an agent created with a bare `quimby add --role <role>`, which has no preset
    * entry — inherits them. An agent's own entry overrides these.
@@ -40,7 +47,9 @@ export interface ConfiguredAgent {
   verifyByDefault?: boolean
   syncRef?: string
   tmux?: boolean
+  /** This agent's host alias, overriding its role's and the workspace `defaults`. */
   hostAlias?: string
+  /** An explicit location, overriding every `hostAlias` above it. */
   location?: AgentLocation
   /**
    * How many instances of this entry to create — a replica count. `up` reconciles to it, naming

@@ -90,6 +90,22 @@ describe('collectConfigWarnings', () => {
     ).toEqual([])
   })
 
+  it('flags an unknown key under `defaults`, the container nothing used to validate', () => {
+    const warnings = collectConfigWarnings({ defaults: { host: 'me@gpu' } as never })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('defaults.host')
+    expect(warnings[0]).toContain('Valid keys:')
+  })
+
+  it('accepts `hostAlias` on `defaults` and on a role', () => {
+    expect(
+      collectConfigWarnings({
+        defaults: { hostAlias: 'remote' },
+        roles: { builder: { hostAlias: 'gpu' } },
+      }),
+    ).toEqual([])
+  })
+
   it('flags a key quimby will ignore, so a plausible-looking typo is not silent', () => {
     const warnings = collectConfigWarnings({
       presets: { default: { agents: { review: { role: 'review', escalate: 'x' } as never } } },
@@ -368,6 +384,20 @@ describe('resolveAgentRoleConfig', () => {
       entrypoint: 'claude',
       check: { command: 'npm test', verifyByDefault: false },
     })
+  })
+
+  it('inherits a hostAlias from defaults, then a role, then the agent entry', () => {
+    const remote = {
+      ...config,
+      defaults: { ...config.defaults, hostAlias: 'remote' },
+      roles: { ...config.roles, builder: { ...config.roles.builder, hostAlias: 'gpu' } },
+    }
+    expect(resolveAgentRoleConfig(remote, undefined).hostAlias).toBe('remote')
+    expect(resolveAgentRoleConfig(remote, 'reviewer').hostAlias).toBe('remote')
+    expect(resolveAgentRoleConfig(remote, { role: 'builder' }).hostAlias).toBe('gpu')
+    expect(resolveAgentRoleConfig(remote, { role: 'builder', hostAlias: 'other' }).hostAlias).toBe(
+      'other',
+    )
   })
 })
 

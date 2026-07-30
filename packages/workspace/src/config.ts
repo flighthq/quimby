@@ -76,6 +76,7 @@ export function resolveAgentRoleConfig(
     verifyByDefault: resolved.verifyByDefault,
     syncRef: resolved.syncRef,
     tmux: resolved.tmux,
+    hostAlias: resolved.hostAlias,
   })
 }
 
@@ -267,6 +268,16 @@ export async function saveMergeModeDefault(
  */
 export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] {
   const warnings: string[] = []
+  // `defaults` was the one container nothing validated, so a key it doesn't read (the reported
+  // case: `hostAlias`, before it was one) was ignored in total silence — the config looked like
+  // it placed a whole fleet remotely while every agent was created on the local machine.
+  for (const key of Object.keys(config.defaults ?? {})) {
+    if (AGENT_ROLE_KEYS.has(key)) continue
+    warnings.push(
+      `defaults.${key} is not an agent setting — ignored. ` +
+        `Valid keys: ${[...AGENT_ROLE_KEYS].sort().join(', ')}.`,
+    )
+  }
   for (const [presetName, preset] of Object.entries(config.presets ?? {})) {
     for (const [agentName, entry] of Object.entries(preset.agents ?? {})) {
       if (typeof entry !== 'object' || entry === null) continue
@@ -474,6 +485,7 @@ const AGENT_ROLE_KEYS = new Set([
   'verifyByDefault',
   'syncRef',
   'tmux',
+  'hostAlias',
   'directs',
   'escalatesTo',
 ])
