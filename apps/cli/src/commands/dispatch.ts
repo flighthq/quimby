@@ -68,6 +68,12 @@ export async function runDispatchCommand({
           ? ` (+${result.files.length} file(s): ${result.files.join(', ')})`
           : ''
         logger.success(`Delivered "${sender}" → "${result.recipient}"${fileSuffix}`)
+        if (result.skippedFiles?.length) {
+          logger.warn(
+            `  NOT carried: ${result.skippedFiles.join(', ')} — a parcel cannot hold a file with ` +
+              'that name (or a directory). Rename the attachment and re-send.',
+          )
+        }
         // §6a: only a directed / escalation / reply parcel interrupts the recipient. An advisory
         // parcel lands passively in the inbox (read on the recipient's own turn), so no nudge.
         if (!result.interrupts) {

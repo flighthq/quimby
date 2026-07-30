@@ -151,6 +151,26 @@ describe('dispatchOutbox', () => {
     expect(await exists(join(received, 'README.md'))).toBe(true)
   })
 
+  it('reports an attachment it cannot carry instead of dropping it silently', async () => {
+    await setupAgentRepo(dir, 'review')
+    await setupAgentRepo(dir, 'builder')
+    const draft = getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder')
+    await mkdir(join(draft, 'notes'), { recursive: true })
+    await writeFile(join(draft, 'README.md'), 'the note')
+    // A name the assembler owns: carrying it would overwrite the parcel's own manifest.
+    await writeFile(join(draft, 'meta.yaml'), 'from: someone-else')
+    await writeFile(join(draft, 'brief.md'), 'carried fine')
+
+    const [result] = await dispatchOutbox({
+      state: stateWith('review', 'builder'),
+      repoRoot: dir,
+      sender: 'review',
+    })
+
+    expect(result.files).toEqual(['brief.md'])
+    expect(result.skippedFiles).toEqual(['notes'])
+  })
+
   it('promotes an agent delegation claim into host-stamped parcel metadata', async () => {
     await setupAgentRepo(dir, 'review')
     await setupAgentRepo(dir, 'builder')

@@ -305,6 +305,12 @@ describe('nudgeAgentSession', () => {
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
     expect(sentKeys).toBe(false)
     expect(events.some((e) => e.message.includes('Held nudge'))).toBe(true)
+
+    // …but it flashes the status line of the very session it held, so the person typing in that
+    // pane learns work arrived. Never via send-keys: that would land in their half-typed prompt.
+    const flash = execa.mock.calls.find((c) => (c[1] as string[]).includes('display-message'))
+    expect(flash).toBeDefined()
+    expect((flash![1] as string[]).at(-1)).toContain('held while you type')
   })
 
   it('sends to an attached agent you are NOT focused on (the dashboard sibling case)', async () => {

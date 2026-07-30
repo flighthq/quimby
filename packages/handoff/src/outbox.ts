@@ -54,14 +54,26 @@ export async function copyOutboxExtraFiles(
   fromId: string,
   recipient: string,
   destDir: string,
+  onSkipped?: (names: readonly string[]) => void,
 ): Promise<string[]> {
   const queuedDir = getAgentHandoffOutQueuedRecipientDir(repoRoot, fromId, recipient)
   if (!(await exists(queuedDir))) return []
   const entries = await readdir(queuedDir, { withFileTypes: true })
+  // A `--file` whose name collides with a parcel filename the assembler owns, or that is a
+  // directory, cannot be carried — it would overwrite the note/diff/manifest. Skipping is right;
+  // skipping SILENTLY is not, because the sender is told nothing and the recipient reports the
+  // attachment simply never arrived.
+  const skipped = entries
+    .filter((e) => !e.isFile() || RESERVED_PARCEL_FILES.has(e.name))
+    .map((e) => e.name)
+    .filter((name) => name !== 'commits' && !RESERVED_PARCEL_FILES.has(name))
   const extras = entries
     .filter((e) => e.isFile() && !RESERVED_PARCEL_FILES.has(e.name))
     .map((e) => e.name)
     .sort()
+  if (skipped.length > 0) {
+    onSkipped?.(skipped.sort())
+  }
   if (extras.length === 0) return []
   await ensureDir(destDir)
   for (const name of extras) {

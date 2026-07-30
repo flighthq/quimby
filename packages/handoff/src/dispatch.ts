@@ -25,6 +25,12 @@ export interface DispatchOutboxResult {
   hasNote?: boolean
   /** Extra files the sender attached (via `agent.sh handoff --file`) that were carried along. */
   files?: string[]
+  /**
+   * Attachments that could NOT be carried — a name colliding with a parcel file the assembler owns
+   * (`README.md`, `meta.yaml`, `squashed.diff`, …) or a directory. Reported so "my file didn't
+   * arrive" has an answer at the point it happens.
+   */
+  skippedFiles?: string[]
   userDirected?: boolean
   /** A bounded upward summon honored along the inverse-directs edge (§6b). */
   escalation?: boolean
@@ -204,11 +210,13 @@ export async function dispatchOutbox(opts: {
       // Carry any files the sender attached beyond the note + diff. They were staged into
       // the queued parcel by `agent.sh handoff --file`; without copying them into the
       // assembled staging parcel here they would be dropped and never reach the inbox.
+      const skippedFiles: string[] = []
       const files = await copyOutboxExtraFiles(
         repoRoot,
         senderId,
         recipient,
         getStagingHandoffDir(repoRoot, meta.name),
+        (names) => skippedFiles.push(...names),
       )
 
       await deliverHandoff({
@@ -228,6 +236,7 @@ export async function dispatchOutbox(opts: {
         parcelName: meta.name,
         hasNote: Boolean(draft.note),
         files: files.length > 0 ? files : undefined,
+        skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
         userDirected: meta.userDirected,
         escalation: escalation || undefined,
         interrupts,

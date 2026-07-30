@@ -85,6 +85,12 @@ export async function autoDispatchOutboxes(
         reporter.success(
           `  delivered "${sender}" → "${result.recipient}" (${result.parcelName})${fileSuffix}`,
         )
+        if (result.skippedFiles?.length) {
+          reporter.warn(
+            `  NOT carried: ${result.skippedFiles.join(', ')} — a parcel cannot hold a file with ` +
+              'that name (or a directory). Rename the attachment and re-send.',
+          )
+        }
         // §6a: only a directed / escalation / reply parcel interrupts. Advisory parcels land
         // passively (the recipient reads them on its own turn), so no nudge is accrued for them —
         // but a REFUSED interrupt is reported, or the operator just sees a quiet recipient.

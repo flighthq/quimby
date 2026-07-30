@@ -28,6 +28,10 @@ const CLEAR_SETTLE_MS = 600
 // submission rather than just another line-editing event.
 const SUBMIT_SETTLE_MS = 150
 
+// How long a held-nudge status flash stays up. Long enough to notice mid-typing, short enough
+// not to sit on the status bar as noise.
+const HELD_FLASH_MS = 4000
+
 // A courier-injected message leads with this so the agent can tell it from text the user typed
 // live: `quimby · <label>` (e.g. `parcel review-abc123 from review`, `assignment updated`,
 // `resume …`). The
@@ -175,6 +179,12 @@ export async function nudgeAgentSession(opts: {
   // their input, and the work is already durable in the inbox/assignment, so a deferred nudge loses
   // nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
   if (!opts.force && (await shouldHoldNudge(agent, displayName))) {
+    // Flash the status line of the session being held. A held nudge is otherwise invisible to the
+    // one person it is held FOR — they are working in that pane while the only notice goes to the
+    // server log somewhere else. `display-message` reaches the status bar without touching the
+    // pane's stdin, which is the whole point: injecting the text instead (even without Return)
+    // would land in a half-typed prompt and corrupt it.
+    await flashHeldNudge(agent, session, message)
     reporter.info(
       `Held nudge for "${displayName}" — you're working in it; it'll pick up the delivered ` +
         `work on your next turn (\`quimby nudge ${displayName}\` forces it).`,
@@ -295,6 +305,35 @@ async function sendKeysLocal(session: string, text: string): Promise<void> {
  * hence meaningless to compare across servers). Guards against a nudge typing into the user's
  * own shell, where the text would run as a command. Any probe failure is treated as "not us".
  */
+// Announce a held nudge on the status line of the session it was held for — best-effort and
+// never fatal, since it is a courtesy on top of a delivery that already succeeded.
+async function flashHeldNudge(
+  agent: Readonly<AgentState>,
+  session: string,
+  message: string,
+): Promise<void> {
+  const text = `${message}  (held while you type — press Enter when ready)`
+  try {
+    if (isSSH(agent.location)) {
+      await getSSHTransport(agent.location).exec(
+        `${TMUX_CMD} display-message -d ${HELD_FLASH_MS} -t ${sq(session)} ${sq(text)}`,
+      )
+      return
+    }
+    await execa('tmux', [
+      ...TMUX,
+      'display-message',
+      '-d',
+      String(HELD_FLASH_MS),
+      '-t',
+      session,
+      text,
+    ])
+  } catch {
+    // No session, no client, or an unreachable host — the inbox still holds the work.
+  }
+}
+
 // The window id of a local session's active window. An agent session holds exactly one window, and
 // `link-window` shares that same window object into a dashboard, so this id identifies the agent's
 // window from either side. Null when the session or the tmux server is gone.
