@@ -280,6 +280,18 @@ A role may also carry **`instructions`** — its standing charter, rendered into
 
 Host aliases should resolve from private local/user config, so even when a shared preset says `hostAlias: gpu`, the worker name or IP address stays out of git.
 
+**Where an agent runs is declared at whichever level it is true of.** `hostAlias` resolves like every other launch setting — the agent entry's own, else its role's, else `defaults` — so a fleet that lives on one box says so **once**:
+
+```yaml
+defaults:
+  hostAlias: remote # every agent runs on the remote box…
+roles:
+  critic:
+    hostAlias: '' # …except this one, kept local
+```
+
+An explicit `location:` on an entry overrides every `hostAlias` above it, and `--host`/`--host-alias` on `quimby add` override all of it. This matters because the failure is silent and expensive in the wrong direction: an alias that doesn't resolve doesn't error, it just creates the agent **locally**, so a fleet meant for a remote box quietly runs its whole sandbox load on the laptop. For the same reason `defaults` is key-checked like `roles:` and preset entries — a key quimby doesn't read is reported rather than ignored.
+
 ### VS Code Extension (Proposed)
 
 The Visual Studio Code integration should be a first-class **Quimby extension**, not a generic terminal layout renderer. It belongs in this monorepo as `apps/vscode`, beside `apps/cli`, and should be backed by the same internal packages rather than depending on a globally installed `quimby` executable for core behavior.
