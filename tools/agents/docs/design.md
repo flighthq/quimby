@@ -569,7 +569,10 @@ The unifying rule: **the boundary never fabricates a commit message.** A commit 
 
 ### Conflict handling
 
-On conflict, the merge is left in progress. The user resolves with standard git tooling, then `git merge --continue` — no special quimby command. The staged parcel is kept so a retry doesn't re-download from SSH agents.
+On conflict the outcome depends on whether the pre-sync ran, because the two answer different questions about whose repo should hold the mess.
+
+- **Default (pre-sync on).** A same-line overlap that survives the pre-sync fallback is aborted at the boundary: quimby runs `git merge --abort`, so your repo is left untouched — no `MERGE_HEAD`, nothing staged — and resolution is routed back to the agent, which has the code context. This is the "only resolved work crosses" guarantee.
+- **`--no-sync`.** No pre-sync ran, so the boundary merge is **left in progress** for you to resolve with standard git tooling and `git merge --continue` — no special quimby command. The staged parcel is kept so a retry doesn't re-download from SSH agents.
 
 If the user instead **abandons** the merge (`git merge --abort`), that staged parcel would linger. There is deliberately no `quimby merge --abort`/`--continue` to clean it up; quimby **auto-heals** instead. The next `quimby merge` (when it stages fresh work) silently clears a leftover staging area **only when no git merge is in progress** in the target — an in-progress merge is the live retry path, so its parcel is preserved. Nothing for the user to remember.
 

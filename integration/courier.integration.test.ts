@@ -220,17 +220,27 @@ describe('Suite A — courier lifecycle (real CLI, -r local)', () => {
     expect(await git(dir, 'status', '--porcelain')).toBe('')
   })
 
-  it('merge surfaces a real conflict and leaves it in progress', async () => {
+  it('merge routes a real conflict back to the agent, and --no-sync leaves it in progress', async () => {
     await addAgentAndCommitIgnore('builder')
     await agentEdit(dir, 'builder', { 'README.md': '# agent version\n' }, 'edit readme')
     // The host diverges on the same file after the agent's seed, forcing a genuine conflict.
     await writeFile(`${dir}/README.md`, '# host version\n')
     await git(dir, 'commit', '-am', 'host edits readme')
 
+    // Default merge pre-syncs first. A same-line overlap makes that rebase conflict, it rolls
+    // back cleanly, the boundary merge is attempted, and it genuinely overlaps — so merge ABORTS
+    // the tentative host merge and routes resolution back to the agent. The host is untouched:
+    // no MERGE_HEAD, nothing staged. That is the "the mess stays on the agent side" guarantee.
     const res = await run(['merge', 'builder', '-m', 'try to land'])
     expect(res.exitCode).not.toBe(0)
     expect(res.output.toLowerCase()).toContain('conflict')
-    // The merge is left in progress for the user to resolve with normal git tooling.
+    expect(await exists(`${dir}/.git/MERGE_HEAD`)).toBe(false)
+
+    // --no-sync skips the pre-sync, which is the path that DOES leave the merge in progress for
+    // the user to finish with normal git tooling.
+    const raw = await run(['merge', 'builder', '-m', 'try to land', '--no-sync'])
+    expect(raw.exitCode).not.toBe(0)
+    expect(raw.output.toLowerCase()).toContain('conflict')
     expect(await exists(`${dir}/.git/MERGE_HEAD`)).toBe(true)
   })
 
