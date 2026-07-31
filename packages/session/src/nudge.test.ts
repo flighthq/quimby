@@ -122,7 +122,7 @@ describe('nudgeAgentSession', () => {
   it('no-ops for a local agent without tmux', async () => {
     await expect(
       nudgeAgentSession({ agent: localNoTmux, displayName: 'builder', text: 'continue' }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('skipped')
   })
 
   it('no-ops with clear set for a local agent without tmux', async () => {
@@ -133,14 +133,14 @@ describe('nudgeAgentSession', () => {
         displayName: 'builder',
         text: 'continue',
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('skipped')
   })
 
   it('warns gracefully when the tmux session is not running', async () => {
     // No quimby tmux server in test — the nudge should warn but not throw
     await expect(
       nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'continue' }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('no-session')
   })
 
   it('warns gracefully with clear set when the tmux session is not running', async () => {
@@ -151,7 +151,7 @@ describe('nudgeAgentSession', () => {
         displayName: 'reviewer',
         text: 'continue',
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('no-session')
   })
 
   it('types the literal text then Enter and reports success for a running local tmux agent', async () => {
@@ -248,7 +248,7 @@ describe('nudgeAgentSession', () => {
 
     await expect(
       nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('skipped')
 
     // The guard fires before any send-keys, so nothing is typed.
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
@@ -281,7 +281,7 @@ describe('nudgeAgentSession', () => {
 
     await expect(
       nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('no-session')
 
     // never got as far as typing keys
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))

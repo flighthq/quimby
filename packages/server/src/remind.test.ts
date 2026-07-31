@@ -8,7 +8,9 @@ import { join } from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getAgentSessionState = vi.hoisted(() => vi.fn(async () => 'running' as string))
-const nudgeAgentSession = vi.hoisted(() => vi.fn(async () => {}))
+const nudgeAgentSession = vi.hoisted(() =>
+  vi.fn(async (_opts: { quietHold?: boolean }): Promise<string> => 'sent'),
+)
 
 vi.mock('@quimbyhq/session', () => ({ getAgentSessionState, nudgeAgentSession }))
 
@@ -36,6 +38,7 @@ beforeEach(async () => {
   getAgentSessionState.mockReset()
   getAgentSessionState.mockResolvedValue('running')
   nudgeAgentSession.mockReset()
+  nudgeAgentSession.mockResolvedValue('sent')
 })
 
 afterEach(async () => {
@@ -99,6 +102,64 @@ describe('remindUnreadInboxes', () => {
       await remindUnreadInboxes(dir, stateWith(), tracker, i * REMIND_INTERVAL_MS * 2)
     }
     expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS)
+  })
+
+  it('retries a held nudge next cycle instead of waiting out the interval', async () => {
+    // A hold delivered nothing, so the interval — which spaces out DELIVERED reminders — must not
+    // gate the retry, or the wake waits the full 10 minutes the retry exists to avoid.
+    await giveInbox('builder-a1')
+    const tracker = createInboxReminderTracker()
+    nudgeAgentSession.mockResolvedValue('held')
+
+    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
+    await remindUnreadInboxes(dir, stateWith(), tracker, 5_000) // one poll cycle later
+    await remindUnreadInboxes(dir, stateWith(), tracker, 10_000)
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(3)
+  })
+
+  it('never lets holds exhaust the give-up cap — the focused-for-an-hour case', async () => {
+    // Sitting in an agent's pane used to burn all three reminders without one reaching it, after
+    // which quimby went silent and reported a perfectly healthy agent as stuck.
+    await giveInbox('builder-a1')
+    const tracker = createInboxReminderTracker()
+    nudgeAgentSession.mockResolvedValue('held')
+    for (let i = 0; i < MAX_REMINDERS + 5; i++) {
+      await remindUnreadInboxes(dir, stateWith(), tracker, i * 5_000)
+    }
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 5)
+
+    // …and the moment the human looks away it lands, then normal spacing resumes.
+    nudgeAgentSession.mockResolvedValue('sent')
+    const delivered = nudgeAgentSession.mock.calls.length
+    await remindUnreadInboxes(dir, stateWith(), tracker, 100_000)
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(delivered + 1)
+    await remindUnreadInboxes(dir, stateWith(), tracker, 105_000)
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(delivered + 1)
+  })
+
+  it('narrates a hold once, not once per retry, so a watched pane is not spammed', async () => {
+    await giveInbox('builder-a1')
+    const tracker = createInboxReminderTracker()
+    nudgeAgentSession.mockResolvedValue('held')
+
+    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
+    await remindUnreadInboxes(dir, stateWith(), tracker, 5_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, 10_000)
+
+    const quiet = nudgeAgentSession.mock.calls.map(
+      (c) => (c[0] as { quietHold?: boolean }).quietHold,
+    )
+    expect(quiet).toEqual([false, true, true])
+  })
+
+  it('does not count an attempt that found no session against the cap', async () => {
+    await giveInbox('builder-a1')
+    const tracker = createInboxReminderTracker()
+    nudgeAgentSession.mockResolvedValue('no-session')
+    for (let i = 0; i < MAX_REMINDERS + 2; i++) {
+      await remindUnreadInboxes(dir, stateWith(), tracker, i * REMIND_INTERVAL_MS * 2)
+    }
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 2)
   })
 
   it('resets the cap when the inbox changes, so new work always gets announced', async () => {

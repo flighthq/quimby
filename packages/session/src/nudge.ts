@@ -42,6 +42,17 @@ const SUBMIT_SETTLE_MS = 150
 export const COURIER_PREFIX = 'quimby · '
 
 /**
+ * What a nudge attempt actually did.
+ *
+ * `held` is the one that matters to callers: the parcel is delivered but the wake was deferred by
+ * §7, so a retry later can still land. Without this distinction a caller cannot tell "the agent was
+ * told and ignored it" from "the agent was never told", and the reminder sweep counted both against
+ * its give-up cap — so sustained focus silently exhausted the retries and reported a perfectly
+ * healthy agent as stuck.
+ */
+export type NudgeOutcome = 'sent' | 'held' | 'skipped' | 'no-session'
+
+/**
  * Whether an automated nudge should stand down rather than type into this agent (§7).
  *
  * The rule is deliberately about *focus*, not attachment. A dashboard attaches a client to every
@@ -181,8 +192,14 @@ export async function nudgeAgentSession(opts: {
   whenFocused?: ResolvedFocusPolicy
   /** Seconds since a keystroke that still count as "working in this pane" (`focusGrace`). */
   focusGraceSeconds?: number
+  /**
+   * Suppress the held-nudge notice and status-line flash. Set by a caller that RETRIES a held
+   * nudge: the hold is announced once, not once per poll cycle, or a watched pane would flash and
+   * the server log would repeat every few seconds for as long as someone is typing.
+   */
+  quietHold?: boolean
   reporter?: Reporter
-}): Promise<void> {
+}): Promise<NudgeOutcome> {
   const { agent, clear, displayName, dashboardSession } = opts
   const reporter = opts.reporter ?? silentReporter
   const message = opts.courier !== undefined ? `${COURIER_PREFIX}${opts.courier}` : opts.text
@@ -196,13 +213,13 @@ export async function nudgeAgentSession(opts: {
       dashboardSession &&
       (await nudgeWindowInSession(dashboardSession, displayName, message, reporter))
     ) {
-      return
+      return 'sent'
     }
     reporter.info(
       `"${displayName}" isn't a tmux/SSH agent — it'll see it on its next run ` +
         `(enable tmux via \`quimby config ${displayName}\` for live nudges).`,
     )
-    return
+    return 'skipped'
   }
 
   const session = tmuxSessionName(agent.id)
@@ -223,13 +240,15 @@ export async function nudgeAgentSession(opts: {
     // server log somewhere else. `display-message` reaches the status bar without touching the
     // pane's stdin, which is the whole point: injecting the text instead (even without Return)
     // would land in a half-typed prompt and corrupt it.
-    await flashHeldNudge(agent, session, message)
-    reporter.info(
-      `Held nudge for "${displayName}" — you're working in it; it'll pick up the delivered ` +
-        `work on your next turn (\`quimby nudge ${displayName}\` forces it, or set ` +
-        `\`whenFocused: nudge\` to never hold for this agent).`,
-    )
-    return
+    if (!opts.quietHold) {
+      await flashHeldNudge(agent, session, message)
+      reporter.info(
+        `Held nudge for "${displayName}" — you're working in it; it'll be retried once you look ` +
+          `away (\`quimby nudge ${displayName}\` forces it now, or set \`whenFocused: nudge\` ` +
+          'to never hold for this agent).',
+      )
+    }
+    return 'held'
   }
 
   try {
@@ -246,7 +265,7 @@ export async function nudgeAgentSession(opts: {
             `(you're inside the quimby dashboard). The work is delivered; nudge from outside the ` +
             `dashboard, or open "${displayName}"'s tab so it isn't the focused pane.`,
         )
-        return
+        return 'skipped'
       }
       await execa('tmux', [...TMUX, 'has-session', '-t', session])
       if (clear) {
@@ -257,7 +276,7 @@ export async function nudgeAgentSession(opts: {
     }
     const cleared = clear ? ' (cleared context first)' : ''
     reporter.success(`Nudged "${displayName}" in tmux session "${session}"${cleared}`)
-    return
+    return 'sent'
   } catch {
     // Per-agent session not found — try dashboard window before reporting.
   }
@@ -266,13 +285,14 @@ export async function nudgeAgentSession(opts: {
     dashboardSession &&
     (await nudgeWindowInSession(dashboardSession, displayName, message, reporter))
   ) {
-    return
+    return 'sent'
   }
 
   reporter.warn(
     `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
       `(it'll see it on its next run; bring it up headless with \`quimby start ${displayName}\`).`,
   )
+  return 'no-session'
 }
 
 async function hasWindowInSession(session: string, windowName: string): Promise<boolean> {

@@ -9,8 +9,15 @@ import { isSSH } from '@quimbyhq/types'
 import { getFocusGraceSeconds, resolveAgentFocusPolicy } from '@quimbyhq/workspace'
 
 export interface InboxReminderTracker {
-  /** Per agent: the inbox it was last reminded about, when, and how many times. */
-  seen: Map<string, { signature: string; remindedAt: number; count: number }>
+  /**
+   * Per agent: the inbox it was last reminded about, when, and how many times it was actually
+   * ANNOUNCED. `heldReported` records that a deferral was already narrated, so a retry every poll
+   * cycle does not repeat the notice (or re-flash the pane being typed in).
+   */
+  seen: Map<
+    string,
+    { signature: string; remindedAt: number; count: number; heldReported?: boolean }
+  >
 }
 
 export function createInboxReminderTracker(): InboxReminderTracker {
@@ -53,7 +60,11 @@ export async function remindUnreadInboxes(
 
     const previous = tracker.seen.get(name)
     const sameInbox = previous?.signature === signature
-    if (sameInbox && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
+    // A previously HELD attempt is always eligible to retry: the interval spaces out *delivered*
+    // reminders, and a hold delivered nothing. Without this exemption the retry would itself be
+    // held off for REMIND_INTERVAL_MS, which is the delay the retry exists to remove.
+    const retryingHold = Boolean(sameInbox && previous.heldReported)
+    if (sameInbox && !retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
     if (sameInbox && previous.count >= MAX_REMINDERS) continue
 
     // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
@@ -64,17 +75,16 @@ export async function remindUnreadInboxes(
     // every agent in an open dashboard reads `attached` and the safety net silently never fired.
     if ((await getAgentSessionState(agent)) === 'stopped') continue
 
-    const count = sameInbox ? previous.count + 1 : 1
-    tracker.seen.set(name, { signature, remindedAt: now, count })
-
-    if (count >= MAX_REMINDERS) {
-      reporter.warn(
-        `[remind] "${name}" has ignored ${unread.length} parcel(s) across ${count} reminders — ` +
-          'it may be stuck or out of context. No further reminders until its inbox changes.',
+    // Attempt FIRST, record only if it actually landed. Recording up front counted a held nudge as
+    // an announcement, so sitting in an agent's pane for half an hour burned all three reminders
+    // without a single one reaching it — and quimby then declared a perfectly healthy agent stuck.
+    const heldBefore = retryingHold
+    if (!heldBefore) {
+      reporter.info(
+        `[remind] "${name}" still has ${unread.length} unread parcel(s) — re-announcing`,
       )
     }
-    reporter.info(`[remind] "${name}" still has ${unread.length} unread parcel(s) — re-announcing`)
-    await nudgeAgentSession({
+    const outcome = await nudgeAgentSession({
       agent,
       displayName: name,
       courier:
@@ -84,8 +94,36 @@ export async function remindUnreadInboxes(
       whenFocused: resolveAgentFocusPolicy(config, state, name),
       focusGraceSeconds: getFocusGraceSeconds(config),
       projectId: state.id,
+      quietHold: heldBefore,
       reporter,
     })
+
+    if (outcome === 'held') {
+      // Deferred, not delivered: leave `remindedAt` and `count` untouched so the interval check
+      // passes again next cycle and this retries — landing about one poll cycle after the human
+      // stops typing (the focus grace decides when that is), instead of up to REMIND_INTERVAL_MS
+      // later, or never once the cap was spent.
+      tracker.seen.set(name, {
+        signature,
+        remindedAt: previous?.signature === signature ? previous.remindedAt : 0,
+        count: previous?.signature === signature ? previous.count : 0,
+        heldReported: true,
+      })
+      continue
+    }
+    // Anything that never reached the agent (no session, refused) is likewise not an announcement.
+    if (outcome !== 'sent') continue
+
+    const count = sameInbox ? previous.count + 1 : 1
+    tracker.seen.set(name, { signature, remindedAt: now, count })
+
+    if (count >= MAX_REMINDERS) {
+      reporter.warn(
+        `[remind] "${name}" has ignored ${unread.length} parcel(s) across ${count} delivered ` +
+          'reminders — it may be stuck or out of context. No further reminders until its inbox ' +
+          'changes.',
+      )
+    }
   }
 }
 
