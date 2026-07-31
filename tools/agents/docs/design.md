@@ -507,8 +507,8 @@ The API is read-only — status routing is automatic (mirror-to-all), so there i
 ### Status Poller (default 5s interval)
 
 1. Check `state.yaml` mtime — reload if changed (picks up new agents)
-2. For each agent, check `status.md` (local: mtime; SSH: content comparison)
-3. If changed, read content, update cache, and mirror it into **every other agent's** `status/<name>.md` (local or remote) — no subscription filter
+2. Read every agent's `status.md` **concurrently** (local: mtime; SSH: content comparison)
+3. Mirror the cycle's changed statuses into **every other agent's** `status/<name>.md` (local or remote) — no subscription filter. Delivery is **batched per recipient** (one call carrying every changed peer) and recipients are written concurrently, so the N×N fan-out costs N round trips rather than N². Serialized one-file-per-round-trip delivery made an 8-agent SSH fleet spend ~16s of every 5s cycle here, overrunning it and delaying the auto-dispatch below. Reporting is one line per source agent (`[builder] status → 7 peer(s)`), with any failed recipient named individually — condensing the success path must not condense away a miss
 4. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
 5. Re-announce any parcels an idle agent still hasn't read (spaced by 10 minutes, and at most 3 times for an unchanged inbox before it reports the agent as stuck) — the safety net that keeps an unattended fleet from stalling on a lost wake; skipped under `--no-dispatch`
 6. When `pool.idleTimeout` is configured, reap this project's agent sessions idle past it (see [The Agent Pool](#the-agent-pool)) — skipped when unset (the default), and it never touches an attached session

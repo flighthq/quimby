@@ -20,7 +20,7 @@ import { join } from 'pathe'
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
 import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
-import { getFileMtime, pollAgentStatus, reloadStateIfChanged } from './poller'
+import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
 import { createInboxReminderTracker, remindUnreadInboxes } from './remind'
 import { routeRequest } from './router'
 
@@ -117,9 +117,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       const newMtime = await getFileMtime(join(getQuimbyDir(repoRoot), 'state.yaml'))
       if (newMtime !== null) stateMtime = newMtime
 
-      for (const name of Object.keys(state.agents)) {
-        await pollAgentStatus(repoRoot, state, name, statusCache, reporter)
-      }
+      await pollStatusCycle(repoRoot, state, statusCache, reporter)
       // Reconcile every agent's peer roster each cycle: guarantees a file per current peer
       // (placeholder until the poller delivers real content) and sweeps rename/remove orphans.
       // Per-agent guard so one unreachable SSH owner never aborts the whole cycle.

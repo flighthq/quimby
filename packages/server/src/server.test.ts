@@ -11,12 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as PollerModule from './poller'
 import { type QuimbyServerHandle, startServer } from './server'
 
-// Only pollAgentStatus is stubbed, so the slow-cycle test can make a cycle overrun the interval.
+// Only pollStatusCycle is stubbed, so the slow-cycle test can make a cycle overrun the interval.
 // Every other test polls once per ~17 minutes, so the stub never runs for them.
-const pollAgentStatus = vi.hoisted(() => vi.fn(async () => {}))
+const pollStatusCycle = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('./poller', async (importOriginal) => ({
   ...(await importOriginal<typeof PollerModule>()),
-  pollAgentStatus,
+  pollStatusCycle,
 }))
 
 let dir: string
@@ -81,7 +81,7 @@ describe('startServer', () => {
     // out from under the earlier one's rsync (`mkstemp … No such file or directory`).
     let inFlight = 0
     let maxInFlight = 0
-    pollAgentStatus.mockImplementation(async () => {
+    pollStatusCycle.mockImplementation(async () => {
       maxInFlight = Math.max(maxInFlight, ++inFlight)
       await new Promise((r) => setTimeout(r, 120))
       inFlight--
@@ -93,7 +93,7 @@ describe('startServer', () => {
 
     expect(maxInFlight).toBe(1)
     expect(events.some((e) => e.level === 'warn' && e.message.includes('still running'))).toBe(true)
-    pollAgentStatus.mockImplementation(async () => {})
+    pollStatusCycle.mockImplementation(async () => {})
   })
 
   it('binds an ephemeral port and reports it in the handle + pidfile', async () => {
