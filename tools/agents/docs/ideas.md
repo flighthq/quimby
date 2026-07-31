@@ -24,6 +24,7 @@ The forward-looking backlog: prospective ideas that are **not yet shipped**. Shi
 | B2 | Directed relationships — the `directs` edge | cross-agent | Partial | [§6](./coordination-proposals.md) |
 | B3 | Enriched status mirror (peer work summary) | cross-agent | Proposed | [§6](./coordination-proposals.md) |
 | B4 | Attached-session nudge rule (don't paste over the user) | cross-agent | Proposed | [§7](./coordination-proposals.md) |
+| B5 | `handoff <agent> host` — deliver an artifact to the user | cross-agent | Proposed | this file |
 | C1 | VS Code: single-driver server lease | vscode/server | Planned | [follow-up-todo](./follow-up-todo.md) |
 | C2 | VS Code: run the server out-of-process | vscode/server | Planned | [follow-up-todo](./follow-up-todo.md) |
 | C3 | VS Code: agent editor UI beyond terminal tabs | vscode | Proposed | [follow-up-todo](./follow-up-todo.md) |
@@ -57,6 +58,14 @@ The tool enacts mechanics; judgment stays in the generated CLAUDE.md. Full desig
 - **B2 · Directed relationships — the `directs` edge.** _Partial._ A one-line, default-deny `directs: [b]` in tracked `quimby.yaml` grants a standing authority edge: `a`'s handoffs to `b` are host-stamped user-directed (reusing the `delegated → userDirected` promotion). **Declared today in this repo's `quimby.yaml` (`review` directs `builder`) but the host does not yet read it** — the build step is teaching the dispatch/handoff path to honor the edge.
 - **B3 · Enriched status mirror (peer work summary).** _Proposed._ Fold a work summary (diffstat + recent commit subjects) into each agent's mirrored status, so peers see each other's progress on the existing pull-on-demand channel — the visibility half of directed relationships, decoupled from the authority edge (reads stay open).
 - **B4 · Attached-session nudge rule.** _Proposed._ Never `send-keys` into a session a human is attached to; defer/skip it (the parcel is durable, `wake` reconciles it), keeping injection for detached/headless agents where it's the only wake path. Fixes the nudge pasting over the user mid-type.
+
+- **B5 · `handoff <agent> host` — deliver a non-code artifact to the user.** _Proposed._ `host` is already reserved and already a valid parcel **sender** (`quimby handoff <agent>` is host→agent); this is the missing inverse. The gap it fills is real: an agent that produces something **for the human that is not a code change** — a report, an analysis, a CSV, a captured log — has no route today. `merge --patch` lands it uncommitted in the working tree, which works but conflates a deliverable with a code change and puts it in the repo; committing it makes history you may not want; `status.md` is text-only and overwritten. The parcel format already carries arbitrary files (`--file`), so only the destination is missing.
+
+  **The resolution that makes it fit the courier model: date it, drop it, and never track it.** The objection is that a host-side tray is a standing archive, which "courier, not a post office" refuses. It stops being an archive if quimby is **write-only** at the drop point — a date-prefixed directory per delivery (`2026-07-31-105322-review-<hash>/`), sorted by name rather than by an index, with no listing command, no state, no lifecycle and no GC. Two identical sends produce two dated drops, because it is a log of deliveries rather than a set of parcels. If it grows, it is the user's directory to clear, exactly like a Downloads folder.
+
+  **It must NOT land under `.quimby/`.** That is the trap: `.quimby` is frequently a symlink into durable storage, so drops would accumulate inside `~/.local/share/quimby/workspaces/<id>/` — inflating the workspace, riding along in every rsync, and being **deleted by `quimby storage remove`** together with the workspace. Anything inside quimby's own tree becomes quimby's inventory whether the design wants it or not, which is precisely what this idea is trying to avoid. The drop point should be a directory the **user** owns (gitignored, configurable, defaulting to something obvious at the repo root), so no storage verb ever reasons about it.
+
+  Open: the default path and config key; whether `merge --patch` already covers enough of the common case to make this Deferred; and whether the agent-side verb is a plain `handoff … host` or a distinct one, since "deliver an artifact" and "hand work to a peer" differ in that only the latter can be acted on.
 
 ## C. VS Code extension
 
