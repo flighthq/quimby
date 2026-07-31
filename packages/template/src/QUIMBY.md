@@ -48,7 +48,7 @@ A line arriving in your session that begins **`quimby ·`** was delivered by the
 - **`quimby · N new parcels from <agents>`** — several arrived at once (coalesced into one wake); run `./agent.sh inbox` to see them all. If it looks empty right after this line, that's a brief guest mount-sync lag — wait a moment and re-run (`inbox show <name>` already retries this window for you).
 - **`quimby · assignment updated`** — your task of record changed; read `./agent.sh assignment`.
 - **`quimby · resume from @status.md`** — you were relaunched with prior state; read `@status.md` and continue.
-- **`quimby · rebase onto <ref> and resolve conflicts`** — your work must rebase onto `<ref>` before it can land; see **Resolving a merge conflict** below.
+- **`quimby · rebase onto origin/<ref> and resolve conflicts`** — your work must rebase onto that ref before it can land; the lead names it in the exact form to pass to `git rebase`. See **Resolving a merge conflict** below.
 
 On any of the parcel/delegated/escalation leads, `./agent.sh wake` is the safe first move: it lists every unprocessed parcel from durable state, so if the notify raced ahead of the file (guest mount lag) you still see it — then drill in with `inbox show <name>` (which also retries that window).
 
@@ -60,13 +60,16 @@ Do not read or validate an old assignment before following the courier line that
 
 When the user merges your work, Quimby first brings it onto the latest `<ref>` — and if that hits a real overlap it **rolls the rebase back**, so your work is intact and there is **no half-finished rebase in your tree right now**. Don't look for conflict markers to "continue"; there are none yet. You re-run the rebase yourself, resolve it, and it will land on the user's next merge.
 
+**Do not `git fetch` or `git pull` first.** Your `origin` is a path on the host, not a URL, and it is not reachable from inside your sandbox — a fetch fails with `does not appear to be a git repository`. You don't need one: Quimby fetched before it handed you the conflict, so the ref is already at the tip you must land on.
+
+Use the ref **exactly as the courier line names it** — `origin/main`, `origin/develop`. Never the bare branch: your own local branch has that name, so `git rebase main` while you are on `main` reports "up to date" and rebases nothing, leaving you believing you resolved a conflict you never touched. Your baseline is the `quimby/seed` tag.
+
 In `repo/`:
 
-1. `git fetch origin`
-2. `git rebase origin/<ref>` — replays your commits onto the current tip
-3. Fix each conflict, `git add` the files, `git rebase --continue` (repeat until done)
-4. Stay on your branch and **don't push** — Quimby carries the result across the boundary, not you
-5. Re-run your check, update status, and tell the user it's ready to re-merge
+1. `git rebase origin/<ref>` — the ref from the courier line; replays your commits onto its tip
+2. Fix each conflict, `git add` the files, `git rebase --continue` (repeat until done)
+3. Stay on your branch and **don't push** — Quimby carries the result across the boundary, not you
+4. Re-run your check, update status, and tell the user it's ready to re-merge
 
 If instead your tree already has conflict markers (uncommitted work that clashed), just resolve them and `git add` — no rebase is in progress. Committing before you hand off avoids this case.
 

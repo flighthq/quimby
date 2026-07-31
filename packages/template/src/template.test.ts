@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  remoteTrackingRef,
   renderAgentAgentsMd,
   renderAgentClaudeMd,
   renderCharterClause,
@@ -11,6 +12,23 @@ import {
   renderTmuxConfig,
   renderVerifyRequest,
 } from './template'
+
+describe('remoteTrackingRef', () => {
+  it("qualifies a bare branch, because the bare name is the agent's OWN branch", () => {
+    // `git rebase main` while sitting on `main` is a silent no-op — "up to date", nothing replayed,
+    // and the agent reports a conflict resolved that it never touched.
+    expect(remoteTrackingRef('main')).toBe('origin/main')
+    expect(remoteTrackingRef('develop')).toBe('origin/develop')
+  })
+
+  it('strips a fully-qualified ref rather than nesting it under origin/', () => {
+    expect(remoteTrackingRef('refs/heads/release')).toBe('origin/release')
+  })
+
+  it('leaves an already-qualified ref alone', () => {
+    expect(remoteTrackingRef('origin/main')).toBe('origin/main')
+  })
+})
 
 describe('renderAgentAgentsMd', () => {
   it('inlines the Quimby context (no @-import) and points at the repo tier in prose', () => {
@@ -213,9 +231,30 @@ describe('renderQuimbyContext', () => {
   })
 })
 
+describe('renderQuimbyContextRebase', () => {
+  it('does not tell an agent to fetch — origin is a host path it cannot reach', () => {
+    // Verified from inside a real agent sandbox: `git fetch origin` fails with "does not appear to
+    // be a git repository", because origin is a host filesystem path and the sandbox mounts
+    // something else there. Agents followed the instruction, hit the wall, and improvised.
+    const ctx = renderAgentClaudeMd({ agentName: 'builder', agentId: 'b1' })
+    // The doc names both commands in order to FORBID them, so assert on the numbered steps.
+    expect(ctx).toContain('Do not `git fetch` or `git pull` first')
+    expect(ctx).not.toContain('1. `git fetch origin`')
+  })
+
+  it('names the ref to rebase onto, which quimby has already fetched', () => {
+    const ctx = renderAgentClaudeMd({ agentName: 'builder', agentId: 'b1' })
+    expect(ctx).toContain('git rebase origin/<ref>')
+    // The agent must be told WHY no fetch is needed, or it will try one anyway.
+    expect(ctx).toContain('already at the tip')
+  })
+})
+
 describe('renderResolveConflictRequest', () => {
   it('is a short courier body naming the sync ref, with git steps left to AGENTS.md', () => {
-    expect(renderResolveConflictRequest('main')).toBe('rebase onto main and resolve conflicts')
+    expect(renderResolveConflictRequest('main')).toBe(
+      'rebase onto origin/main and resolve conflicts',
+    )
     expect(renderResolveConflictRequest('release')).toContain('release')
     // Kept short — the how lives in the agent context, not the one-line lead.
     expect(renderResolveConflictRequest('main')).not.toContain('git ')

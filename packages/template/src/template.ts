@@ -149,7 +149,21 @@ export function renderResumeRequest(): string {
  * AGENTS.md ("Resolving a merge conflict") so the lead itself stays short.
  */
 export function renderResolveConflictRequest(syncRef: string): string {
-  return `rebase onto ${syncRef} and resolve conflicts`
+  return `rebase onto ${remoteTrackingRef(syncRef)} and resolve conflicts`
+}
+
+/**
+ * The remote-tracking form of a sync ref — `main` → `origin/main`, `refs/heads/release` →
+ * `origin/release`, and an already-qualified `origin/x` left alone.
+ *
+ * Naming the bare branch was not merely vague, it was a silent no-op: an agent's own local branch
+ * has the same name, so `git rebase main` while sitting on `main` reports "up to date" and rebases
+ * nothing. The agent then believes it resolved the conflict. `origin/<ref>` is the tip Quimby
+ * actually fetched, and it is unambiguous from inside the agent's clone.
+ */
+export function remoteTrackingRef(syncRef: string): string {
+  const bare = syncRef.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '')
+  return bare.startsWith('origin/') ? bare : `origin/${bare}`
 }
 
 /**

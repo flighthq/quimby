@@ -1,6 +1,6 @@
 import { confirm, isCancel } from '@clack/prompts'
 import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
-import { renderResolveConflictRequest } from '@quimbyhq/template'
+import { remoteTrackingRef, renderResolveConflictRequest } from '@quimbyhq/template'
 import type { AgentState } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
 
@@ -37,7 +37,7 @@ export async function offerConflictNudge(opts: Readonly<ConflictNudgeOptions>): 
   if (!(await hasAgentSession(agent))) {
     logger.info(
       `"${displayName}" isn't running — start it with \`quimby start ${displayName}\`, ` +
-        `then have it rebase onto ${syncRef}.`,
+        `then have it rebase onto ${remoteTrackingRef(syncRef)}.`,
     )
     return false
   }
@@ -50,7 +50,7 @@ export async function offerConflictNudge(opts: Readonly<ConflictNudgeOptions>): 
     }
   } else {
     const answer = await confirm({
-      message: `Nudge "${displayName}" to rebase onto ${syncRef} and resolve?`,
+      message: `Nudge "${displayName}" to rebase onto ${remoteTrackingRef(syncRef)} and resolve?`,
       initialValue: true,
     })
     if (isCancel(answer) || !answer) {
@@ -71,5 +71,5 @@ export async function offerConflictNudge(opts: Readonly<ConflictNudgeOptions>): 
 
 /** The ready-to-paste equivalent, shown whenever the offer is declined or cannot be made. */
 export function conflictNudgeCommand(displayName: string, syncRef: string): string {
-  return `To ask it yourself: quimby nudge ${displayName} -m "rebase onto ${syncRef} and resolve conflicts"`
+  return `To ask it yourself: quimby nudge ${displayName} -m "${renderResolveConflictRequest(syncRef)}"`
 }

@@ -40,7 +40,7 @@ afterEach(() => {
 describe('conflictNudgeCommand', () => {
   it('is a ready-to-paste nudge naming the ref to rebase onto', () => {
     expect(conflictNudgeCommand('builder', 'main')).toContain(
-      'quimby nudge builder -m "rebase onto main and resolve conflicts"',
+      'quimby nudge builder -m "rebase onto origin/main and resolve conflicts"',
     )
   })
 })
@@ -61,7 +61,7 @@ describe('offerConflictNudge', () => {
     // forced: this is the answer to a command the user just ran, not a background courier
     expect(nudgeAgentSession).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
     expect(nudgeAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ courier: 'rebase onto main and resolve conflicts' }),
+      expect.objectContaining({ courier: 'rebase onto origin/main and resolve conflicts' }),
     )
   })
 
