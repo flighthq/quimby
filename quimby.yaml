@@ -24,6 +24,11 @@ defaults:
 # Read once when `quimby serve` starts, so restart the server after changing it.
 nudge: all
 
+# …but still defer a nudge aimed at the pane being typed in, because this repo is one we hold long
+# conversations in. A fleet you watch rather than converse with wants `nudge` here instead — that
+# is the whole reason this is a separate key from `nudge` above.
+whenFocused: hold
+
 roles:
   review:
     runtimeProfile: claude-sbx

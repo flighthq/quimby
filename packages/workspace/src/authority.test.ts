@@ -137,6 +137,40 @@ describe('resolveConfiguredAgentEdges', () => {
     expect(resolveConfiguredAgentEdges(config, { name: 'stray' })).toBeNull()
     expect(resolveConfiguredAgentEdges({}, { name: 'manager' })).toBeNull()
   })
+
+  it('carries `whenFocused` from the entry, overriding the role', () => {
+    const withFocus: QuimbyConfig = {
+      roles: { builder: { whenFocused: 'hold' } },
+      presets: {
+        fleet: {
+          agents: {
+            builder: { role: 'builder' },
+            review: { role: 'builder', whenFocused: 'nudge' },
+          },
+        },
+      },
+    }
+    expect(resolveConfiguredAgentEdges(withFocus, { name: 'builder' })).toEqual({
+      whenFocused: 'hold',
+    })
+    expect(resolveConfiguredAgentEdges(withFocus, { name: 'review' })).toEqual({
+      whenFocused: 'nudge',
+    })
+  })
+
+  it('declares an agent whose role sets only `whenFocused` — not null, so the edge reaches it', () => {
+    const roleOnly: QuimbyConfig = { roles: { builder: { whenFocused: 'nudge' } } }
+    expect(resolveConfiguredAgentEdges(roleOnly, { name: 'b1', role: 'builder' })).toEqual({
+      whenFocused: 'nudge',
+    })
+  })
+
+  it('drops an unrecognized `whenFocused` rather than storing a value the guard would miss', () => {
+    const bad: QuimbyConfig = {
+      presets: { fleet: { agents: { review: { whenFocused: 'off' as 'hold' } } } },
+    }
+    expect(resolveConfiguredAgentEdges(bad, { name: 'review' })).toEqual({})
+  })
 })
 
 describe('resolveConfiguredAgentRole', () => {

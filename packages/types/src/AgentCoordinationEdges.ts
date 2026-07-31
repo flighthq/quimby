@@ -1,3 +1,4 @@
+import type { FocusPolicy } from './FocusPolicy'
 import type { NudgePolicy } from './NudgePolicy'
 
 /**
@@ -13,4 +14,6 @@ export interface AgentCoordinationEdges {
   escalatesTo?: string | string[]
   /** Which parcels wake this agent — carried alongside the edges by the same sync refresh. */
   nudge?: NudgePolicy
+  /** What a nudge does when this agent's pane is the focused one — same sync refresh. */
+  whenFocused?: FocusPolicy
 }

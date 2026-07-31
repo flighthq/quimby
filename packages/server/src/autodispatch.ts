@@ -11,7 +11,8 @@ import { getAgentHandoffOutQueuedRecipientDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import type { AgentState, NudgePolicy, QuimbyState } from '@quimbyhq/types'
+import type { AgentState, FocusPolicy, NudgePolicy, QuimbyState } from '@quimbyhq/types'
+import { normalizeFocusPolicy } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 export interface OutboxDispatchTracker {
@@ -25,6 +26,7 @@ export async function autoDispatchOutboxes(
   tracker: OutboxDispatchTracker,
   reporter: Reporter = silentReporter,
   defaultNudge: NudgePolicy = 'directed',
+  defaultFocus: FocusPolicy = 'hold',
 ): Promise<void> {
   // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
   // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
@@ -148,6 +150,7 @@ export async function autoDispatchOutboxes(
       agent: entry.agent,
       displayName: recipient,
       courier,
+      whenFocused: normalizeFocusPolicy(entry.agent.whenFocused) ?? defaultFocus,
       reporter,
     })
   }

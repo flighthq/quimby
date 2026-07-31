@@ -4,6 +4,7 @@ import type {
   AgentRoleConfig,
   CheckConfig,
   ConfiguredAgent,
+  FocusPolicy,
   HostAliasConfig,
   NudgePolicy,
   PresetConfig,
@@ -300,6 +301,14 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
       )
     }
   }
+  for (const [name, value] of focusSettings(config)) {
+    if (typeof value === 'string' && !normalizeFocusPolicy(value)) {
+      warnings.push(
+        `${name}: "${value}" is not a focus policy — ignored (falls back to the default). ` +
+          'Valid: hold | nudge.',
+      )
+    }
+  }
   for (const [roleName, role] of Object.entries(config.roles ?? {})) {
     for (const key of Object.keys(role ?? {})) {
       if (AGENT_ROLE_KEYS.has(key)) continue
@@ -330,6 +339,20 @@ export function resolveAgentInstructions(
   return config.roles?.[agent.role ?? '']?.instructions
 }
 
+/**
+ * What a nudge does when it lands on the pane a human is working in (§7): the recipient's own
+ * `whenFocused` if it has one, else the workspace default, else `hold`. The RECIPIENT governs, as
+ * with `nudge` — but the two answer different questions, and only this one reaches the focus guard.
+ */
+export function resolveFocusPolicy(
+  config: Readonly<QuimbyConfig>,
+  agent?: Readonly<{ whenFocused?: string }>,
+): FocusPolicy {
+  return (
+    normalizeFocusPolicy(agent?.whenFocused) ?? normalizeFocusPolicy(config.whenFocused) ?? 'hold'
+  )
+}
+
 export function resolveNudgePolicy(
   config: Readonly<QuimbyConfig>,
   agent?: Readonly<{ nudge?: string }>,
@@ -347,6 +370,17 @@ export function normalizeNudgePolicy(value: string | undefined): NudgePolicy | u
   if (value === 'all' || value === 'always') return 'all'
   if (value === 'directed' || value === 'focus') return 'directed'
   if (value === 'never') return 'never'
+  return undefined
+}
+
+/**
+ * A `whenFocused` value in canonical form, or undefined when it names nothing. Exported for the
+ * same reason as {@link normalizeNudgePolicy}: it is read both as the workspace default and as an
+ * agent's own stored setting, and normalizing in only one place is how a policy comes to be
+ * honored for the fleet but silently ignored per agent.
+ */
+export function normalizeFocusPolicy(value: string | undefined): FocusPolicy | undefined {
+  if (value === 'hold' || value === 'nudge') return value
   return undefined
 }
 
@@ -478,6 +512,7 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
 const AGENT_ROLE_KEYS = new Set([
   'instructions',
   'nudge',
+  'whenFocused',
   'runtimeProfile',
   'runtime',
   'entrypoint',
@@ -498,17 +533,33 @@ const CONFIGURED_AGENT_KEYS = new Set([
   'count',
 ])
 
+// Every place a `whenFocused` policy can be declared, labelled for the warning.
+function focusSettings(config: Readonly<QuimbyConfig>): [string, unknown][] {
+  return policySettings(config, 'whenFocused')
+}
+
 // Every place a `nudge` policy can be declared, labelled for the warning.
 function nudgeSettings(config: Readonly<QuimbyConfig>): [string, unknown][] {
+  return policySettings(config, 'nudge')
+}
+
+// The three levels a recipient-governed policy may be declared at — top-level, role, preset entry
+// — paired with the dotted path to report. Shared so a new policy key cannot be validated at only
+// some of its declaration sites, which is how a value comes to be honored for the fleet and
+// silently ignored per agent.
+function policySettings(
+  config: Readonly<QuimbyConfig>,
+  key: 'nudge' | 'whenFocused',
+): [string, unknown][] {
   const out: [string, unknown][] = []
-  if (config.nudge !== undefined) out.push(['nudge', config.nudge])
+  if (config[key] !== undefined) out.push([key, config[key]])
   for (const [role, cfg] of Object.entries(config.roles ?? {})) {
-    if (cfg?.nudge !== undefined) out.push([`roles.${role}.nudge`, cfg.nudge])
+    if (cfg?.[key] !== undefined) out.push([`roles.${role}.${key}`, cfg[key]])
   }
   for (const [preset, cfg] of Object.entries(config.presets ?? {})) {
     for (const [agent, entry] of Object.entries(cfg.agents ?? {})) {
-      if (typeof entry === 'object' && entry !== null && entry.nudge !== undefined) {
-        out.push([`presets.${preset}.agents.${agent}.nudge`, entry.nudge])
+      if (typeof entry === 'object' && entry !== null && entry[key] !== undefined) {
+        out.push([`presets.${preset}.agents.${agent}.${key}`, entry[key]])
       }
     }
   }

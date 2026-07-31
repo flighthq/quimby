@@ -1,4 +1,5 @@
 import type { AgentLocation } from './AgentLocation'
+import type { FocusPolicy } from './FocusPolicy'
 import type { NudgePolicy } from './NudgePolicy'
 
 export interface CheckConfig {
@@ -30,6 +31,8 @@ export interface AgentRoleConfig {
   escalatesTo?: string | string[]
   /** Which parcels wake agents of this role (`all` | `directed` | `never`). */
   nudge?: NudgePolicy
+  /** What a nudge does when an agent of this role is the focused pane (`hold` | `nudge`). */
+  whenFocused?: FocusPolicy
   /**
    * The role's standing charter, rendered into every agent of this role's `CLAUDE.md`/`AGENTS.md`.
    * This is who the agent *is* — it persists across tasks, where `assignment.md` is the current
@@ -76,6 +79,12 @@ export interface ConfiguredAgent {
    * workspace default. The recipient's setting governs — it is the one being interrupted.
    */
   nudge?: NudgePolicy
+  /**
+   * What a nudge does when THIS agent's pane is the focused one (`hold` | `nudge`), overriding its
+   * role and the workspace default. Orthogonal to `nudge`: that decides which parcels are worth
+   * waking it for, this decides whether typing over live keystrokes is acceptable.
+   */
+  whenFocused?: FocusPolicy
   /** This agent's standing charter, replacing its role's. See {@link AgentRoleConfig.instructions}. */
   instructions?: string
 }
@@ -154,10 +163,16 @@ export interface QuimbyConfig {
    * sessions across *every* quimby project on the tmux socket, not just this workspace. */
   pool?: PoolConfig
   /**
-   * When an automated nudge may type into a live agent session (§7): `always`, `focus` (the
-   * default — everything except the pane you are working in), or `never`.
+   * Which delivered parcels wake an agent (`all` | `directed` | `never`), for every agent that
+   * declares none of its own. Does NOT govern the focus guard — see `whenFocused`.
    */
   nudge?: NudgePolicy
+  /**
+   * What an automated nudge does when it lands on the pane a human is working in (§7): `hold` (the
+   * default) stands down rather than type over live keystrokes; `nudge` types anyway. The workspace
+   * default for every agent that declares none of its own.
+   */
+  whenFocused?: FocusPolicy
 }
 
 export interface PoolConfig {

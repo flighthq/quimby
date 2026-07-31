@@ -416,7 +416,27 @@ Resolution is recipient's own setting → its role → the workspace default →
 
 Human-initiated verbs are unaffected: `quimby assign`, `handoff`, and `delegate` follow their own nudge rules, because you naming one agent is already the decision to interrupt it.
 
-**Separately, quimby never types into the one pane you are actively working in** — whatever the policy. That guard is about not clobbering live keystrokes, not about how much work interrupts you: it holds exactly one window and releases the moment you look elsewhere. It matters for a dashboard, which attaches a client to _every_ pane it shows (and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session), so a session-wide check would hold an entire layout. A bare `quimby run <agent>` in a plain terminal still holds; `quimby nudge <agent>` forces.
+### `whenFocused` — what a nudge does when it lands on the pane you're typing in
+
+**Separately, quimby holds a nudge aimed at the one pane you are actively working in.** That guard is about not clobbering live keystrokes, not about how much work interrupts you: it holds exactly one window and releases the moment you look elsewhere (or after three minutes without a keystroke, so an idle overnight pane never holds forever). It matters for a dashboard, which attaches a client to _every_ pane it shows (and for an SSH agent each tab is a real `ssh … tmux attach` onto the agent's own session), so a session-wide check would hold an entire layout. A bare `quimby run <agent>` in a plain terminal still holds; `quimby nudge <agent>` forces.
+
+`nudge` does **not** govern this — that gate is settled before the guard runs, so `nudge: all` means "every parcel is worth waking this agent for" and the guard may still hold the keystroke. The `whenFocused` key is the separate answer, resolved recipient-first exactly like `nudge`:
+
+```yaml
+nudge: all # every parcel is worth waking someone for…
+whenFocused: nudge # …and type it even into the pane I'm working in
+
+roles:
+  review:
+    whenFocused: hold # …except this one, which I converse with
+```
+
+- **`hold`** (default) — stand down; the work is already in the inbox, so the agent picks it up on its next turn, and the held nudge flashes that pane's status line.
+- **`nudge`** — type anyway. For a fleet you watch but do not converse with, where a wake that waits for you to look away is a wake that never comes.
+
+Resolution is the recipient's own setting → its role → the workspace default → `hold`, stored on agent state and refreshed by `quimby sync` like the coordination edges. `quimby serve` reports both policies at startup and reads them once, so restart it after an edit.
+
+Two knobs because they answer different questions — which parcels are worth waking you for (`nudge`), and whether typing right now is acceptable (`whenFocused`). Folding them into one word is what made `nudge: all` read as "focus included" when it never meant that.
 
 **A conflict nudge is never held.** When a `sync` or `merge` fails on a rebase conflict, quimby offers to send the agent the "rebase onto `<ref>` and resolve conflicts" request, forced — it is the direct answer to a command you just ran. Interactive runs ask first (`y/N`, default yes) and print the ready-to-paste `quimby nudge …` if you decline; non-interactively `merge` fires it while `sync` only prints, since waking an agent onto a conflicted baseline stays your call.
 

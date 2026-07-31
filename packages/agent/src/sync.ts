@@ -290,6 +290,12 @@ export function applyAgentCoordinationEdges(
     changed = true
   }
 
+  if (agent.whenFocused !== edges.whenFocused) {
+    if (edges.whenFocused) agent.whenFocused = edges.whenFocused
+    else delete agent.whenFocused
+    changed = true
+  }
+
   return changed
 }
 

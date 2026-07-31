@@ -6,7 +6,7 @@ import type {
   QuimbyState,
 } from '@quimbyhq/types'
 
-import { normalizeNudgePolicy } from './config'
+import { normalizeFocusPolicy, normalizeNudgePolicy } from './config'
 
 /**
  * The concrete recipients an agent may DIRECT — its `directs` entries with any `@role` slot
@@ -34,13 +34,20 @@ export function resolveConfiguredAgentEdges(
 ): AgentCoordinationEdges | null {
   const entry = findConfiguredAgent(config, agent.name)
   const role = config.roles?.[entry?.role ?? agent.role ?? '']
-  if (!entry && !role?.directs?.length && !hasEscalationRefs(role?.escalatesTo) && !role?.nudge)
+  if (
+    !entry &&
+    !role?.directs?.length &&
+    !hasEscalationRefs(role?.escalatesTo) &&
+    !role?.nudge &&
+    !role?.whenFocused
+  )
     return null
 
   const directs = entry?.directs ?? role?.directs
   const escalatesTo = entry?.escalatesTo ?? role?.escalatesTo
   // Canonicalize here so state never holds a legacy spelling the dispatch gate would miss.
   const nudge = normalizeNudgePolicy(entry?.nudge ?? role?.nudge)
+  const whenFocused = normalizeFocusPolicy(entry?.whenFocused ?? role?.whenFocused)
   return {
     ...(directs?.length ? { directs: [...directs] } : {}),
     // An empty list declares nothing, so it reads as absent rather than as "escalate nowhere".
@@ -48,6 +55,7 @@ export function resolveConfiguredAgentEdges(
       ? { escalatesTo: typeof escalatesTo === 'string' ? escalatesTo : [...escalatesTo!] }
       : {}),
     ...(nudge ? { nudge } : {}),
+    ...(whenFocused ? { whenFocused } : {}),
   }
 }
 

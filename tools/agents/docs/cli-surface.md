@@ -88,6 +88,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--nudge` / `--no-nudge` (assign, dispatch — wake a running recipient via its tmux session, on by default; handoff — same, but auto-decided by note presence unless forced)
 - `-c` / `--clear` (assign, delegate, nudge, handoff — type `/clear` into the recipient's session before the nudge, resetting its context). `-c` means `--clear` on every command that has it; it is never an alias for `--cmd`.
 - `--verify` (nudge — type a canned self-verification request naming the agent's `check`; assign — append the same to the assignment, so the agent attests after finishing)
+- `whenFocused` (config key, not a flag — `hold` (default) | `nudge`: what an automated nudge does when it lands on the pane you are working in. Declared top-level, per role, or per agent, recipient-first like `nudge`. Orthogonal to `nudge`, which decides which parcels reach the guard at all — `nudge: all` does **not** release it. `quimby nudge <agent>` forces past a `hold` for one message)
 - `--verify-by-default` / `--no-verify-by-default` (set — whether `assign` should append the advisory check request when neither `--verify` nor `--no-verify` is passed)
 - `--role` (add — creation defaults from layered config, commonly ignored `.quimby/local.yaml`)
 - `--runtime-profile` (add, run, start, set, doctor — named runtime/profile settings from layered config, commonly ignored `.quimby/local.yaml`; `set --runtime-profile ""` clears the saved reference)

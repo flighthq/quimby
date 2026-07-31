@@ -5,6 +5,7 @@ export type { AgentSessionState } from './AgentSessionState'
 export type { AgentDefaults } from './AgentState'
 export type { AgentState } from './AgentState'
 export type { CommitMeta } from './CommitMeta'
+export type { FocusPolicy } from './FocusPolicy'
 export type { HandoffMeta } from './HandoffMeta'
 export type {
   LayoutPlan,

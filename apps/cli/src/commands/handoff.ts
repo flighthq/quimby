@@ -2,7 +2,7 @@ import { getAgentAttestation, getAgentHeadHash, rebaseAgentOntoBase } from '@qui
 import { handoffWork } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
-import { resolveWorkspace } from '@quimbyhq/workspace'
+import { loadQuimbyConfig, resolveFocusPolicy, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { attestationResolver, formatAttestation } from '../attestation'
@@ -104,6 +104,7 @@ export async function runHandoffCommand({
       clear: args.clear,
       displayName: result.to,
       courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${result.from}`,
+      whenFocused: resolveFocusPolicy(await loadQuimbyConfig(repoRoot), state.agents[result.to]),
       reporter: consolaReporter,
     })
   }

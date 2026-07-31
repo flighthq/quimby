@@ -13,10 +13,12 @@ import {
   loadQuimbyConfig,
   mergeConfigs,
   normalizeCheck,
+  normalizeFocusPolicy,
   resolveAgentInstructions,
   resolveAgentRoleConfig,
   resolveBoundHostAlias,
   resolveConfiguredAgent,
+  resolveFocusPolicy,
   resolveHostAlias,
   resolveLayoutExpr,
   resolveNudgePolicy,
@@ -88,6 +90,30 @@ describe('collectConfigWarnings', () => {
         },
       }),
     ).toEqual([])
+  })
+
+  it('accepts `whenFocused` at every level a recipient policy may be declared', () => {
+    expect(
+      collectConfigWarnings({
+        whenFocused: 'hold',
+        defaults: { whenFocused: 'nudge' },
+        roles: { builder: { whenFocused: 'nudge' } },
+        presets: { default: { agents: { review: { role: 'review', whenFocused: 'hold' } } } },
+      }),
+    ).toEqual([])
+  })
+
+  it('flags an unrecognized `whenFocused` value at each declaration site', () => {
+    const warnings = collectConfigWarnings({
+      whenFocused: 'off' as 'hold',
+      roles: { builder: { whenFocused: 'always' as 'hold' } },
+      presets: { default: { agents: { review: { whenFocused: 'yes' as 'hold' } } } },
+    })
+    expect(warnings).toHaveLength(3)
+    expect(warnings.join('\n')).toContain('whenFocused')
+    expect(warnings.join('\n')).toContain('roles.builder.whenFocused')
+    expect(warnings.join('\n')).toContain('presets.default.agents.review.whenFocused')
+    for (const warning of warnings) expect(warning).toContain('Valid: hold | nudge.')
   })
 
   it('flags an unknown key under `defaults`, the container nothing used to validate', () => {
@@ -332,6 +358,19 @@ describe('normalizeCheck', () => {
   })
 })
 
+describe('normalizeFocusPolicy', () => {
+  it('accepts the two canonical policies', () => {
+    expect(normalizeFocusPolicy('hold')).toBe('hold')
+    expect(normalizeFocusPolicy('nudge')).toBe('nudge')
+  })
+
+  it('returns undefined for anything else, so the caller falls back to its default', () => {
+    expect(normalizeFocusPolicy('always')).toBeUndefined()
+    expect(normalizeFocusPolicy('')).toBeUndefined()
+    expect(normalizeFocusPolicy(undefined)).toBeUndefined()
+  })
+})
+
 describe('resolveAgentInstructions', () => {
   const cfg = {
     roles: { builder: { instructions: 'Do the work in repo/.' } },
@@ -425,6 +464,25 @@ describe('resolveConfiguredAgent', () => {
   it('passes an object agent through unchanged', () => {
     const agent = { role: 'builder', runtime: 'local' }
     expect(resolveConfiguredAgent(config, agent)).toBe(agent)
+  })
+})
+
+describe('resolveFocusPolicy', () => {
+  it('defaults to hold — never type over live keystrokes unless asked', () => {
+    expect(resolveFocusPolicy({})).toBe('hold')
+  })
+
+  it('lets the recipient override the workspace default', () => {
+    expect(resolveFocusPolicy({ whenFocused: 'hold' }, { whenFocused: 'nudge' })).toBe('nudge')
+    expect(resolveFocusPolicy({ whenFocused: 'nudge' })).toBe('nudge')
+  })
+
+  it('is independent of the nudge policy — nudge: all does not release the focus guard', () => {
+    expect(resolveFocusPolicy({ nudge: 'all' })).toBe('hold')
+  })
+
+  it('falls back to the default on a typo rather than failing a courier run', () => {
+    expect(resolveFocusPolicy({ whenFocused: 'off' as 'hold' })).toBe('hold')
   })
 })
 

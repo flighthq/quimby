@@ -8,7 +8,12 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { formatDuration, writeText } from '@quimbyhq/utils'
-import { loadQuimbyConfig, loadState, resolveNudgePolicy } from '@quimbyhq/workspace'
+import {
+  loadQuimbyConfig,
+  loadState,
+  resolveFocusPolicy,
+  resolveNudgePolicy,
+} from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
@@ -53,6 +58,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   const idleTimeoutMs = getPoolIdleTimeoutMs(serverConfig)
   // Likewise standing policy: when an auto-dispatch nudge may type into a live session (§7).
   const nudgePolicy = resolveNudgePolicy(serverConfig ?? {})
+  // …and what a nudge does when it lands on the pane the human is working in (§7). Separate gate:
+  // `nudge` decides which parcels get this far, `whenFocused` whether typing now is acceptable.
+  const focusPolicy = resolveFocusPolicy(serverConfig ?? {})
   // The actual bound port, set once the server is listening (see bindServer below).
   let boundPort = 0
 
@@ -122,11 +130,25 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
         }
       }
       if (autoDispatch) {
-        await autoDispatchOutboxes(repoRoot, state, outboxTracker, reporter, nudgePolicy)
+        await autoDispatchOutboxes(
+          repoRoot,
+          state,
+          outboxTracker,
+          reporter,
+          nudgePolicy,
+          focusPolicy,
+        )
         // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
         // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
         // the fleet moving without me".
-        await remindUnreadInboxes(repoRoot, state, reminderTracker, Date.now(), reporter)
+        await remindUnreadInboxes(
+          repoRoot,
+          state,
+          reminderTracker,
+          Date.now(),
+          reporter,
+          focusPolicy,
+        )
       }
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
     } catch (err) {
@@ -159,6 +181,16 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     reporter.info(
       `Nudge policy: ${nudgePolicy} (workspace default; an agent's own \`nudge\` overrides it, ` +
         'applied by `quimby sync`). Read at startup — restart the server after editing it.',
+    )
+    // The second gate, named separately because it is the one that makes a parcel land woken or
+    // silent AFTER the nudge policy has already said yes — the distinction `nudge: all` cannot
+    // express, and the reason a held nudge reads as a broken courier.
+    reporter.info(
+      `Focus policy: ${focusPolicy} (${
+        focusPolicy === 'hold'
+          ? "a nudge defers while you're working in the agent's pane"
+          : 'a nudge types even into the pane you are working in'
+      }; per-agent \`whenFocused\` overrides it).`,
     )
   }
   if (idleTimeoutMs) {

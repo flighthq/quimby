@@ -174,6 +174,19 @@ describe('applyAgentCoordinationEdges', () => {
     expect(applyAgentCoordinationEdges(agent, { escalatesTo: ['review1'] })).toBe(true)
     expect(agent.escalatesTo).toEqual(['review1'])
   })
+
+  it('refreshes whenFocused, so a config edit reaches a live agent without a rebuild', () => {
+    const agent = agentWith({})
+    expect(applyAgentCoordinationEdges(agent, { whenFocused: 'nudge' })).toBe(true)
+    expect(agent.whenFocused).toBe('nudge')
+    expect(applyAgentCoordinationEdges(agent, { whenFocused: 'nudge' })).toBe(false)
+  })
+
+  it('clears whenFocused config no longer declares, so revoking it works too', () => {
+    const agent = agentWith({ whenFocused: 'nudge' })
+    expect(applyAgentCoordinationEdges(agent, {})).toBe(true)
+    expect(agent.whenFocused).toBeUndefined()
+  })
 })
 
 describe('getAgentPendingWork', () => {

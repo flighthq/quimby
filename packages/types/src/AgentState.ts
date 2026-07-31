@@ -1,4 +1,5 @@
 import type { AgentLocation } from './AgentLocation'
+import type { FocusPolicy } from './FocusPolicy'
 import type { NudgePolicy } from './NudgePolicy'
 
 export interface AgentDefaults {
@@ -87,4 +88,10 @@ export interface AgentState {
    * it is the one being interrupted.
    */
   nudge?: NudgePolicy
+  /**
+   * What a nudge does when this agent's pane is the one a human is working in (`hold` | `nudge`).
+   * Copied from config at creation and refreshed by `quimby sync`; falls back to the workspace
+   * default (`hold`). Separate from `nudge`, which decides which parcels get this far at all.
+   */
+  whenFocused?: FocusPolicy
 }

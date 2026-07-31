@@ -342,6 +342,33 @@ describe('nudgeAgentSession', () => {
     expect(sentKeys).toBe(true)
   })
 
+  it('types into the focused window under `whenFocused: nudge` — the fleet you watch, not talk to', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    execa.mockResolvedValue({})
+    const { reporter, events } = collectingReporter()
+    await nudgeAgentSession({
+      agent: localWithTmux,
+      displayName: 'reviewer',
+      text: 'go',
+      whenFocused: 'nudge',
+      reporter,
+    })
+    const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
+    expect(sentKeys).toBe(true)
+    expect(events.some((e) => e.message.includes('Held nudge'))).toBe(false)
+  })
+
+  it('names `whenFocused` in the held message, so the hold is not a dead end', async () => {
+    getSessionState.mockResolvedValueOnce('attached')
+    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    execa.mockResolvedValue({})
+    const { reporter, events } = collectingReporter()
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
+    const held = events.find((e) => e.message.includes('Held nudge'))
+    expect(held?.message).toContain('whenFocused: nudge')
+  })
+
   it('forces the nudge into an attached session when force is set', async () => {
     getSessionState.mockResolvedValueOnce('attached')
     execa.mockResolvedValue({})
@@ -405,5 +432,22 @@ describe('shouldHoldNudge', () => {
     getSessionState.mockResolvedValue('running')
     getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
+  })
+
+  it('releases the hold under `whenFocused: nudge`, without probing tmux at all', async () => {
+    getSessionState.mockClear()
+    getFocused.mockClear()
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'nudge')).toBe(false)
+    // Short-circuits before the session/focus probes — the policy is the whole answer.
+    expect(getSessionState).not.toHaveBeenCalled()
+    expect(getFocused).not.toHaveBeenCalled()
+  })
+
+  it('still holds under an explicit `hold`, the default', async () => {
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'hold')).toBe(true)
   })
 })

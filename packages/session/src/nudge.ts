@@ -4,7 +4,7 @@ import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState } from '@quimbyhq/types'
+import type { AgentState, FocusPolicy } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 
@@ -57,11 +57,17 @@ export const COURIER_PREFIX = 'quimby · '
  * This is deliberately NOT the `nudge` policy: that decides which parcels are worth waking you for,
  * a question settled before we get here. This guard only refuses to type over live keystrokes, so
  * it holds one window and releases the moment you look elsewhere. `quimby nudge` forces past it.
+ *
+ * `whenFocused` is the recipient's own answer to *this* question — `hold` (the default) stands
+ * down, `nudge` types anyway. It is resolved by the caller (config lives above this package) and
+ * passed in, so a fleet you watch but do not converse with can opt out of the hold entirely.
  */
 export async function shouldHoldNudge(
   agent: Readonly<AgentState>,
   displayName: string,
+  whenFocused: FocusPolicy = 'hold',
 ): Promise<boolean> {
+  if (whenFocused === 'nudge') return false
   if ((await getAgentSessionState(agent)) !== 'attached') return false
 
   const focused = await getFocusedTmuxWindows()
@@ -145,6 +151,12 @@ export async function nudgeAgentSession(opts: {
    * since that is the human deliberately typing into the session.
    */
   force?: boolean
+  /**
+   * The recipient's resolved `whenFocused` policy — `hold` (default) defers when this is the pane
+   * the human is working in, `nudge` types anyway. Resolved by the caller from config + agent
+   * state, since this package sits below `@quimbyhq/workspace`.
+   */
+  whenFocused?: FocusPolicy
   reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, dashboardSession } = opts
@@ -174,7 +186,7 @@ export async function nudgeAgentSession(opts: {
   // §7 (coordination-proposals): never inject into a session a human is typing in — it types over
   // their input, and the work is already durable in the inbox/assignment, so a deferred nudge loses
   // nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
-  if (!opts.force && (await shouldHoldNudge(agent, displayName))) {
+  if (!opts.force && (await shouldHoldNudge(agent, displayName, opts.whenFocused))) {
     // Flash the status line of the session being held. A held nudge is otherwise invisible to the
     // one person it is held FOR — they are working in that pane while the only notice goes to the
     // server log somewhere else. `display-message` reaches the status bar without touching the
@@ -183,7 +195,8 @@ export async function nudgeAgentSession(opts: {
     await flashHeldNudge(agent, session, message)
     reporter.info(
       `Held nudge for "${displayName}" — you're working in it; it'll pick up the delivered ` +
-        `work on your next turn (\`quimby nudge ${displayName}\` forces it).`,
+        `work on your next turn (\`quimby nudge ${displayName}\` forces it, or set ` +
+        `\`whenFocused: nudge\` to never hold for this agent).`,
     )
     return
   }

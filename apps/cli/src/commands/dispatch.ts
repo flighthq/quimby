@@ -2,7 +2,12 @@ import { rebaseAgentOntoBase } from '@quimbyhq/agent'
 import { dispatchOutboxes, passiveDeliveryNotice } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
-import { loadQuimbyConfig, resolveNudgePolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import {
+  loadQuimbyConfig,
+  resolveFocusPolicy,
+  resolveNudgePolicy,
+  resolveWorkspace,
+} from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { attestationResolver } from '../attestation'
@@ -45,6 +50,7 @@ export async function runDispatchCommand({
   args: { agent?: string; all: boolean; rebase: boolean; nudge: boolean }
 }) {
   const { state, repoRoot } = await resolveWorkspace()
+  const config = await loadQuimbyConfig(repoRoot)
 
   const { senders, totalQueued } = await dispatchOutboxes(
     {
@@ -56,7 +62,7 @@ export async function runDispatchCommand({
         ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
         : undefined,
       resolveAttestation: attestationResolver(repoRoot, state),
-      defaultNudge: resolveNudgePolicy(await loadQuimbyConfig(repoRoot)),
+      defaultNudge: resolveNudgePolicy(config),
     },
     consolaReporter,
   )
@@ -95,6 +101,7 @@ export async function runDispatchCommand({
               agent: recip,
               displayName: result.recipient,
               courier: `${kind} ${result.parcelName} from ${sender}`,
+              whenFocused: resolveFocusPolicy(config, recip),
               reporter: consolaReporter,
             })
           }
