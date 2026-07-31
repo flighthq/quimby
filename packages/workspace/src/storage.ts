@@ -103,16 +103,40 @@ export async function listStorageWorkspaces(): Promise<StorageWorkspace[]> {
 }
 
 export async function pruneStorageWorkspaces(
-  opts: Readonly<{ force?: boolean }> = {},
+  opts: Readonly<{ force?: boolean; stale?: boolean }> = {},
 ): Promise<StorageWorkspace[]> {
   const workspaces = await listStorageWorkspaces()
-  const stale = workspaces.filter((w) => w.exists && !w.registered)
+  const unregistered = workspaces.filter((w) => w.exists && !w.registered)
+  const targets = [...unregistered, ...(opts.stale ? await listStaleRegisteredWorkspaces() : [])]
   if (opts.force) {
-    for (const workspace of stale) {
-      await rm(workspace.path, { recursive: true, force: true })
+    for (const workspace of targets) {
+      // A registered entry must be unregistered as well, or the id lingers in the registry
+      // pointing at a directory that is gone — the mirror image of the residue being cleaned.
+      if (workspace.registered) await removeStorageWorkspace(workspace.id)
+      else await rm(workspace.path, { recursive: true, force: true })
     }
   }
-  return stale
+  return targets
+}
+
+/**
+ * Registered workspaces whose project directory no longer exists.
+ *
+ * The default prune only takes *unregistered* directories, which misses the residue that actually
+ * accumulates: anything that ran the real CLI registered itself, so its entry is present while its
+ * project (a temp dir, a deleted checkout) is long gone. Those are invisible to `prune` and to
+ * `list`'s flags alike, since both read as "registered, present".
+ *
+ * Kept opt-in behind `--stale`: a missing project directory is strong evidence but not proof — an
+ * unmounted drive or a moved checkout looks identical, so the user reviews before removing.
+ */
+export async function listStaleRegisteredWorkspaces(): Promise<StorageWorkspace[]> {
+  const out: StorageWorkspace[] = []
+  for (const workspace of await listStorageWorkspaces()) {
+    if (!workspace.registered || !workspace.exists || !workspace.repoRoot) continue
+    if (!(await exists(workspace.repoRoot))) out.push(workspace)
+  }
+  return out
 }
 
 export async function removeStorageWorkspace(id: string): Promise<boolean> {

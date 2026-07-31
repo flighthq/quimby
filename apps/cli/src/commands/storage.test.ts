@@ -6,6 +6,8 @@ const pruneRemoteWorkspaces = vi.hoisted(() => vi.fn())
 const removeStorageWorkspace = vi.hoisted(() => vi.fn())
 const resolveWorkspace = vi.hoisted(() => vi.fn())
 const loadState = vi.hoisted(() => vi.fn())
+const listRemoteWorkspaces = vi.hoisted(() => vi.fn())
+const removeRemoteWorkspace = vi.hoisted(() => vi.fn())
 
 vi.mock('@quimbyhq/git', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -21,20 +23,27 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   removeStorageWorkspace,
   resolveWorkspace,
   loadState,
+  listRemoteWorkspaces,
+  removeRemoteWorkspace,
   loadQuimbyConfig: vi.fn(async () => ({ hosts: { remote: { type: 'ssh', host: 'user@box' } } })),
 }))
 
 import cmd, {
   runStorageListCommand,
+  runStorageListRemoteCommand,
   runStoragePathCommand,
   runStoragePruneCommand,
   runStoragePruneRemoteCommand,
   runStorageRemoveCommand,
+  runStorageRemoveRemoteCommand,
 } from './storage'
 
 beforeEach(() => {
   pruneRemoteWorkspaces.mockReset()
   loadState.mockReset()
+  listRemoteWorkspaces.mockReset()
+  removeRemoteWorkspace.mockReset()
+  listStorageWorkspaces.mockReset()
 })
 
 describe('runStorageListCommand', () => {
@@ -56,6 +65,29 @@ describe('runStorageListCommand', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('proj-id'))
     expect(log).toHaveBeenCalledWith('  repo: /repo')
     log.mockRestore()
+  })
+})
+
+describe('runStorageListRemoteCommand', () => {
+  it('labels the active lane, ones no local project claims, and a half-provisioned one', async () => {
+    loadState.mockResolvedValue({ id: 'active-id' })
+    listStorageWorkspaces.mockResolvedValue([{ id: 'active-id', registered: true }])
+    listRemoteWorkspaces.mockResolvedValue([
+      { id: 'active-id', agents: 4, sizeKb: 2048 },
+      { id: 'orphan-id', agents: 2, sizeKb: 1024 },
+      { id: 'halfdone-id', sizeKb: 4 },
+    ])
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((m: string) => void lines.push(m))
+
+    await runStorageListRemoteCommand({ args: { host: 'remote' } })
+    spy.mockRestore()
+
+    const out = lines.join('\n')
+    expect(out).toContain('active-id  active')
+    expect(out).toContain('orphan-id  unclaimed here')
+    // The lane `prune-remote` cannot see must be visible and legible as such.
+    expect(out).toContain('halfdone-id  unclaimed here, no agents dir')
   })
 })
 
@@ -121,5 +153,32 @@ describe('runStorageRemoveCommand', () => {
     await runStorageRemoveCommand({ args: { id: 'proj-id', force: true } })
 
     expect(removeStorageWorkspace).toHaveBeenCalledWith('proj-id')
+  })
+})
+
+describe('runStorageRemoveRemoteCommand', () => {
+  it('refuses without --force', async () => {
+    await expect(
+      runStorageRemoveRemoteCommand({ args: { id: 'x', host: 'remote' } }),
+    ).rejects.toThrow(/--force/)
+    expect(removeRemoteWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('refuses to remove the workspace this repo is using, even with --force', async () => {
+    // It holds this project's agent repos, mailboxes and assignments; none of it is recoverable.
+    loadState.mockResolvedValue({ id: 'active-id' })
+    listStorageWorkspaces.mockResolvedValue([])
+    await expect(
+      runStorageRemoveRemoteCommand({ args: { id: 'active-id', host: 'remote', force: true } }),
+    ).rejects.toThrow(/refusing to remove it/)
+    expect(removeRemoteWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('removes a non-active workspace on the named host', async () => {
+    loadState.mockResolvedValue({ id: 'active-id' })
+    listStorageWorkspaces.mockResolvedValue([])
+    removeRemoteWorkspace.mockResolvedValue(true)
+    await runStorageRemoveRemoteCommand({ args: { id: 'other-id', host: 'remote', force: true } })
+    expect(removeRemoteWorkspace).toHaveBeenCalledWith(expect.anything(), 'other-id')
   })
 })

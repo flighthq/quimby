@@ -96,6 +96,22 @@ describe('startServer', () => {
     pollStatusCycle.mockImplementation(async () => {})
   })
 
+  it('stop() waits for an in-flight cycle, so a caller can tear the workspace down after', async () => {
+    // Without this, stop() only clears the interval: a cycle already running keeps writing into
+    // the workspace (status mirrors, staging, server.json) while the caller removes it, which
+    // surfaces as ENOTEMPTY on a directory the server is still filling.
+    let finished = false
+    pollStatusCycle.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 150))
+      finished = true
+    })
+    const h = await startServer({ repoRoot: dir, port: 0, pollInterval: 20 })
+    await new Promise((r) => setTimeout(r, 60))
+    await h.stop()
+    expect(finished).toBe(true)
+    pollStatusCycle.mockImplementation(async () => {})
+  })
+
   it('binds an ephemeral port and reports it in the handle + pidfile', async () => {
     const h = await startOnEphemeral()
     expect(h.port).toBeGreaterThan(0)

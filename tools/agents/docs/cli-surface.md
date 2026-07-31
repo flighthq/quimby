@@ -44,6 +44,9 @@ quimby sync <agent...> [--all] [-f] [--base <ref>] [--current]   Sync agent(s) t
 quimby rebuild <agent> --force                       Recreate an agent from current source (discards its work and mailbox)
 quimby rename <agent> <new-name>                     Rename agent
 quimby remove <agent> [--force]                      Remove agent (destructive — bare warns; --force confirms + best-effort remote cleanup, tolerating an unreachable SSH host)
+quimby storage list-remote --host <alias>             List every Quimby workspace on a remote host: id, origin, agent count, size, and whether this machine claims it (active / claimed / unclaimed here). The remote twin of `storage list`; unlike `prune-remote` it filters nothing, so it also shows other repos' lanes and half-provisioned ones that carry no `.quimby/agents` (which the adopt/prune scan skips entirely)
+quimby storage remove-remote <id> --host <alias> --force   Remove one remote workspace by id — the remote twin of `storage remove`. Refuses the workspace the current repo is using, since it holds that project's agent repos, mailboxes and assignments
+quimby storage prune [--stale] [-f]                  Remove unregistered durable workspace dirs; `--stale` additionally offers REGISTERED ones whose project directory is gone — the residue that actually accumulates, since anything that ran the real CLI registered itself and so reads as "registered, present" forever. Previews without `-f`, and removing a registered entry unregisters it too
 quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits; auto-reaps this project's idle agent sessions when `pool.idleTimeout` is configured (never touches attached sessions)
 ```
 

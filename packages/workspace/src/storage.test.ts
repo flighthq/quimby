@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadProjectRegistry, registerProject } from './registry'
 import {
   ensureDurableWorkspace,
+  listStaleRegisteredWorkspaces,
   listStorageWorkspaces,
   pruneStorageWorkspaces,
   readStoredState,
@@ -86,6 +87,20 @@ describe('ensureDurableWorkspace', () => {
   })
 })
 
+describe('listStaleRegisteredWorkspaces', () => {
+  it('is empty when every registered project directory still exists', async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
+    await registerProject({
+      id: state.id,
+      repoRoot,
+      sourceRepo: 'origin',
+      createdAt: new Date(0).toISOString(),
+    })
+    expect((await listStaleRegisteredWorkspaces()).map((w) => w.id)).not.toContain(state.id)
+  })
+})
+
 describe('listStorageWorkspaces', () => {
   it('returns an empty list when nothing is registered or on disk', async () => {
     expect(await listStorageWorkspaces()).toEqual([])
@@ -155,6 +170,41 @@ describe('pruneStorageWorkspaces', () => {
     const stale = await pruneStorageWorkspaces({ force: true })
     expect(stale.map((w) => w.id)).not.toContain(state.id)
     expect(await exists(getStorageWorkspaceDir(state.id))).toBe(true)
+  })
+
+  it('offers a registered workspace whose project is gone only under `stale`', async () => {
+    // The residue that actually accumulates: anything that ran the real CLI registered itself, so
+    // it reads as "registered, present" forever while its project directory is long deleted.
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
+    await registerProject({
+      id: state.id,
+      repoRoot: join(tmpdir(), `gone-${crypto.randomUUID()}`),
+      sourceRepo: 'origin',
+      createdAt: new Date(0).toISOString(),
+    })
+
+    expect((await pruneStorageWorkspaces()).map((w) => w.id)).not.toContain(state.id)
+    const offered = await pruneStorageWorkspaces({ stale: true })
+    expect(offered.map((w) => w.id)).toContain(state.id)
+    // Preview only — nothing removed without force.
+    expect(await exists(getStorageWorkspaceDir(state.id))).toBe(true)
+  })
+
+  it('unregisters as well as deletes, so no dangling registry entry is left behind', async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
+    await registerProject({
+      id: state.id,
+      repoRoot: join(tmpdir(), `gone-${crypto.randomUUID()}`),
+      sourceRepo: 'origin',
+      createdAt: new Date(0).toISOString(),
+    })
+
+    await pruneStorageWorkspaces({ stale: true, force: true })
+
+    expect(await exists(getStorageWorkspaceDir(state.id))).toBe(false)
+    expect((await loadProjectRegistry()).projects?.[state.id]).toBeUndefined()
   })
 })
 

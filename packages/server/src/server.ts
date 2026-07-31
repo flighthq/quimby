@@ -97,10 +97,10 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   // assemble the SAME parcel concurrently, and assembleParcel opens by `rm -rf`-ing the staging
   // dir — so the later cycle deletes `commits/` out from under the earlier one's rsync, which
   // surfaces as `mkstemp … No such file or directory`. One cycle at a time removes the race.
-  let cycleInFlight = false
+  let cycleTask: Promise<void> | null = null
   let skipped = 0
   const poller = setInterval(async () => {
-    if (cycleInFlight) {
+    if (cycleTask) {
       // Surface a persistently overrunning cycle rather than silently doing less every tick.
       if (++skipped === 1 || skipped % SKIP_WARN_EVERY === 0) {
         reporter.warn(
@@ -111,50 +111,56 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       return
     }
     skipped = 0
-    cycleInFlight = true
-    try {
-      state = await reloadStateIfChanged(repoRoot, state, stateMtime)
-      const newMtime = await getFileMtime(join(getQuimbyDir(repoRoot), 'state.yaml'))
-      if (newMtime !== null) stateMtime = newMtime
+    // Held as a promise, not a flag, so `stop()` can await an in-flight cycle. A cycle writes into
+    // the workspace (status mirrors, staging, server.json), so a caller that stops and then cleans
+    // up — every test does, and so does a teardown script — otherwise races the writes and fails
+    // with ENOTEMPTY on a directory the server is still filling.
+    cycleTask = (async () => {
+      try {
+        state = await reloadStateIfChanged(repoRoot, state, stateMtime)
+        const newMtime = await getFileMtime(join(getQuimbyDir(repoRoot), 'state.yaml'))
+        if (newMtime !== null) stateMtime = newMtime
 
-      await pollStatusCycle(repoRoot, state, statusCache, reporter)
-      // Reconcile every agent's peer roster each cycle: guarantees a file per current peer
-      // (placeholder until the poller delivers real content) and sweeps rename/remove orphans.
-      // Per-agent guard so one unreachable SSH owner never aborts the whole cycle.
-      for (const name of Object.keys(state.agents)) {
-        try {
-          await reconcileAgentStatusMirror(repoRoot, state, name)
-        } catch (err) {
-          reporter.warn(`[${name}] roster reconcile failed: ${err}`)
+        await pollStatusCycle(repoRoot, state, statusCache, reporter)
+        // Reconcile every agent's peer roster each cycle: guarantees a file per current peer
+        // (placeholder until the poller delivers real content) and sweeps rename/remove orphans.
+        // Per-agent guard so one unreachable SSH owner never aborts the whole cycle.
+        for (const name of Object.keys(state.agents)) {
+          try {
+            await reconcileAgentStatusMirror(repoRoot, state, name)
+          } catch (err) {
+            reporter.warn(`[${name}] roster reconcile failed: ${err}`)
+          }
         }
+        if (autoDispatch) {
+          await autoDispatchOutboxes(
+            repoRoot,
+            state,
+            outboxTracker,
+            reporter,
+            nudgePolicy,
+            serverConfig ?? {},
+          )
+          // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
+          // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
+          // the fleet moving without me".
+          await remindUnreadInboxes(
+            repoRoot,
+            state,
+            reminderTracker,
+            Date.now(),
+            reporter,
+            serverConfig ?? {},
+          )
+        }
+        if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
+      } catch (err) {
+        reporter.error(`Poll error: ${err}`)
+      } finally {
+        cycleTask = null
       }
-      if (autoDispatch) {
-        await autoDispatchOutboxes(
-          repoRoot,
-          state,
-          outboxTracker,
-          reporter,
-          nudgePolicy,
-          serverConfig ?? {},
-        )
-        // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
-        // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
-        // the fleet moving without me".
-        await remindUnreadInboxes(
-          repoRoot,
-          state,
-          reminderTracker,
-          Date.now(),
-          reporter,
-          serverConfig ?? {},
-        )
-      }
-      if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
-    } catch (err) {
-      reporter.error(`Poll error: ${err}`)
-    } finally {
-      cycleInFlight = false
-    }
+    })()
+    await cycleTask
   }, pollInterval)
 
   // Prefer 7749, but only pin it when the caller asked for a specific port. With no explicit
@@ -201,6 +207,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     if (stopped) return
     stopped = true
     clearInterval(poller)
+    // Let a cycle that is already running finish before the caller tears the workspace down.
+    await cycleTask?.catch(() => {})
     await new Promise<void>((resolve) => server.close(() => resolve()))
     await removeServerInfo(repoRoot)
   }
