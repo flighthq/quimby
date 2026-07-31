@@ -5,6 +5,7 @@ import { join } from 'pathe'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  agentDir,
   createTempWorkspace,
   isTmuxAvailable,
   killTmuxTestServer,
@@ -73,10 +74,18 @@ describe.skipIf(!tmuxAvailable)('Suite B — tmux session lifecycle (real CLI)',
     // The stub came up (it appends "ready" on launch).
     expect(await waitForMarker('ready')).toContain('ready')
 
-    // A nudge is typed into the live session and reaches the stub's stdin.
-    const nudged = await run(['nudge', 'worker', '-m', 'hello-from-nudge'])
+    // `--raw` types ephemeral text straight into the live session, reaching the stub's stdin.
+    const nudged = await run(['nudge', 'worker', '--raw', '-m', 'hello-from-nudge'])
     expect(nudged.exitCode, nudged.output).toBe(0)
     expect(await waitForMarker('hello-from-nudge')).toContain('hello-from-nudge')
+
+    // A bare -m is the ergonomic alias for `assign`: it persists the task and wakes the agent
+    // with the assignment courier, rather than typing the text verbatim.
+    const assigned = await run(['nudge', 'worker', '-m', 'durable-task'])
+    expect(assigned.exitCode, assigned.output).toBe(0)
+    expect(await waitForMarker('assignment updated')).toContain('quimby · assignment updated')
+    const assignment = await readFile(`${await agentDir(dir, 'worker')}/assignment.md`, 'utf-8')
+    expect(assignment).toContain('durable-task')
 
     // Stop kills the session; list then reports stopped and no server remains.
     const stopped = await run(['stop', 'worker'])
