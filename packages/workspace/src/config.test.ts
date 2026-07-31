@@ -285,6 +285,33 @@ describe('loadQuimbyConfig', () => {
 })
 
 describe('mergeConfigs', () => {
+  it('carries every top-level scalar, including ones added after this was written', () => {
+    // The regression: merge copied top-level keys by a hand-maintained list, so a key nobody
+    // remembered to add was dropped in silence — a config saying `whenFocused: nudge` loaded as
+    // the default, and the server then reported that default back as if it were the file's.
+    const merged = mergeConfigs(
+      {},
+      {
+        nudge: 'all',
+        whenFocused: 'nudge',
+        focusGrace: '90s',
+        mergeMode: 'commits',
+        default: 'fleet',
+      },
+    )
+    expect(merged.nudge).toBe('all')
+    expect(merged.whenFocused).toBe('nudge')
+    expect(merged.focusGrace).toBe('90s')
+    expect(merged.mergeMode).toBe('commits')
+    expect(merged.default).toBe('fleet')
+  })
+
+  it('lets a later config override an earlier scalar, and keeps the earlier one otherwise', () => {
+    const merged = mergeConfigs({ whenFocused: 'hold', focusGrace: '2m' }, { whenFocused: 'nudge' })
+    expect(merged.whenFocused).toBe('nudge')
+    expect(merged.focusGrace).toBe('2m')
+  })
+
   it('layers pool keys per-key so a project ceiling and a user reap threshold coexist', () => {
     const merged = mergeConfigs({ pool: { idleTimeout: '2h' } }, { pool: { maxLive: 3 } })
     expect(merged.pool).toEqual({ idleTimeout: '2h', maxLive: 3 })

@@ -429,11 +429,17 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     }
     out.hosts = mergeHostMaps(out.hosts, config.hosts)
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
-    if (config.default !== undefined) out.default = config.default
-    if (config.mergeMode !== undefined) out.mergeMode = config.mergeMode
     // Per-key so a project can set a ceiling while user config keeps the reap threshold.
     if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
-    if (config.nudge !== undefined) out.nudge = config.nudge
+    // Everything else is a scalar that simply overrides, carried STRUCTURALLY rather than by a
+    // hand-maintained list. The list was the bug: each new top-level key needed a line here, and a
+    // forgotten one was dropped in total silence — `whenFocused`/`focusGrace` shipped that way, so
+    // a config saying `whenFocused: nudge` loaded as the default and the server reported the
+    // default back, with nothing to suggest the file had been read and discarded. The destructure
+    // names exactly the keys that need real merging; anything new rides along automatically.
+    const scalars = { ...config } as Record<string, unknown>
+    for (const key of STRUCTURED_CONFIG_KEYS) delete scalars[key]
+    Object.assign(out, defined(scalars))
   }
   return out
 }
@@ -593,3 +599,19 @@ function policySettings(
   }
   return out
 }
+
+// The top-level keys `mergeConfigs` merges by hand; everything else is a scalar that simply
+// overrides and is carried structurally. Listing the STRUCTURED ones (rather than the scalars) is
+// what makes a newly added key safe by default: forget to list a scalar and it still works, where
+// the old inverted list dropped it silently.
+const STRUCTURED_CONFIG_KEYS = [
+  'defaults',
+  'roles',
+  'runtimeProfiles',
+  'layouts',
+  'presets',
+  'recipes',
+  'hosts',
+  'services',
+  'pool',
+]
