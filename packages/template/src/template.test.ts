@@ -233,10 +233,24 @@ describe('renderTmuxConfig', () => {
   it('binds a re-fit that forces a SIGWINCH and then clears the manual pin it creates', () => {
     const conf = renderTmuxConfig()
     expect(conf).toContain('bind = run-shell -b')
-    expect(conf).toContain('resize-window -t "$TMUX_PANE" -L')
+    expect(conf).toContain('resize-window -t "#{window_id}" -L')
     // Without the unset, `resize-window` leaves the window pinned to `manual` and it stops
     // tracking clients entirely — a worse state than the stale size it was fixing.
-    expect(conf).toContain('set -w -t "$TMUX_PANE" -u window-size')
+    expect(conf).toContain('set -w -t "#{window_id}" -u window-size')
+  })
+
+  it('targets the re-fit by window id, never $TMUX_PANE — the stranded-pin regression', () => {
+    // `$TMUX_PANE` is a pane-PROCESS variable and is empty in the environment `run-shell`
+    // inherits (verified on tmux 3.6), and `-t ""` does not error — it resolves to whatever
+    // window is current at that instant. With a settle beat between the two steps, switching
+    // tabs meant the pin landed on one window and the unpin on another, stranding the first at
+    // `window-size manual` so it ignored every later client resize.
+    const bind = renderTmuxConfig()
+      .split('\n')
+      .find((l) => l.startsWith('bind ='))!
+    expect(bind).not.toContain('TMUX_PANE')
+    // BOTH halves must name the same explicitly-resolved window, or the race returns.
+    expect(bind.match(/#\{window_id\}/g)).toHaveLength(2)
   })
 
   it('sizes a shared window to its LARGEST viewer, so a stale small client cannot shrink an agent', () => {
