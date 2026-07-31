@@ -159,6 +159,23 @@ describe('pollStatusCycle', () => {
     expect(await exists(join(getAgentStatusMirrorDir(dir, 'o1'), 'backend.md'))).toBe(true)
   })
 
+  it('caps a failure reason so one bad delivery cannot flood the log', async () => {
+    // The regression this guards: execa puts the whole failed command in its error message, so
+    // reporting it verbatim dumped ~40k characters of payload into `quimby serve` output.
+    await writeStatus('b1', 'working')
+    const state = stateWith({
+      backend: { id: 'b1' },
+      reviewer: { id: 'r1', location: { type: 'ssh', host: 'box', base: '~' } },
+    })
+    const { reporter, events } = collectingReporter()
+
+    await pollStatusCycle(dir, state, new Map<string, StatusSnapshot>(), reporter)
+
+    const warned = events.find((e) => e.level === 'warn')
+    expect(warned).toBeDefined()
+    expect(warned!.message.length).toBeLessThan(400)
+  })
+
   it('delivers one batched call per recipient carrying every changed peer', async () => {
     // Two sources change in the same cycle; the recipient must get both, and (for SSH) in a single
     // remote call rather than one round trip per file — the N² → N fix.

@@ -116,7 +116,7 @@ export async function pollStatusCycle(
           snapshots,
         })
       } catch (err) {
-        failures.set(recipient, String(err))
+        failures.set(recipient, briefReason(err))
       }
     }),
   )
@@ -157,3 +157,18 @@ export async function getFileMtime(path: string): Promise<number | null> {
     return null
   }
 }
+
+// A one-line reason for a failed delivery. execa puts the ENTIRE failed command in its error
+// message, so reporting `String(err)` verbatim floods the log with whatever that command carried —
+// an earlier batched mirror embedded base64 payloads there and dumped ~40k characters into
+// `quimby serve` on a single failure. Payloads now travel on stdin, but the cap stays: a log line
+// is for the operator, and any error text long enough to scroll a terminal has stopped being one.
+function briefReason(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const firstLine = raw.split('\n', 1)[0]
+  return firstLine.length > MAX_REASON_CHARS
+    ? `${firstLine.slice(0, MAX_REASON_CHARS)}…`
+    : firstLine
+}
+
+const MAX_REASON_CHARS = 200

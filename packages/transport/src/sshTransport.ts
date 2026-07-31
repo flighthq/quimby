@@ -199,7 +199,7 @@ export class SSHTransport implements Transport {
     )
   }
 
-  async exec(cmd: string, opts?: { cwd?: string }): Promise<string> {
+  async exec(cmd: string, opts?: { cwd?: string; input?: string }): Promise<string> {
     const remoteCmd = opts?.cwd ? `cd ${sp(opts.cwd)} && ${cmd}` : cmd
     const { stdout } = await remoteCall(
       'ssh',
@@ -208,6 +208,7 @@ export class SSHTransport implements Transport {
         execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
           maxBuffer: 256 * 1024 * 1024,
           stripFinalNewline: false,
+          ...(opts?.input === undefined ? {} : { input: opts.input }),
           // Interleave stdout+stderr so a failing remote command's real error (which git often
           // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
           all: true,
