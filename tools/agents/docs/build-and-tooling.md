@@ -61,6 +61,19 @@ Adapted from the sibling `flight` repo. They make written conventions executable
 
 Adding a package? `packages:check` will tell you exactly what is missing (`tsconfig.build.json` reference, base-paths entry, scripts, etc.).
 
+## Test isolation and temp-dir hygiene
+
+Every test — unit and integration — writes under **one** root: `<os-tmp>/quimby-tests/<worker>/`. `scripts/vitest-setup.ts` points `TMPDIR`, `QUIMBY_DATA_HOME` and `XDG_CONFIG_HOME` there; `scripts/vitest-global-setup.ts` sweeps the root **before and after** every run. Both read the directory name from `scripts/vitest-test-root.ts`, so the writer and the sweeper cannot drift onto different paths and silently turn the sweep into a no-op.
+
+Two properties are deliberate:
+
+- **Redirecting `TMPDIR` rather than rewriting call sites.** `os.tmpdir()` reads it and child processes inherit it, so every `mkdtemp` in the suites _and_ in the real CLI that the integration lane spawns lands inside the root — with no prefix list to keep in sync. This also makes the sweep safe, which a prefix match would not be: the runtime writes `quimby-index-*`, `qb-rsync-*` and `quimby-merge-msg-*` straight into the OS temp dir, so sweeping by `quimby-*` could delete a live operation's scratch.
+- **Sweeping on setup, not just teardown.** A crashed or killed run never reaches teardown. The previous scheme used fixed per-worker paths that nothing ever removed, so residue accumulated across every run a developer had ever made — one `npm test` deposited ~12k inodes, and a real machine reached 100% of 1.31M inodes with 13 GB of disk still free. That presents as spurious `ENOSPC` test failures and reads as a code bug. A setup sweep bounds accumulation to one run.
+
+The integration lane gets the same setup, which it previously lacked: driving the real built CLI with no `QUIMBY_DATA_HOME` override meant its throwaway workspaces were registered in the developer's actual `~/.local/share/quimby` — unbounded growth in `$HOME`, and tests that could read real user state. Verified after the change: a full integration run adds **0** files there.
+
+The one trade: two concurrent runs sweep each other's scratch, since the root is shared. Bounded accumulation beats per-run uniqueness — uniqueness is what leaked. `npm run ci` runs the lanes sequentially.
+
 ## Interactive config & the walkthrough
 
 `quimby config <agent>` and a flag-less `quimby add <agent>` run an interactive walkthrough (`apps/cli/src/walkthrough.ts`, built on `@clack/prompts` — arrow-key selects, numbered labels) that collects an agent's full configuration: runtime, entrypoint, local vs SSH (host/port/base), tmux, sync ref.
