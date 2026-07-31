@@ -17,10 +17,18 @@ export async function resolveNudgeFocusOptions(
   repoRoot: string,
   state: Readonly<QuimbyState>,
   recipient: string,
-): Promise<{ whenFocused: ResolvedFocusPolicy; focusGraceSeconds: number }> {
+): Promise<{
+  whenFocused: ResolvedFocusPolicy
+  focusGraceSeconds: number
+  projectId: string
+}> {
   const config = await loadQuimbyConfig(repoRoot)
   return {
     whenFocused: resolveAgentFocusPolicy(config, state, recipient),
     focusGraceSeconds: getFocusGraceSeconds(config),
+    // Scopes the guard's window-NAME match to this workspace's dashboard. The tmux socket is
+    // shared machine-wide and agent names repeat across projects, so without it another
+    // workspace's same-named pane holds this one.
+    projectId: state.id,
   }
 }

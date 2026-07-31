@@ -1,6 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import {
+  dashboardSessionName,
+  dashboardViewPrefix,
+  quimbyTmuxSocket,
+  tmuxSessionName,
+} from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
@@ -66,16 +71,29 @@ export const COURIER_PREFIX = 'quimby · '
 export async function shouldHoldNudge(
   agent: Readonly<AgentState>,
   displayName: string,
-  opts: Readonly<{ whenFocused?: ResolvedFocusPolicy; graceSeconds?: number }> = {},
+  opts: Readonly<{
+    whenFocused?: ResolvedFocusPolicy
+    graceSeconds?: number
+    /** This workspace's project id, to scope name matching to its own dashboard sessions. */
+    projectId?: string
+  }> = {},
 ): Promise<boolean> {
   if (opts.whenFocused === 'nudge') return false
   if ((await getAgentSessionState(agent)) !== 'attached') return false
 
   const focused = await getFocusedTmuxWindows(opts.graceSeconds)
-  if (focused.names.has(displayName)) return true
+  const mine = ownsSession(opts.projectId)
 
-  if (isSSH(agent.location)) return !(await hasLocalWindowNamed(displayName))
+  if (isSSH(agent.location)) {
+    // A remote window id is meaningless on the local server, so an SSH agent can only be matched by
+    // NAME — scoped to this project's own dashboard, since names repeat across workspaces.
+    if (focused.windows.some((w) => w.windowName === displayName && mine(w.session))) return true
+    return !(await hasLocalWindowNamed(displayName, mine))
+  }
 
+  // A local agent's window id is unique on the shared socket (and stable across `link-window`, so
+  // it matches from its own session or a dashboard tab). That makes it the whole answer — matching
+  // the display NAME as well only added cross-workspace false positives.
   const windowId = await getAgentWindowId(tmuxSessionName(agent.id))
   return windowId !== null && focused.ids.has(windowId)
 }
@@ -152,6 +170,8 @@ export async function nudgeAgentSession(opts: {
    * since that is the human deliberately typing into the session.
    */
   force?: boolean
+  /** This workspace's project id, so the §7 guard scopes name matching to its own dashboard. */
+  projectId?: string
   /**
    * The recipient's resolved `whenFocused` policy — `hold` (default) defers when this is the pane
    * the human is working in, `nudge` types anyway. Resolved by the caller from config + the
@@ -195,6 +215,7 @@ export async function nudgeAgentSession(opts: {
     (await shouldHoldNudge(agent, displayName, {
       whenFocused: opts.whenFocused,
       graceSeconds: opts.focusGraceSeconds,
+      projectId: opts.projectId,
     }))
   ) {
     // Flash the status line of the session being held. A held nudge is otherwise invisible to the
@@ -393,4 +414,16 @@ async function isTargetOurOwnPane(session: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// Whether a session belongs to this workspace, for scoping a window-NAME match. Only the session
+// name carries a project id (`qb-dash-<projectId>`, `qbv-<projectId>-<n>`); an agent's own session
+// is keyed by agent UUID and a window name is just a display label, so without this a same-named
+// agent in another workspace on the shared socket answers for this one. With no project id known,
+// nothing is claimed — an unscoped guess is what caused the false holds.
+function ownsSession(projectId: string | undefined): (session: string) => boolean {
+  if (!projectId) return () => false
+  const dashboard = dashboardSessionName(projectId)
+  const viewPrefix = dashboardViewPrefix(projectId)
+  return (session) => session === dashboard || session.startsWith(viewPrefix)
 }

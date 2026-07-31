@@ -105,6 +105,7 @@ export async function runDispatchCommand({
               courier: `${kind} ${result.parcelName} from ${sender}`,
               whenFocused: resolveAgentFocusPolicy(config, state, result.recipient),
               focusGraceSeconds: grace,
+              projectId: state.id,
               reporter: consolaReporter,
             })
           }

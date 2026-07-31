@@ -13,7 +13,12 @@ import {
 const execa = vi.hoisted(() => vi.fn())
 const getSessionState = vi.hoisted(() => vi.fn(async () => 'running' as string))
 const getFocused = vi.hoisted(() =>
-  vi.fn(async () => ({ ids: new Set<string>(), names: new Set<string>() })),
+  vi.fn(
+    async (): Promise<{
+      ids: Set<string>
+      windows: { windowId: string; windowName: string; session: string }[]
+    }> => ({ ids: new Set<string>(), windows: [] }),
+  ),
 )
 const hasLocalWindow = vi.hoisted(() => vi.fn(async () => true))
 
@@ -37,7 +42,7 @@ beforeEach(() => {
   getSessionState.mockReset()
   getSessionState.mockResolvedValue('running')
   getFocused.mockReset()
-  getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
+  getFocused.mockResolvedValue({ ids: new Set<string>(), windows: [] })
   hasLocalWindow.mockReset()
   hasLocalWindow.mockResolvedValue(true)
   // No quimby tmux server in test: `has-session` (and every tmux call) fails by
@@ -298,16 +303,23 @@ describe('nudgeAgentSession', () => {
 
   it('falls back to a flash without -N when tmux is too old to know the flag', async () => {
     getSessionState.mockResolvedValueOnce('attached')
-    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValueOnce({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@7', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
     execa.mockImplementation(async (_cmd: string, args: string[]) => {
       if (args.includes('display-message') && args.includes('-N'))
         throw new Error('unknown flag -N')
+      // The window-id probe the local focus match reads before deciding to hold.
+      if (args.includes('display-message') && args.includes('-p')) return { stdout: '@7' }
       return {}
     })
     const { reporter } = collectingReporter()
     await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
 
-    const flashes = execa.mock.calls.filter((c) => (c[1] as string[]).includes('display-message'))
+    const flashes = execa.mock.calls.filter(
+      (c) => (c[1] as string[]).includes('display-message') && !(c[1] as string[]).includes('-p'),
+    )
     expect(flashes).toHaveLength(2)
     expect(flashes[1][1] as string[]).not.toContain('-N')
     expect((flashes[1][1] as string[]).at(-1)).toContain('held while you type')
@@ -315,8 +327,11 @@ describe('nudgeAgentSession', () => {
 
   it('holds the nudge (no send-keys) when the recipient is the window you are in — §7', async () => {
     getSessionState.mockResolvedValueOnce('attached')
-    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    execa.mockResolvedValue({})
+    getFocused.mockResolvedValueOnce({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@7', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
+    execa.mockResolvedValue({ stdout: '@7' })
     const { reporter, events } = collectingReporter()
     await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
     const sentKeys = execa.mock.calls.some((c) => (c[1] as string[]).includes('send-keys'))
@@ -325,7 +340,9 @@ describe('nudgeAgentSession', () => {
 
     // …but it flashes the status line of the very session it held, so the person typing in that
     // pane learns work arrived. Never via send-keys: that would land in their half-typed prompt.
-    const flash = execa.mock.calls.find((c) => (c[1] as string[]).includes('display-message'))
+    const flash = execa.mock.calls.find(
+      (c) => (c[1] as string[]).includes('display-message') && !(c[1] as string[]).includes('-p'),
+    )
     expect(flash).toBeDefined()
     expect((flash![1] as string[]).at(-1)).toContain('held while you type')
     // -N or the flash is wiped by the very keystroke that caused it to be held.
@@ -334,7 +351,10 @@ describe('nudgeAgentSession', () => {
 
   it('sends to an attached agent you are NOT focused on (the dashboard sibling case)', async () => {
     getSessionState.mockResolvedValueOnce('attached')
-    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['builder']) })
+    getFocused.mockResolvedValueOnce({
+      ids: new Set<string>(),
+      windows: [{ windowId: '@x', windowName: 'builder', session: 'qbv-proj-0' }],
+    })
     execa.mockResolvedValue({ stdout: '@99' })
     const { reporter } = collectingReporter()
     await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
@@ -344,7 +364,10 @@ describe('nudgeAgentSession', () => {
 
   it('types into the focused window under `whenFocused: nudge` — the fleet you watch, not talk to', async () => {
     getSessionState.mockResolvedValueOnce('attached')
-    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValueOnce({
+      ids: new Set<string>(),
+      windows: [{ windowId: '@x', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
     execa.mockResolvedValue({})
     const { reporter, events } = collectingReporter()
     await nudgeAgentSession({
@@ -361,8 +384,11 @@ describe('nudgeAgentSession', () => {
 
   it('names `whenFocused` in the held message, so the hold is not a dead end', async () => {
     getSessionState.mockResolvedValueOnce('attached')
-    getFocused.mockResolvedValueOnce({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    execa.mockResolvedValue({})
+    getFocused.mockResolvedValueOnce({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@7', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
+    execa.mockResolvedValue({ stdout: '@7' })
     const { reporter, events } = collectingReporter()
     await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter })
     const held = events.find((e) => e.message.includes('Held nudge'))
@@ -394,30 +420,33 @@ describe('shouldHoldNudge', () => {
 
   it('never holds when the session is not attached', async () => {
     getSessionState.mockResolvedValue('running')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValue({
+      ids: new Set<string>(),
+      windows: [{ windowId: '@x', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
   })
 
-  it('holds an attached agent whose window is focused, by name or by window id', async () => {
+  it('holds a local agent whose window id is the focused one — the id, not the name', async () => {
     getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(true)
-
-    getFocused.mockResolvedValue({ ids: new Set(['@7']), names: new Set<string>() })
+    getFocused.mockResolvedValue({ ids: new Set(['@7']), windows: [] })
     execa.mockResolvedValue({ stdout: '@7' })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(true)
   })
 
   it('does not hold an attached agent you are not focused on — the dashboard fix', async () => {
     getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set(['@7']), names: new Set(['builder']) })
+    getFocused.mockResolvedValue({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@x', windowName: 'builder', session: 'qbv-proj-0' }],
+    })
     execa.mockResolvedValue({ stdout: '@99' })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
   })
 
   it('holds an attached SSH agent with no local window — a bare `quimby run` in a terminal', async () => {
     getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set<string>() })
+    getFocused.mockResolvedValue({ ids: new Set<string>(), windows: [] })
     hasLocalWindow.mockResolvedValue(false)
     expect(await shouldHoldNudge(sshAgent, 'researcher')).toBe(true)
 
@@ -430,15 +459,51 @@ describe('shouldHoldNudge', () => {
     // A detached session is never held, however interrupt-hungry the fleet's policy is: the guard
     // exists to avoid typing over a human, and there is no human here.
     getSessionState.mockResolvedValue('running')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValue({
+      ids: new Set<string>(),
+      windows: [{ windowId: '@x', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer')).toBe(false)
+  })
+
+  it('does not hold on a same-named window in ANOTHER workspace (the shared socket is machine-wide)', async () => {
+    // `list-clients`/`list-panes -a` read the whole `-L quimby` socket, so `focused.names` mixes
+    // every project on the machine. Agent names repeat across projects (`review`, `builder`), and
+    // a window NAME carries no project id — only the session does. Typing in project A's `builder`
+    // must not hold project B's.
+    getSessionState.mockResolvedValue('attached')
+    getFocused.mockResolvedValue({
+      ids: new Set(['@7']), // project A's builder window
+      windows: [{ windowId: '@7', windowName: 'builder', session: 'qbv-projectA-0' }],
+    })
+    execa.mockResolvedValue({ stdout: '@99' }) // THIS builder's window — a different one
+    expect(await shouldHoldNudge(localWithTmux, 'builder', { projectId: 'projectB' })).toBe(false)
+  })
+
+  it('holds an SSH agent named in THIS project’s dashboard, but not another workspace’s', async () => {
+    getSessionState.mockResolvedValue('attached')
+    hasLocalWindow.mockResolvedValue(true)
+    const focusedIn = (session: string) => ({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@7', windowName: 'researcher', session }],
+    })
+
+    getFocused.mockResolvedValue(focusedIn('qbv-projectB-0'))
+    expect(await shouldHoldNudge(sshAgent, 'researcher', { projectId: 'projectB' })).toBe(true)
+
+    // Same agent name, someone else's workspace — must not hold ours.
+    getFocused.mockResolvedValue(focusedIn('qbv-projectA-0'))
+    expect(await shouldHoldNudge(sshAgent, 'researcher', { projectId: 'projectB' })).toBe(false)
   })
 
   it('releases the hold under `whenFocused: nudge`, without probing tmux at all', async () => {
     getSessionState.mockClear()
     getFocused.mockClear()
     getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValue({
+      ids: new Set<string>(),
+      windows: [{ windowId: '@x', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer', { whenFocused: 'nudge' })).toBe(false)
     // Short-circuits before the session/focus probes — the policy is the whole answer.
     expect(getSessionState).not.toHaveBeenCalled()
@@ -447,7 +512,11 @@ describe('shouldHoldNudge', () => {
 
   it('still holds under an explicit `hold`, the default', async () => {
     getSessionState.mockResolvedValue('attached')
-    getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
+    getFocused.mockResolvedValue({
+      ids: new Set(['@7']),
+      windows: [{ windowId: '@7', windowName: 'reviewer', session: 'qbv-proj-0' }],
+    })
+    execa.mockResolvedValue({ stdout: '@7' })
     expect(await shouldHoldNudge(localWithTmux, 'reviewer', { whenFocused: 'hold' })).toBe(true)
   })
 })

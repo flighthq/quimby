@@ -21,12 +21,27 @@ export interface TmuxPaneInfo {
   paneActive: boolean
 }
 
+/** One window a human is actually typing in. */
+export interface FocusedWindow {
+  /** `#{window_id}` — stable across `link-window`, and unique on the socket, so it needs no scoping. */
+  windowId: string
+  /** `#{window_name}` — an agent's display label, which REPEATS across workspaces. */
+  windowName: string
+  /** The session it belongs to — the only project-scoped part of a window's identity. */
+  session: string
+}
+
 /** The windows a human is actually looking at right now. */
 export interface FocusedWindows {
-  /** `#{window_id}` values — stable across `link-window`, so a shared window matches either way. */
+  /** `#{window_id}` values — unique per tmux server, so safe to match unscoped. */
   ids: Set<string>
-  /** `#{window_name}` values — how an SSH agent's dashboard window is matched (ids are per-server). */
-  names: Set<string>
+  /**
+   * The focused windows in full. Carries the session because a window NAME is not unique: the
+   * `-L quimby` socket is shared by every workspace on the machine, agent names repeat across
+   * projects (`review`, `builder`), and only the session name encodes a project id. Matching a
+   * bare name held one project's agent whenever you typed in another's same-named pane.
+   */
+  windows: FocusedWindow[]
 }
 
 /**
@@ -50,15 +65,22 @@ export async function getFocusedTmuxWindows(graceSeconds?: number): Promise<Focu
       graceSeconds,
     )
   } catch {
-    return { ids: new Set(), names: new Set() }
+    return { ids: new Set(), windows: [] }
   }
 }
 
-/** Whether any local quimby window carries this display name (an agent's own window, or a tab). */
-export async function hasLocalWindowNamed(name: string): Promise<boolean> {
+/**
+ * Whether any local quimby window carries this display name (an agent's own window, or a tab).
+ * `inSession` scopes the search — without it a same-named window in another workspace answers for
+ * this one, since the socket is machine-wide.
+ */
+export async function hasLocalWindowNamed(
+  name: string,
+  inSession: (session: string) => boolean = () => true,
+): Promise<boolean> {
   try {
     const { stdout } = await execa('tmux', [...TMUX, 'list-panes', '-a', '-F', PANE_FORMAT])
-    return parsePanes(stdout).some((p) => p.windowName === name)
+    return parsePanes(stdout).some((p) => p.windowName === name && inSession(p.session))
   } catch {
     return false
   }
@@ -106,7 +128,7 @@ export function resolveFocusedWindows(
     return !host || !sessionsWithClients.has(host.session)
   })
   const ids = new Set<string>()
-  const names = new Set<string>()
+  const windows: FocusedWindow[] = []
 
   const queue = (roots.length > 0 ? roots : clients).map((c) => c.session)
   const visited = new Set<string>()
@@ -127,10 +149,14 @@ export function resolveFocusedWindows(
     }
 
     ids.add(focusedPane.windowId)
-    names.add(focusedPane.windowName)
+    windows.push({
+      windowId: focusedPane.windowId,
+      windowName: focusedPane.windowName,
+      session: focusedPane.session,
+    })
   }
 
-  return { ids, names }
+  return { ids, windows }
 }
 
 // How long a client may sit without input before its window stops counting as focused, when the

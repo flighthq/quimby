@@ -77,14 +77,14 @@ describe.skipIf(!tmuxAvailable)('Suite D — §7 focus detection (real nested tm
     await tmux('select-pane', '-t', 'qb-dash.0')
     await new Promise((r) => setTimeout(r, 500))
     const left = await getFocusedTmuxWindows()
-    expect(left.names.has('review')).toBe(true)
-    expect(left.names.has('builder')).toBe(false)
+    expect(left.windows.some((w) => w.windowName === 'review')).toBe(true)
+    expect(left.windows.some((w) => w.windowName === 'builder')).toBe(false)
 
     await tmux('select-pane', '-t', 'qb-dash.1')
     await new Promise((r) => setTimeout(r, 500))
     const right = await getFocusedTmuxWindows()
-    expect(right.names.has('builder')).toBe(true)
-    expect(right.names.has('review')).toBe(false)
+    expect(right.windows.some((w) => w.windowName === 'builder')).toBe(true)
+    expect(right.windows.some((w) => w.windowName === 'review')).toBe(false)
   })
 
   it('a link-window dashboard leaves the agent session unattached (why local agents never held)', async () => {
@@ -99,6 +99,6 @@ describe.skipIf(!tmuxAvailable)('Suite D — §7 focus detection (real nested tm
     await new Promise((r) => setTimeout(r, 2000))
 
     expect(await attachedCount('qb-ccc')).toBe('1')
-    expect((await getFocusedTmuxWindows()).names.has('solo')).toBe(true)
+    expect((await getFocusedTmuxWindows()).windows.some((w) => w.windowName === 'solo')).toBe(true)
   })
 })

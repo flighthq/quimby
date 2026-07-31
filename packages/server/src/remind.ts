@@ -83,6 +83,7 @@ export async function remindUnreadInboxes(
           : `${unread.length} unread parcels in your inbox`,
       whenFocused: resolveAgentFocusPolicy(config, state, name),
       focusGraceSeconds: getFocusGraceSeconds(config),
+      projectId: state.id,
       reporter,
     })
   }

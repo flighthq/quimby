@@ -421,6 +421,7 @@ async function handoffAgentWork(agentName: string): Promise<void> {
           courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${result.from}`,
           whenFocused: resolveAgentFocusPolicy(await loadQuimbyConfig(root), state, result.to),
           focusGraceSeconds: getFocusGraceSeconds(await loadQuimbyConfig(root)),
+          projectId: state.id,
         })
       }
     },

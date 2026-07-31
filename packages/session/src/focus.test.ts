@@ -17,13 +17,13 @@ function pane(
 
 describe('getFocusedTmuxWindows', () => {
   it('is covered through resolveFocusedWindows (the tmux probe is a thin shell-out)', () => {
-    expect(resolveFocusedWindows([], [])).toEqual({ ids: new Set(), names: new Set() })
+    expect(resolveFocusedWindows([], [])).toEqual({ ids: new Set(), windows: [] })
   })
 })
 
 describe('hasLocalWindowNamed', () => {
   it('is covered through resolveFocusedWindows (the tmux probe is a thin shell-out)', () => {
-    expect(resolveFocusedWindows([], [])).toEqual({ ids: new Set(), names: new Set() })
+    expect(resolveFocusedWindows([], [])).toEqual({ ids: new Set(), windows: [] })
   })
 })
 
@@ -35,10 +35,12 @@ describe('resolveFocusedWindows', () => {
     ]
     const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
     // actively typing → held
-    expect(resolveFocusedWindows(clients, panes, now).names.has('builder')).toBe(true)
+    expect(
+      resolveFocusedWindows(clients, panes, now).windows.some((w) => w.windowName === 'builder'),
+    ).toBe(true)
     // same window, but nobody has touched the keyboard for an hour → nudge it
     const idle = [{ ...clients[0], activity: now - 3600 }]
-    expect(resolveFocusedWindows(idle, panes, now).names.size).toBe(0)
+    expect(resolveFocusedWindows(idle, panes, now).windows.length).toBe(0)
   })
 
   it('separates watching from typing at the 45s default — the supervised-agent case', () => {
@@ -48,11 +50,13 @@ describe('resolveFocusedWindows', () => {
       { tty: '/dev/pts/0', session: 'qb-builder', activity: now - secondsAgo },
     ]
     // Typed 10s ago — still composing, so hold.
-    expect(resolveFocusedWindows(at(10), panes, now).names.has('builder')).toBe(true)
+    expect(
+      resolveFocusedWindows(at(10), panes, now).windows.some((w) => w.windowName === 'builder'),
+    ).toBe(true)
     // Typed 60s ago and has been reading since. tmux freezes `client_activity` while a client only
     // watches (verified on tmux 3.6), so this is genuinely "not typing" — the old 180s window kept
     // holding here, which is what stalled a fleet you were merely supervising.
-    expect(resolveFocusedWindows(at(60), panes, now).names.size).toBe(0)
+    expect(resolveFocusedWindows(at(60), panes, now).windows.length).toBe(0)
   })
 
   it('honors an explicit grace, so a slow composer can widen the window', () => {
@@ -61,14 +65,22 @@ describe('resolveFocusedWindows', () => {
     const clients: TmuxClientInfo[] = [
       { tty: '/dev/pts/0', session: 'qb-builder', activity: now - 60 },
     ]
-    expect(resolveFocusedWindows(clients, panes, now, 180).names.has('builder')).toBe(true)
-    expect(resolveFocusedWindows(clients, panes, now, 30).names.size).toBe(0)
+    expect(
+      resolveFocusedWindows(clients, panes, now, 180).windows.some(
+        (w) => w.windowName === 'builder',
+      ),
+    ).toBe(true)
+    expect(resolveFocusedWindows(clients, panes, now, 30).windows.length).toBe(0)
   })
 
   it('treats a client with no activity time as active, never inventing an idle window', () => {
     const clients: TmuxClientInfo[] = [{ tty: '/dev/pts/0', session: 'qb-builder' }]
     const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
-    expect(resolveFocusedWindows(clients, panes, 1_000_000).names.has('builder')).toBe(true)
+    expect(
+      resolveFocusedWindows(clients, panes, 1_000_000).windows.some(
+        (w) => w.windowName === 'builder',
+      ),
+    ).toBe(true)
   })
 
   it('reports the attached session’s active window for a plain single attach', () => {
@@ -78,7 +90,7 @@ describe('resolveFocusedWindows', () => {
       pane({ session: 'qb-review', windowId: '@2', windowName: 'review' }),
     ]
     const focused = resolveFocusedWindows(clients, panes)
-    expect([...focused.names]).toEqual(['builder'])
+    expect(focused.windows.map((w) => w.windowName)).toEqual(['builder'])
     expect([...focused.ids]).toEqual(['@1'])
   })
 
@@ -97,8 +109,8 @@ describe('resolveFocusedWindows', () => {
       pane({ session: 'qbv-1', windowId: '@11', windowName: 'builder', tty: '/dev/pts/11' }),
     ]
     const focused = resolveFocusedWindows(clients, panes)
-    expect([...focused.names]).toEqual(['review'])
-    expect(focused.names.has('builder')).toBe(false)
+    expect(focused.windows.map((w) => w.windowName)).toEqual(['review'])
+    expect(focused.windows.some((w) => w.windowName === 'builder')).toBe(false)
   })
 
   it('ignores a session’s non-active windows, so a background tab never counts as focused', () => {
@@ -107,12 +119,14 @@ describe('resolveFocusedWindows', () => {
       pane({ session: 'qbv-0', windowId: '@1', windowName: 'review', windowActive: true }),
       pane({ session: 'qbv-0', windowId: '@2', windowName: 'builder', windowActive: false }),
     ]
-    expect([...resolveFocusedWindows(clients, panes).names]).toEqual(['review'])
+    expect(resolveFocusedWindows(clients, panes).windows.map((w) => w.windowName)).toEqual([
+      'review',
+    ])
   })
 
   it('returns nothing when no client is attached', () => {
     const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
-    expect(resolveFocusedWindows([], panes)).toEqual({ ids: new Set(), names: new Set() })
+    expect(resolveFocusedWindows([], panes)).toEqual({ ids: new Set(), windows: [] })
   })
 
   it('does not loop forever when a client chain is cyclic', () => {
@@ -124,6 +138,6 @@ describe('resolveFocusedWindows', () => {
       pane({ session: 'a', windowId: '@1', tty: '/dev/pts/2' }),
       pane({ session: 'b', windowId: '@2', tty: '/dev/pts/1' }),
     ]
-    expect(resolveFocusedWindows(clients, panes).names.size).toBe(0)
+    expect(resolveFocusedWindows(clients, panes).windows.length).toBe(0)
   })
 })

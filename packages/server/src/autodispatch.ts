@@ -152,6 +152,7 @@ export async function autoDispatchOutboxes(
       courier,
       whenFocused: resolveAgentFocusPolicy(config, state, recipient),
       focusGraceSeconds: getFocusGraceSeconds(config),
+      projectId: state.id,
       reporter,
     })
   }
