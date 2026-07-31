@@ -173,6 +173,18 @@ export interface QuimbyConfig {
    * default for every agent that declares none of its own.
    */
   whenFocused?: FocusPolicy
+  /**
+   * How long after your last keystroke a pane still counts as one you are working in (`45s`, `2m`,
+   * or a bare number of MINUTES — write `45s` when you mean seconds). Defaults to 45s.
+   *
+   * This is the watching-vs-typing line. tmux reports a client's last *input*, not its mere
+   * attachment, so a pane you are only reading stops holding once this elapses. It was a hardcoded
+   * 180s, which meant supervising an agent — type a correction, then watch — held its nudges for
+   * three minutes after every keystroke, and holding forever if you interjected periodically.
+   * Too short is the dangerous direction: a nudge typed while you pause mid-prompt appends to your
+   * draft and submits it, so raise it rather than lower it if you compose slowly.
+   */
+  focusGrace?: string | number
 }
 
 export interface PoolConfig {

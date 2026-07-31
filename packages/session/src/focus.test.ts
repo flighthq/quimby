@@ -41,6 +41,30 @@ describe('resolveFocusedWindows', () => {
     expect(resolveFocusedWindows(idle, panes, now).names.size).toBe(0)
   })
 
+  it('separates watching from typing at the 45s default — the supervised-agent case', () => {
+    const now = 1_000_000
+    const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
+    const at = (secondsAgo: number): TmuxClientInfo[] => [
+      { tty: '/dev/pts/0', session: 'qb-builder', activity: now - secondsAgo },
+    ]
+    // Typed 10s ago — still composing, so hold.
+    expect(resolveFocusedWindows(at(10), panes, now).names.has('builder')).toBe(true)
+    // Typed 60s ago and has been reading since. tmux freezes `client_activity` while a client only
+    // watches (verified on tmux 3.6), so this is genuinely "not typing" — the old 180s window kept
+    // holding here, which is what stalled a fleet you were merely supervising.
+    expect(resolveFocusedWindows(at(60), panes, now).names.size).toBe(0)
+  })
+
+  it('honors an explicit grace, so a slow composer can widen the window', () => {
+    const now = 1_000_000
+    const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]
+    const clients: TmuxClientInfo[] = [
+      { tty: '/dev/pts/0', session: 'qb-builder', activity: now - 60 },
+    ]
+    expect(resolveFocusedWindows(clients, panes, now, 180).names.has('builder')).toBe(true)
+    expect(resolveFocusedWindows(clients, panes, now, 30).names.size).toBe(0)
+  })
+
   it('treats a client with no activity time as active, never inventing an idle window', () => {
     const clients: TmuxClientInfo[] = [{ tty: '/dev/pts/0', session: 'qb-builder' }]
     const panes = [pane({ session: 'qb-builder', windowId: '@1', windowName: 'builder' })]

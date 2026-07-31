@@ -5,6 +5,7 @@ import {
   directsRecipient,
   escalationTargets,
   honorsEscalation,
+  resolveAgentFocusPolicy,
   resolveConfiguredAgentEdges,
   resolveConfiguredAgentRole,
   resolveDirectedRecipients,
@@ -95,6 +96,42 @@ describe('honorsEscalation', () => {
     expect(honorsEscalation(listed, 'builder1', 'integration')).toBe(true)
     // and the asymmetry holds: receiving an escalation grants no authority back
     expect(directsRecipient(listed, 'review2', 'builder1')).toBe(false)
+  })
+})
+
+describe('resolveAgentFocusPolicy', () => {
+  const chain = {
+    agents: {
+      principal: { name: 'principal', directs: ['manager'] },
+      manager: { name: 'manager', directs: ['@builder'] },
+      builder: { name: 'builder', role: 'builder' },
+      'builder-2': { name: 'builder-2', role: 'builder' },
+    },
+  } as never
+
+  it('holds only the agent nobody directs — "wake all but the one I talk to", from the graph', () => {
+    expect(resolveAgentFocusPolicy({}, chain, 'principal')).toBe('hold')
+    expect(resolveAgentFocusPolicy({}, chain, 'manager')).toBe('nudge')
+    expect(resolveAgentFocusPolicy({}, chain, 'builder')).toBe('nudge')
+    // reached through a @role slot, so the expansion has to be honored here too
+    expect(resolveAgentFocusPolicy({}, chain, 'builder-2')).toBe('nudge')
+  })
+
+  it('holds every agent in a graph with no edges at all', () => {
+    const flat = { agents: { a: { name: 'a' }, b: { name: 'b' } } } as never
+    expect(resolveAgentFocusPolicy({}, flat, 'a')).toBe('hold')
+  })
+
+  it('lets an explicit workspace policy override the derivation in both directions', () => {
+    expect(resolveAgentFocusPolicy({ whenFocused: 'nudge' }, chain, 'principal')).toBe('nudge')
+    expect(resolveAgentFocusPolicy({ whenFocused: 'hold' }, chain, 'builder')).toBe('hold')
+  })
+
+  it("lets an agent's own stored policy beat the workspace default", () => {
+    const pinned = {
+      agents: { principal: { name: 'principal', directs: ['m'], whenFocused: 'nudge' } },
+    } as never
+    expect(resolveAgentFocusPolicy({ whenFocused: 'hold' }, pinned, 'principal')).toBe('nudge')
   })
 })
 

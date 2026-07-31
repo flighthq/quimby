@@ -4,9 +4,9 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getAgentSessionState, nudgeAgentSession } from '@quimbyhq/session'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState, FocusPolicy, QuimbyState } from '@quimbyhq/types'
+import type { AgentState, QuimbyConfig, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { normalizeFocusPolicy } from '@quimbyhq/workspace'
+import { getFocusGraceSeconds, resolveAgentFocusPolicy } from '@quimbyhq/workspace'
 
 export interface InboxReminderTracker {
   /** Per agent: the inbox it was last reminded about, when, and how many times. */
@@ -39,7 +39,7 @@ export async function remindUnreadInboxes(
   tracker: InboxReminderTracker,
   now: number,
   reporter: Reporter = silentReporter,
-  defaultFocus: FocusPolicy = 'hold',
+  config: Readonly<QuimbyConfig> = {},
 ): Promise<void> {
   for (const [name, agent] of Object.entries(state.agents)) {
     if (agent.enabled === false) continue
@@ -81,7 +81,8 @@ export async function remindUnreadInboxes(
         unread.length === 1
           ? `parcel ${unread[0]} unread in your inbox`
           : `${unread.length} unread parcels in your inbox`,
-      whenFocused: normalizeFocusPolicy(agent.whenFocused) ?? defaultFocus,
+      whenFocused: resolveAgentFocusPolicy(config, state, name),
+      focusGraceSeconds: getFocusGraceSeconds(config),
       reporter,
     })
   }

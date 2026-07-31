@@ -1,8 +1,9 @@
 import { assignAgentTask } from '@quimbyhq/agent'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import { loadQuimbyConfig, resolveFocusPolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { resolveNudgeFocusOptions } from '../focus'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -88,7 +89,7 @@ export async function runAssignCommand({
       clear: args.clear,
       displayName: args.agent,
       courier: 'assignment updated',
-      whenFocused: resolveFocusPolicy(await loadQuimbyConfig(repoRoot), state.agents[args.agent]),
+      ...(await resolveNudgeFocusOptions(repoRoot, state, args.agent)),
       reporter: consolaReporter,
     })
   }

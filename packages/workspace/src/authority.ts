@@ -4,9 +4,10 @@ import type {
   ConfiguredAgent,
   QuimbyConfig,
   QuimbyState,
+  ResolvedFocusPolicy,
 } from '@quimbyhq/types'
 
-import { normalizeFocusPolicy, normalizeNudgePolicy } from './config'
+import { normalizeFocusPolicy, normalizeNudgePolicy, resolveFocusPolicy } from './config'
 
 /**
  * The concrete recipients an agent may DIRECT — its `directs` entries with any `@role` slot
@@ -28,6 +29,29 @@ export function resolveDirectedRecipients(state: Readonly<QuimbyState>, from: st
  * - `null` ⇒ nothing in config names this agent or gives its role edges, so state is left alone
  *   (an agent added outside any preset keeps hand-set edges).
  */
+/**
+ * The concrete hold-or-type decision for an agent, with the `directed` default collapsed against
+ * the authority graph: an agent something DIRECTS is machine-driven, so a nudge types even into the
+ * pane you are watching; an agent nobody directs is the one you converse with, so it holds.
+ *
+ * This is the placement half of the same inverse-of-`directs` idiom escalation uses, and it is what
+ * lets a supervised fleet need no per-agent config — in a principal → manager → workers chain only
+ * the principal holds, which is "wake all but the one I talk to" stated once by the graph you
+ * already declared. An explicit `hold`/`nudge` anywhere in the chain still wins.
+ *
+ * Resolved here rather than in `@quimbyhq/session` because the guard sits below this package in the
+ * DAG and must not know about config or state.
+ */
+export function resolveAgentFocusPolicy(
+  config: Readonly<QuimbyConfig>,
+  state: Readonly<QuimbyState>,
+  name: string,
+): ResolvedFocusPolicy {
+  const policy = resolveFocusPolicy(config, state.agents[name])
+  if (policy !== 'directed') return policy
+  return directorsOf(state, name).length > 0 ? 'nudge' : 'hold'
+}
+
 export function resolveConfiguredAgentEdges(
   config: Readonly<QuimbyConfig>,
   agent: Readonly<Pick<AgentState, 'name' | 'role'>>,

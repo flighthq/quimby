@@ -17,10 +17,11 @@ vi.mock('@quimbyhq/workspace', () => ({
     state: { agents: { builder: { id: 'b', name: 'builder' } } },
     repoRoot: '/repo',
   })),
-  // The nudge resolves the §7 hold policy from config before waking the recipient.
+  // The nudge resolves the §7 hold policy from config + the authority graph before waking.
   loadQuimbyConfig: vi.fn(async () => ({})),
   resolveNudgePolicy: vi.fn(() => 'focus'),
-  resolveFocusPolicy: vi.fn(() => 'hold'),
+  resolveAgentFocusPolicy: vi.fn(() => 'hold'),
+  getFocusGraceSeconds: vi.fn(() => 45),
 }))
 
 afterEach(() => vi.clearAllMocks())

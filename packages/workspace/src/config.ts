@@ -12,7 +12,7 @@ import type {
   RuntimeProfileConfig,
   SSHLocation,
 } from '@quimbyhq/types'
-import { ensureDir, exists, readYaml, writeYaml } from '@quimbyhq/utils'
+import { ensureDir, exists, parseDuration, readYaml, writeYaml } from '@quimbyhq/utils'
 import { dirname, join } from 'pathe'
 
 /** A concrete SSH binding — the address an alias resolves to. */
@@ -301,6 +301,12 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
       )
     }
   }
+  if (config.focusGrace !== undefined && parseDuration(config.focusGrace) === null) {
+    warnings.push(
+      `focusGrace: "${config.focusGrace}" is not a duration — ignored (falls back to ` +
+        `${DEFAULT_FOCUS_GRACE_SECONDS}s). Valid: 45s | 2m | 1h, or a bare number of minutes.`,
+    )
+  }
   for (const [name, value] of focusSettings(config)) {
     if (typeof value === 'string' && !normalizeFocusPolicy(value)) {
       warnings.push(
@@ -349,8 +355,26 @@ export function resolveFocusPolicy(
   agent?: Readonly<{ whenFocused?: string }>,
 ): FocusPolicy {
   return (
-    normalizeFocusPolicy(agent?.whenFocused) ?? normalizeFocusPolicy(config.whenFocused) ?? 'hold'
+    normalizeFocusPolicy(agent?.whenFocused) ??
+    normalizeFocusPolicy(config.whenFocused) ??
+    'directed'
   )
+}
+
+/**
+ * How long after a keystroke a pane still counts as one the human is working in, in seconds.
+ *
+ * This is the watching-vs-typing line, and it is a real distinction rather than a guess: tmux
+ * reports `client_activity` as the time of last *input*, so an attached-but-idle client's value
+ * stays frozen (verified on tmux 3.6). A window that is too LONG is the failure this default was
+ * lowered to fix — a hardcoded 180s held a supervised agent for three minutes after every
+ * keystroke, and forever if you interjected periodically. A window that is too SHORT is the
+ * dangerous one, since a nudge landing while you pause mid-prompt appends to your draft and submits
+ * it. Hence 45s, and hence an unparseable value falls back rather than disabling the guard.
+ */
+export function getFocusGraceSeconds(config: Readonly<QuimbyConfig> | undefined): number {
+  const parsed = parseDuration(config?.focusGrace)
+  return parsed !== null && parsed > 0 ? Math.round(parsed / 1000) : DEFAULT_FOCUS_GRACE_SECONDS
 }
 
 export function resolveNudgePolicy(
@@ -380,7 +404,7 @@ export function normalizeNudgePolicy(value: string | undefined): NudgePolicy | u
  * honored for the fleet but silently ignored per agent.
  */
 export function normalizeFocusPolicy(value: string | undefined): FocusPolicy | undefined {
-  if (value === 'hold' || value === 'nudge') return value
+  if (value === 'hold' || value === 'nudge' || value === 'directed') return value
   return undefined
 }
 
@@ -509,6 +533,10 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
 
 // The keys each config container actually reads. Kept beside the interfaces they mirror; a new
 // field must be added here too, or `collectConfigWarnings` will report it as unknown.
+// Long enough that a pause to think mid-prompt still holds; short enough that watching an agent
+// work stops holding almost at once. See getFocusGraceSeconds.
+const DEFAULT_FOCUS_GRACE_SECONDS = 45
+
 const AGENT_ROLE_KEYS = new Set([
   'instructions',
   'nudge',

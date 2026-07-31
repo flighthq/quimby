@@ -6,7 +6,12 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { getServerInfo, type QuimbyServerHandle, startServer } from '@quimbyhq/server'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { LayoutPlanNode, LayoutPlanTerminal } from '@quimbyhq/types'
-import { loadQuimbyConfig, loadState, resolveFocusPolicy } from '@quimbyhq/workspace'
+import {
+  getFocusGraceSeconds,
+  loadQuimbyConfig,
+  loadState,
+  resolveAgentFocusPolicy,
+} from '@quimbyhq/workspace'
 import * as vscode from 'vscode'
 
 const LAST_LAYOUT_KEY = 'quimby.lastLayout'
@@ -414,7 +419,8 @@ async function handoffAgentWork(agentName: string): Promise<void> {
           displayName: result.to,
           reporter: vscodeReporter(),
           courier: `${result.userDirected ? 'delegated task' : 'parcel'} ${result.parcelName} from ${result.from}`,
-          whenFocused: resolveFocusPolicy(await loadQuimbyConfig(root), state.agents[result.to]),
+          whenFocused: resolveAgentFocusPolicy(await loadQuimbyConfig(root), state, result.to),
+          focusGraceSeconds: getFocusGraceSeconds(await loadQuimbyConfig(root)),
         })
       }
     },

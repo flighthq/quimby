@@ -4,7 +4,7 @@ import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState, FocusPolicy } from '@quimbyhq/types'
+import type { AgentState, ResolvedFocusPolicy } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { execa } from 'execa'
 
@@ -58,19 +58,20 @@ export const COURIER_PREFIX = 'quimby · '
  * a question settled before we get here. This guard only refuses to type over live keystrokes, so
  * it holds one window and releases the moment you look elsewhere. `quimby nudge` forces past it.
  *
- * `whenFocused` is the recipient's own answer to *this* question — `hold` (the default) stands
- * down, `nudge` types anyway. It is resolved by the caller (config lives above this package) and
- * passed in, so a fleet you watch but do not converse with can opt out of the hold entirely.
+ * `whenFocused` is the recipient's own answer to *this* question — `hold` stands down, `nudge`
+ * types anyway. The caller resolves it (config and the authority graph both live above this
+ * package), including collapsing the `directed` default, so a fleet you watch but do not converse
+ * with never stalls on being looked at. `graceSeconds` is the watching-vs-typing window.
  */
 export async function shouldHoldNudge(
   agent: Readonly<AgentState>,
   displayName: string,
-  whenFocused: FocusPolicy = 'hold',
+  opts: Readonly<{ whenFocused?: ResolvedFocusPolicy; graceSeconds?: number }> = {},
 ): Promise<boolean> {
-  if (whenFocused === 'nudge') return false
+  if (opts.whenFocused === 'nudge') return false
   if ((await getAgentSessionState(agent)) !== 'attached') return false
 
-  const focused = await getFocusedTmuxWindows()
+  const focused = await getFocusedTmuxWindows(opts.graceSeconds)
   if (focused.names.has(displayName)) return true
 
   if (isSSH(agent.location)) return !(await hasLocalWindowNamed(displayName))
@@ -153,10 +154,13 @@ export async function nudgeAgentSession(opts: {
   force?: boolean
   /**
    * The recipient's resolved `whenFocused` policy — `hold` (default) defers when this is the pane
-   * the human is working in, `nudge` types anyway. Resolved by the caller from config + agent
-   * state, since this package sits below `@quimbyhq/workspace`.
+   * the human is working in, `nudge` types anyway. Resolved by the caller from config + the
+   * authority graph (`resolveAgentFocusPolicy`), since this package sits below
+   * `@quimbyhq/workspace` and must not read either.
    */
-  whenFocused?: FocusPolicy
+  whenFocused?: ResolvedFocusPolicy
+  /** Seconds since a keystroke that still count as "working in this pane" (`focusGrace`). */
+  focusGraceSeconds?: number
   reporter?: Reporter
 }): Promise<void> {
   const { agent, clear, displayName, dashboardSession } = opts
@@ -186,7 +190,13 @@ export async function nudgeAgentSession(opts: {
   // §7 (coordination-proposals): never inject into a session a human is typing in — it types over
   // their input, and the work is already durable in the inbox/assignment, so a deferred nudge loses
   // nothing (the human sees it on their next turn). The explicit `quimby nudge` sets `force`.
-  if (!opts.force && (await shouldHoldNudge(agent, displayName, opts.whenFocused))) {
+  if (
+    !opts.force &&
+    (await shouldHoldNudge(agent, displayName, {
+      whenFocused: opts.whenFocused,
+      graceSeconds: opts.focusGraceSeconds,
+    }))
+  ) {
     // Flash the status line of the session being held. A held nudge is otherwise invisible to the
     // one person it is held FOR — they are working in that pane while the only notice goes to the
     // server log somewhere else. `display-message` reaches the status bar without touching the

@@ -1,8 +1,9 @@
 import { handoffWork } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
-import { loadQuimbyConfig, resolveFocusPolicy, resolveWorkspace } from '@quimbyhq/workspace'
+import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
+import { resolveNudgeFocusOptions } from '../focus'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -54,7 +55,7 @@ export async function runDelegateCommand({
     clear: args.clear,
     displayName: result.to,
     courier: `delegated task ${result.parcelName} from ${result.from}`,
-    whenFocused: resolveFocusPolicy(await loadQuimbyConfig(repoRoot), state.agents[result.to]),
+    ...(await resolveNudgeFocusOptions(repoRoot, state, result.to)),
     reporter: consolaReporter,
   })
 }

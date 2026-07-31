@@ -439,7 +439,7 @@ describe('shouldHoldNudge', () => {
     getFocused.mockClear()
     getSessionState.mockResolvedValue('attached')
     getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'nudge')).toBe(false)
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', { whenFocused: 'nudge' })).toBe(false)
     // Short-circuits before the session/focus probes — the policy is the whole answer.
     expect(getSessionState).not.toHaveBeenCalled()
     expect(getFocused).not.toHaveBeenCalled()
@@ -448,6 +448,6 @@ describe('shouldHoldNudge', () => {
   it('still holds under an explicit `hold`, the default', async () => {
     getSessionState.mockResolvedValue('attached')
     getFocused.mockResolvedValue({ ids: new Set<string>(), names: new Set(['reviewer']) })
-    expect(await shouldHoldNudge(localWithTmux, 'reviewer', 'hold')).toBe(true)
+    expect(await shouldHoldNudge(localWithTmux, 'reviewer', { whenFocused: 'hold' })).toBe(true)
   })
 })

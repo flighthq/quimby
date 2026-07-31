@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   collectConfigWarnings,
+  getFocusGraceSeconds,
   getUserConfigPath,
   isHostAliasBound,
   loadQuimbyConfig,
@@ -103,6 +104,13 @@ describe('collectConfigWarnings', () => {
     ).toEqual([])
   })
 
+  it('flags an unparseable `focusGrace`, so a typo does not silently widen the guard', () => {
+    const warnings = collectConfigWarnings({ focusGrace: 'soon' })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('focusGrace')
+    expect(warnings[0]).toContain('45s')
+  })
+
   it('flags an unrecognized `whenFocused` value at each declaration site', () => {
     const warnings = collectConfigWarnings({
       whenFocused: 'off' as 'hold',
@@ -175,6 +183,24 @@ describe('collectConfigWarnings', () => {
         },
       }),
     ).toEqual([])
+  })
+})
+
+describe('getFocusGraceSeconds', () => {
+  it('defaults to 45s — long enough to pause mid-prompt, short enough that watching releases', () => {
+    expect(getFocusGraceSeconds({})).toBe(45)
+    expect(getFocusGraceSeconds(undefined)).toBe(45)
+  })
+
+  it('parses a duration, and reads a bare number as minutes like every other duration key', () => {
+    expect(getFocusGraceSeconds({ focusGrace: '90s' })).toBe(90)
+    expect(getFocusGraceSeconds({ focusGrace: '2m' })).toBe(120)
+    expect(getFocusGraceSeconds({ focusGrace: 2 })).toBe(120)
+  })
+
+  it('falls back rather than disabling the guard, since too-short is the dangerous direction', () => {
+    expect(getFocusGraceSeconds({ focusGrace: 'soon' })).toBe(45)
+    expect(getFocusGraceSeconds({ focusGrace: '0s' })).toBe(45)
   })
 })
 
@@ -359,9 +385,10 @@ describe('normalizeCheck', () => {
 })
 
 describe('normalizeFocusPolicy', () => {
-  it('accepts the two canonical policies', () => {
+  it('accepts the three canonical policies', () => {
     expect(normalizeFocusPolicy('hold')).toBe('hold')
     expect(normalizeFocusPolicy('nudge')).toBe('nudge')
+    expect(normalizeFocusPolicy('directed')).toBe('directed')
   })
 
   it('returns undefined for anything else, so the caller falls back to its default', () => {
@@ -468,8 +495,8 @@ describe('resolveConfiguredAgent', () => {
 })
 
 describe('resolveFocusPolicy', () => {
-  it('defaults to hold — never type over live keystrokes unless asked', () => {
-    expect(resolveFocusPolicy({})).toBe('hold')
+  it('defaults to directed — derive the hold from the authority graph', () => {
+    expect(resolveFocusPolicy({})).toBe('directed')
   })
 
   it('lets the recipient override the workspace default', () => {
@@ -478,11 +505,11 @@ describe('resolveFocusPolicy', () => {
   })
 
   it('is independent of the nudge policy — nudge: all does not release the focus guard', () => {
-    expect(resolveFocusPolicy({ nudge: 'all' })).toBe('hold')
+    expect(resolveFocusPolicy({ nudge: 'all' })).toBe('directed')
   })
 
   it('falls back to the default on a typo rather than failing a courier run', () => {
-    expect(resolveFocusPolicy({ whenFocused: 'off' as 'hold' })).toBe('hold')
+    expect(resolveFocusPolicy({ whenFocused: 'off' as 'hold' })).toBe('directed')
   })
 })
 

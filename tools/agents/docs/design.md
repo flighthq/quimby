@@ -422,21 +422,42 @@ Human-initiated verbs are unaffected: `quimby assign`, `handoff`, and `delegate`
 
 `nudge` does **not** govern this — that gate is settled before the guard runs, so `nudge: all` means "every parcel is worth waking this agent for" and the guard may still hold the keystroke. The `whenFocused` key is the separate answer, resolved recipient-first exactly like `nudge`:
 
-```yaml
-nudge: all # every parcel is worth waking someone for…
-whenFocused: nudge # …and type it even into the pane I'm working in
+- **`directed`** (default) — **derive it from the authority graph**: an agent something `directs` is machine-driven, so a nudge types even into the pane you are watching; an agent nobody directs is the one you converse with, so it holds. This is the inverse-of-`directs` idiom escalation already uses.
+- **`hold`** — always stand down; the work is already in the inbox, so the agent picks it up on its next turn, and the held nudge flashes that pane's status line.
+- **`nudge`** — always type, even into the agent you converse with.
 
-roles:
-  review:
-    whenFocused: hold # …except this one, which I converse with
+The derived default is what makes a supervised fleet need no per-agent config. In a `principal → manager → workers` chain only the principal holds, so "wake all but the one I talk to" is stated once by the graph you already declared, and adding a worker needs no config edit:
+
+```yaml
+# nothing to declare — the graph already says which agent you talk to
+presets:
+  fleet:
+    agents:
+      principal: { role: principal, directs: [manager] }
+      manager: { role: manager, directs: ['@builder'] }
+      builder: { role: builder, count: 6 }
 ```
 
-- **`hold`** (default) — stand down; the work is already in the inbox, so the agent picks it up on its next turn, and the held nudge flashes that pane's status line.
-- **`nudge`** — type anyway. For a fleet you watch but do not converse with, where a wake that waits for you to look away is a wake that never comes.
+A two-agent project where you converse with neither says so in one line:
 
-Resolution is the recipient's own setting → its role → the workspace default → `hold`, stored on agent state and refreshed by `quimby sync` like the coordination edges. `quimby serve` reports both policies at startup and reads them once, so restart it after an edit.
+```yaml
+nudge: all
+whenFocused: nudge
+```
+
+Resolution is the recipient's own setting → its role → the workspace default → `directed`, stored on agent state and refreshed by `quimby sync` like the coordination edges. `quimby serve` reports both policies at startup and reads them once, so restart it after an edit.
 
 Two knobs because they answer different questions — which parcels are worth waking you for (`nudge`), and whether typing right now is acceptable (`whenFocused`). Folding them into one word is what made `nudge: all` read as "focus included" when it never meant that.
+
+### `focusGrace` — watching is not typing
+
+"The pane you are working in" means the one you are **typing** in, not the one you are **looking** at. tmux reports `client_activity` as the time of a client's last _input_ — an attached-but-idle client's value stays frozen, and a single keystroke bumps it — so the distinction is exact rather than inferred.
+
+`focusGrace` (default **45s**) is how long after a keystroke a pane still counts as yours. It was a hardcoded 180s, which meant supervising an agent — type a correction, then watch it work — held its nudges for three minutes after every keystroke, and held forever if you interjected periodically. Raise it if you compose slowly: too short is the dangerous direction, because a nudge landing while you pause mid-prompt appends to your draft and submits it.
+
+```yaml
+focusGrace: 90s # a bare number is MINUTES, so write the unit when you mean seconds
+```
 
 **A conflict nudge is never held.** When a `sync` or `merge` fails on a rebase conflict, quimby offers to send the agent the "rebase onto `<ref>` and resolve conflicts" request, forced — it is the direct answer to a command you just ran. Interactive runs ask first (`y/N`, default yes) and print the ready-to-paste `quimby nudge …` if you decline; non-interactively `merge` fires it while `sync` only prints, since waking an agent onto a conflicted baseline stays your call.
 

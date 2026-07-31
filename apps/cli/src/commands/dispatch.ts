@@ -3,8 +3,9 @@ import { dispatchOutboxes, passiveDeliveryNotice } from '@quimbyhq/handoff'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
 import {
+  getFocusGraceSeconds,
   loadQuimbyConfig,
-  resolveFocusPolicy,
+  resolveAgentFocusPolicy,
   resolveNudgePolicy,
   resolveWorkspace,
 } from '@quimbyhq/workspace'
@@ -51,6 +52,7 @@ export async function runDispatchCommand({
 }) {
   const { state, repoRoot } = await resolveWorkspace()
   const config = await loadQuimbyConfig(repoRoot)
+  const grace = getFocusGraceSeconds(config)
 
   const { senders, totalQueued } = await dispatchOutboxes(
     {
@@ -101,7 +103,8 @@ export async function runDispatchCommand({
               agent: recip,
               displayName: result.recipient,
               courier: `${kind} ${result.parcelName} from ${sender}`,
-              whenFocused: resolveFocusPolicy(config, recip),
+              whenFocused: resolveAgentFocusPolicy(config, state, result.recipient),
+              focusGraceSeconds: grace,
               reporter: consolaReporter,
             })
           }

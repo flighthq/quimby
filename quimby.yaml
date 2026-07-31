@@ -24,10 +24,16 @@ defaults:
 # Read once when `quimby serve` starts, so restart the server after changing it.
 nudge: all
 
-# …but still defer a nudge aimed at the pane being typed in, because this repo is one we hold long
-# conversations in. A fleet you watch rather than converse with wants `nudge` here instead — that
-# is the whole reason this is a separate key from `nudge` above.
+# …but still defer a nudge aimed at the pane being typed in. The default `directed` would derive
+# this from the graph (review directs builder, so only review would hold); stating `hold` outright
+# covers both agents, because this repo is one we hold long conversations in. A fleet you watch
+# rather than converse with wants `nudge`, and a supervised chain wants the derived default.
 whenFocused: hold
+
+# How long after a keystroke a pane still counts as one you're working in. 45s is the default;
+# this repo sets it wider because prompts here are long and composed in pauses, and a nudge that
+# lands mid-pause appends to the draft and submits it.
+focusGrace: 90s
 
 roles:
   review:

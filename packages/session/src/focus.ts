@@ -37,7 +37,7 @@ export interface FocusedWindows {
  * while the human is in exactly one of them. Any probe failure yields an empty set — an unknown
  * focus must not manufacture a hold.
  */
-export async function getFocusedTmuxWindows(): Promise<FocusedWindows> {
+export async function getFocusedTmuxWindows(graceSeconds?: number): Promise<FocusedWindows> {
   try {
     const [clientsOut, panesOut] = await Promise.all([
       execa('tmux', [...TMUX, 'list-clients', '-F', CLIENT_FORMAT]),
@@ -47,6 +47,7 @@ export async function getFocusedTmuxWindows(): Promise<FocusedWindows> {
       parseClients(clientsOut.stdout),
       parsePanes(panesOut.stdout),
       Math.floor(Date.now() / 1000),
+      graceSeconds,
     )
   } catch {
     return { ids: new Set(), names: new Set() }
@@ -77,16 +78,20 @@ export function resolveFocusedWindows(
   clients: readonly TmuxClientInfo[],
   panes: readonly TmuxPaneInfo[],
   nowSeconds?: number,
+  graceSeconds: number = FOCUS_IDLE_GRACE_SECONDS,
 ): FocusedWindows {
-  // A client that hasn't taken input in minutes is a window left open, not a human mid-keystroke —
-  // overnight, every pane looks "focused" forever. Treating those as focus would hold the nudge for
-  // the one agent you most need woken until morning, and an unwoken agent is worse than a nudge
-  // landing under an idle cursor. Clients that report no activity time are treated as active.
+  // `client_activity` is the time of last INPUT, not of attachment or redraw — verified on tmux
+  // 3.6: an attached client left idle keeps a frozen value, and a single keystroke bumps it. So
+  // this is the watching-vs-typing line, not a guess at it: a pane you are only reading stops
+  // counting as focused once the grace elapses, while one you are typing in keeps holding. That
+  // matters in both directions — an overnight pane must not hold until morning, and supervising an
+  // agent must not stall its loop for minutes after every keystroke. Clients that report no
+  // activity time are treated as active.
   const live = clients.filter(
     (c) =>
       nowSeconds === undefined ||
       c.activity === undefined ||
-      nowSeconds - c.activity <= FOCUS_IDLE_GRACE_SECONDS,
+      nowSeconds - c.activity <= graceSeconds,
   )
   clients = live.length > 0 ? live : []
   // A client is a root when nothing else is displaying it: either it draws on a real terminal (its
@@ -128,8 +133,9 @@ export function resolveFocusedWindows(
   return { ids, names }
 }
 
-// How long a client may sit without input before its window stops counting as focused.
-const FOCUS_IDLE_GRACE_SECONDS = 180
+// How long a client may sit without input before its window stops counting as focused, when the
+// caller names no `focusGrace`. Callers that can read config pass the configured value instead.
+const FOCUS_IDLE_GRACE_SECONDS = 45
 
 const SEPARATOR = '|'
 const CLIENT_FORMAT = ['#{client_tty}', '#{client_activity}', '#{client_session}'].join(SEPARATOR)

@@ -9,6 +9,7 @@ import { silentReporter } from '@quimbyhq/reporter'
 import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { formatDuration, writeText } from '@quimbyhq/utils'
 import {
+  getFocusGraceSeconds,
   loadQuimbyConfig,
   loadState,
   resolveFocusPolicy,
@@ -136,7 +137,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           outboxTracker,
           reporter,
           nudgePolicy,
-          focusPolicy,
+          serverConfig ?? {},
         )
         // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
         // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
@@ -147,7 +148,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           reminderTracker,
           Date.now(),
           reporter,
-          focusPolicy,
+          serverConfig ?? {},
         )
       }
       if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
@@ -186,11 +187,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
     // silent AFTER the nudge policy has already said yes — the distinction `nudge: all` cannot
     // express, and the reason a held nudge reads as a broken courier.
     reporter.info(
-      `Focus policy: ${focusPolicy} (${
-        focusPolicy === 'hold'
-          ? "a nudge defers while you're working in the agent's pane"
-          : 'a nudge types even into the pane you are working in'
-      }; per-agent \`whenFocused\` overrides it).`,
+      `Focus policy: ${focusPolicy} (${FOCUS_POLICY_BLURB[focusPolicy]}; grace ` +
+        `${getFocusGraceSeconds(serverConfig)}s after your last keystroke, per-agent ` +
+        '`whenFocused` overrides it).',
     )
   }
   if (idleTimeoutMs) {
@@ -293,3 +292,11 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 /** Skipped ticks between repeat warnings, so a persistently slow cycle says so without spamming. */
 const SKIP_WARN_EVERY = 12
+
+// How each focus policy reads in the startup banner. `directed` is the default and the one that
+// needs explaining: it is derived per agent from the authority graph, not a single fleet-wide answer.
+const FOCUS_POLICY_BLURB: Record<string, string> = {
+  directed: 'a directed agent is typed into, the agent nobody directs holds',
+  hold: "a nudge defers while you're working in the agent's pane",
+  nudge: 'a nudge types even into the pane you are working in',
+}
