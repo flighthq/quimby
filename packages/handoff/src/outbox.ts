@@ -14,7 +14,7 @@ import {
   remoteAgentHandoffOutQueuedDir,
   remoteAgentHandoffOutSentDir,
 } from '@quimbyhq/paths'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
+import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { cp, ensureDir, exists } from '@quimbyhq/utils'
@@ -163,9 +163,14 @@ export async function hasInboxParcel(
     const processed = remoteAgentHandoffInProcessedDir(projectId, agent.id, agent.location.base)
     const ledger = remoteAgentHandoffInProcessedLedgerPath(projectId, agent.id, agent.location.base)
     try {
+      // `sp`, never `sq`: a remote path is `~/.quimby/...`, and single-quoting the leading `~`
+      // stops the remote shell expanding it — `test -d '~/…'` is then false for a parcel that is
+      // right there, so EVERY reply from an SSH agent was downgraded to an advisory and the asker
+      // was never woken. The failure is silent in the direction that looks like a real answer
+      // ("not in its inbox"), which is why it read as a swept parcel rather than a quoting bug.
       await getSSHTransport(agent.location).exec(
-        `test -d ${sq(join(received, parcelName))} || test -d ${sq(join(processed, parcelName))} || ` +
-          `grep -qxF ${sq(parcelName)} ${sq(ledger)}`,
+        `test -d ${sp(join(received, parcelName))} || test -d ${sp(join(processed, parcelName))} || ` +
+          `grep -qxF ${sq(parcelName)} ${sp(ledger)} 2>/dev/null`,
       )
       return true
     } catch {

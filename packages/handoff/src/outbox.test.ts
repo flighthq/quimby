@@ -195,6 +195,37 @@ describe('hasInboxParcel', () => {
     expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q7')).toBe(true)
     expect(await hasInboxParcel(dir, agent, 'proj', 'builder-q')).toBe(false)
   })
+
+  it('leaves the leading ~ unquoted so the remote shell expands an SSH agent inbox path', async () => {
+    // `test -d '~/…'` is false for a parcel that is right there, so quoting the whole path
+    // downgraded EVERY reply from an SSH agent to an advisory and woke nobody.
+    sshTransport.exec.mockClear()
+    const ssh = {
+      id: 'review',
+      name: 'review',
+      location: { type: 'ssh', host: 'box' },
+    } as AgentState
+    await hasInboxParcel(dir, ssh, 'proj', 'builder-q1')
+
+    const cmd = (sshTransport.exec.mock.calls[0] as unknown as [string])[0]
+    expect(cmd).toContain("~/'")
+    expect(cmd).not.toContain("'~/")
+    // The parcel name is still quoted — only the tilde escapes the quotes.
+    expect(cmd).toContain('builder-q1')
+  })
+
+  it('does not let a missing processed ledger write to stderr on an SSH agent', async () => {
+    sshTransport.exec.mockClear()
+    const ssh = {
+      id: 'review',
+      name: 'review',
+      location: { type: 'ssh', host: 'box' },
+    } as AgentState
+    await hasInboxParcel(dir, ssh, 'proj', 'builder-q1')
+
+    const cmd = (sshTransport.exec.mock.calls[0] as unknown as [string])[0]
+    expect(cmd).toMatch(/grep -qxF .*2>\/dev\/null/)
+  })
 })
 
 describe('markHandoffSent', () => {
