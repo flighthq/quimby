@@ -101,6 +101,15 @@ describe('buildRemoteNudgeCommand', () => {
     expect(goAt).toBeLessThan(submitSleepAt)
   })
 
+  it('cancels any pane mode before injecting, joined so its expected failure cannot swallow the nudge', () => {
+    const cmd = buildRemoteNudgeCommand('qb-sess', 'continue', false)
+    const cancelAt = cmd.indexOf('-X cancel')
+    expect(cancelAt).toBeGreaterThanOrEqual(0)
+    expect(cancelAt).toBeLessThan(cmd.indexOf(`-l ${sq('continue')}`))
+    // `|| true` + `;` — a pane not in a mode exits non-zero, and an `&&` there would drop the nudge.
+    expect(cmd).toContain('-X cancel 2>/dev/null || true;')
+  })
+
   it('single-quotes text with spaces and quotes so the remote shell keeps it literal', () => {
     const cmd = buildRemoteNudgeCommand('s', "it's a test", false)
     expect(cmd).toContain(`-l ${sq("it's a test")}`)
@@ -181,6 +190,43 @@ describe('nudgeAgentSession', () => {
       argvs.findIndex((a) => a.includes('Enter')),
     )
     expect(events.some((e) => e.level === 'success')).toBe(true)
+  })
+
+  it('cancels any pane mode before typing, so a scrolled-up (copy-mode) pane still gets the nudge', async () => {
+    execa.mockResolvedValue({})
+
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'continue' })
+
+    const argvs = execa.mock.calls.map((c) => c[1] as string[])
+    const cancelAt = argvs.findIndex((a) => a.includes('-X') && a.includes('cancel'))
+    const literalAt = argvs.findIndex((a) => a.includes('-l') && a.includes('continue'))
+    expect(cancelAt).toBeGreaterThanOrEqual(0)
+    expect(cancelAt).toBeLessThan(literalAt)
+  })
+
+  it('still nudges when the pane is not in a mode and the cancel therefore fails', async () => {
+    // `send-keys -X cancel` exits non-zero with "not in a mode" — the common case, so a rejection
+    // there must not abort the injection it exists to protect.
+    execa.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('-X')) throw new Error('not in a mode')
+      return {}
+    })
+    const { reporter, events } = collectingReporter()
+
+    await expect(
+      nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'go', reporter }),
+    ).resolves.toBe('sent')
+    expect(events.some((e) => e.level === 'success')).toBe(true)
+  })
+
+  it('bounds every tmux call with a timeout, so a wedged send-keys cannot stall a poll cycle', async () => {
+    execa.mockResolvedValue({})
+
+    await nudgeAgentSession({ agent: localWithTmux, displayName: 'reviewer', text: 'continue' })
+
+    for (const call of execa.mock.calls) {
+      expect((call[2] as { timeout?: number } | undefined)?.timeout).toBeGreaterThan(0)
+    }
   })
 
   it('renders a courier label with the `quimby ·` lead so the agent can tell it from live user input', async () => {

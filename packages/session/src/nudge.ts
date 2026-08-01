@@ -33,6 +33,14 @@ const CLEAR_SETTLE_MS = 600
 // submission rather than just another line-editing event.
 const SUBMIT_SETTLE_MS = 150
 
+// Every local tmux call is a control-socket round trip that returns in milliseconds — except when
+// it doesn't. `send-keys` into a pane whose mode opens a prompt blocks until a human answers it
+// (see cancelPaneMode), and an execa with no timeout turns that into an unbounded await: the
+// server's poll cycle is one long chain, so one wedged tmux call stalled a whole fleet's cycle for
+// 20+ minutes ("Poll cycle still running after 5s — skipped 228 tick(s)"). Cancelling the mode
+// first removes the cause; this bounds every other way tmux can fail to answer.
+const TMUX_EXEC_TIMEOUT_MS = 5000
+
 // A courier-injected message leads with this so the agent can tell it from text the user typed
 // live: `quimby · <label>` (e.g. `parcel review-abc123 from review`, `assignment updated`,
 // `resume …`). The
@@ -267,7 +275,10 @@ export async function nudgeAgentSession(opts: {
         )
         return 'skipped'
       }
-      await execa('tmux', [...TMUX, 'has-session', '-t', session])
+      await execa('tmux', [...TMUX, 'has-session', '-t', session], {
+        timeout: TMUX_EXEC_TIMEOUT_MS,
+      })
+      await cancelPaneMode(session)
       if (clear) {
         await sendKeysLocal(session, CLEAR_COMMAND)
         await delay(CLEAR_SETTLE_MS)
@@ -320,9 +331,14 @@ async function nudgeWindowInSession(
 ): Promise<boolean> {
   const target = `${session}:=${windowName}`
   try {
-    await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-l', text])
+    await cancelPaneMode(target)
+    await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-l', text], {
+      timeout: TMUX_EXEC_TIMEOUT_MS,
+    })
     await delay(SUBMIT_SETTLE_MS)
-    await execa('tmux', [...TMUX, 'send-keys', '-t', target, 'Enter'])
+    await execa('tmux', [...TMUX, 'send-keys', '-t', target, 'Enter'], {
+      timeout: TMUX_EXEC_TIMEOUT_MS,
+    })
     reporter.success(`Nudged "${windowName}" in dashboard "${session}"`)
     return true
   } catch {
@@ -342,7 +358,9 @@ export function buildRemoteNudgeCommand(session: string, text: string, clear: bo
     ? `${sendKeysInject(session, CLEAR_COMMAND)} && sleep ${CLEAR_SETTLE_MS / 1000} && `
     : ''
   const inject = `${clearInject}${sendKeysInject(session, text)}`
-  return `${TMUX_CMD} has-session -t ${sq(session)} 2>/dev/null && ${inject}`
+  // The cancel is `;`-joined, not `&&`: it exits non-zero on the common case (the pane is not in a
+  // mode), which would otherwise swallow the nudge it exists to protect.
+  return `${TMUX_CMD} has-session -t ${sq(session)} 2>/dev/null && { ${remoteCancelPaneMode(session)}; ${inject}; }`
 }
 
 // Two send-keys as a shell fragment (for SSH transport): `-l` types the literal text
@@ -353,9 +371,45 @@ function sendKeysInject(session: string, text: string): string {
 
 // The local twin of `sendKeysInject`: type the literal text, then submit with Enter.
 async function sendKeysLocal(session: string, text: string): Promise<void> {
-  await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text])
+  await execa('tmux', [...TMUX, 'send-keys', '-t', session, '-l', text], {
+    timeout: TMUX_EXEC_TIMEOUT_MS,
+  })
   await delay(SUBMIT_SETTLE_MS)
-  await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'])
+  await execa('tmux', [...TMUX, 'send-keys', '-t', session, 'Enter'], {
+    timeout: TMUX_EXEC_TIMEOUT_MS,
+  })
+}
+
+/**
+ * Leave copy mode (or any pane mode) on the target before typing into it.
+ *
+ * Quimby's bundled tmux config sets `mouse on`, so a wheel scroll — the obvious way to read what an
+ * agent just did — puts that pane in copy mode. A pane in a mode routes `send-keys -l` through the
+ * **copy-mode key table** instead of to the program, so the nudge is consumed as editor commands
+ * rather than delivered: `q` cancels, `t`/`f` open the "Jump to forward:" prompt, `/` opens search.
+ * Two failures follow, and the second is the expensive one. The agent is never woken (and the human
+ * finds a stray jump prompt in the pane), and the send-keys **client blocks until a human answers
+ * that prompt** — verified on tmux 3.6, where `send-keys -l 'continue'` into a copy-mode pane with a
+ * client attached never returns. That await is inside the server's poll cycle, which is why one
+ * scrolled-up pane stalled a cycle for 20+ minutes and every other agent's dispatch behind it.
+ *
+ * `-X cancel` errors with "not in a mode" in the common case, so its failure is ignored. The cost is
+ * that a nudge scrolls a watched pane back to the bottom; the §7 focus guard already holds nudges
+ * for the pane you are *typing* in, and losing the wake outright is strictly worse.
+ */
+async function cancelPaneMode(target: string): Promise<void> {
+  try {
+    await execa('tmux', [...TMUX, 'send-keys', '-t', target, '-X', 'cancel'], {
+      timeout: TMUX_EXEC_TIMEOUT_MS,
+    })
+  } catch {
+    // Not in a mode (the common case), or the target vanished — the injection below reports that.
+  }
+}
+
+/** The remote twin of `cancelPaneMode`, as a shell fragment for the SSH one-shot command. */
+function remoteCancelPaneMode(session: string): string {
+  return `${TMUX_CMD} send-keys -t ${sq(session)} -X cancel 2>/dev/null || true`
 }
 
 /**
