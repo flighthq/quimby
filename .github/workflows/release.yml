@@ -1,0 +1,66 @@
+name: Release
+
+# On a bare numeric version tag: verifies the tree, publishes `quimby` to npm's `latest` dist-tag,
+# and opens a GitHub release with generated notes. The snapshot channel (`next`, published on every
+# green push to main by ci.yml) is the continuous counterpart; this is the deliberate one.
+#
+# Cutting a release:
+#   npm run version:package 0.3.0
+#   git commit -am "release: 0.3.0"
+#   git tag 0.3.0 && git push && git push --tags
+#
+# The tag carries no "v" prefix — snapshot-version.ts finds the last release with
+# `--match '[0-9]*.[0-9]*.[0-9]*'` so that quimby/seed (which every agent clone carries) can never
+# stand in for a version tag.
+on:
+  push:
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # npm provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          # Writes an .npmrc pointing at public npm and wires NODE_AUTH_TOKEN for the publish.
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # Build + check + test. The integration lane (tmux/sshd provisioning) is deliberately not
+      # repeated here: it already ran on this commit when it landed on main, and a release tag
+      # points at a commit that ci.yml has passed. This is the gate that catches a tag cut from a
+      # dirty or unbuilt tree.
+      - name: Verify
+        run: npm run ci
+
+      - name: Publish to npm
+        run: npm run release -- --no-build
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Build provenance; requires a public repo plus the id-token permission above.
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      # Idempotent: `create` when the release is new, `edit` when re-running against an existing
+      # one, so a retried workflow does not fail on a release that is already there.
+      - name: Open the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes \
+            || gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}"

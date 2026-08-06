@@ -1,9 +1,27 @@
 {
   "name": "quimby",
   "version": "0.2.0",
-  "description": "Run AI agents in isolated agents, ship their work as reviewable packs",
+  "description": "Orchestrate multiple AI agents working on a single project in isolated environments — local or remote",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "agents",
+    "ai",
+    "claude",
+    "cli",
+    "orchestration",
+    "sandbox",
+    "tmux"
+  ],
+  "homepage": "https://github.com/flighthq/quimby#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flighthq/quimby.git",
+    "directory": "apps/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/flighthq/quimby/issues"
+  },
   "bin": {
     "quimby": "./dist/cli.js"
   },
@@ -16,6 +34,12 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -49,8 +73,10 @@
     "@quimbyhq/agent": "*",
     "@quimbyhq/workspace": "*",
     "citty": "^0.1.6",
+    "consola": "^3.4.2",
     "execa": "^9.6.1",
-    "pathe": "^2.0.3"
+    "pathe": "^2.0.3",
+    "yaml": "^2.7.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

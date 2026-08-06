@@ -48,3 +48,54 @@ jobs:
 
       - name: Integration tests
         run: npm run test:integration
+
+  # The continuous channel: every green push to main publishes a snapshot to npm's `next`
+  # dist-tag, so `npm i -g quimby@next` is always the tip of main. The deliberate `latest`
+  # release is release.yml, cut from a bare numeric tag. Gated on `ci`, so a red commit
+  # publishes nothing, and skipped entirely on pull requests.
+  snapshot:
+    name: Publish snapshot to `next`
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+
+    concurrency:
+      group: snapshot
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # snapshot-version.ts reads the commits since the last version tag to pick the bump
+          # level and the build count, so a shallow clone would compute the wrong version.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Compute the snapshot version
+        id: snapshot
+        run: npm run --silent snapshot:version >> "$GITHUB_OUTPUT"
+
+      # Stamps apps/cli only; the working tree is never committed or pushed, so the version
+      # lives in the published tarball and nowhere else.
+      - name: Stamp the version
+        run: npm run version:package -- "${{ steps.snapshot.outputs.version }}"
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm run release -- --no-build --tag "${{ steps.snapshot.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
