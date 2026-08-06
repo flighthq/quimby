@@ -53,8 +53,10 @@ jobs:
         run: npm run release -- --no-build
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # Build provenance; requires a public repo plus the id-token permission above.
-          NPM_CONFIG_PROVENANCE: 'true'
+          # Build provenance; requires a PUBLIC repo plus the id-token permission above. Derived
+          # from the repo's own visibility so a private repo does not fail the publish for a
+          # reason unrelated to the build, and going public needs no edit here.
+          NPM_CONFIG_PROVENANCE: ${{ !github.event.repository.private }}
 
       # Idempotent: `create` when the release is new, `edit` when re-running against an existing
       # one, so a retried workflow does not fail on a release that is already there.

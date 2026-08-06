@@ -24,6 +24,16 @@ jobs:
       - name: CI
         run: npm run ci
 
+      # Exercise the whole publish path on every PR, short of the upload. It needs no token
+      # (--dry-run never contacts the registry) and costs seconds, but it runs the two checks
+      # whose failure is otherwise invisible until a real publish: that stripping the bundled
+      # @quimbyhq/* deps leaves every runtime import still declared, and that `npm pack` produces
+      # a tarball. The failure it guards against — a dependency moved into a bundled package,
+      # so the published tarball installs and then crashes — is introduced by an ordinary code
+      # change, which is exactly when this runs.
+      - name: Publish preflight (dry run)
+        run: npm run release -- --no-build --dry-run
+
       # Provision the end-to-end harness's dependencies so every suite actually runs instead of
       # self-skipping: Suite A (git + built CLI) needs nothing extra, Suite B needs tmux, and
       # Suite C needs passwordless loopback sshd + rsync. The final `ssh` sanity check fails the
@@ -98,4 +108,7 @@ jobs:
         run: npm run release -- --no-build --tag "${{ steps.snapshot.outputs.tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
+          # Provenance requires a PUBLIC repo — on a private one npm rejects the publish outright.
+          # Deriving it from the repo's own visibility means this workflow does not have to be
+          # edited when quimby goes public, and never fails for a reason unrelated to the build.
+          NPM_CONFIG_PROVENANCE: ${{ !github.event.repository.private }}
