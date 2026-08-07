@@ -106,7 +106,103 @@ afterEach(() => {
   }
 })
 
+// Move the delivered base ahead of the agent, as `quimby sync` now does: land a commit and point
+// `quimby/base` at it WITHOUT touching HEAD, the index, or the working tree.
+function deliverBase(root: string, content = 'peer-landed'): string {
+  const repo = join(root, 'repo')
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@t',
+  }
+  // agent.sh shells out to `git rebase`, which needs a committer identity in the repo itself —
+  // the env-var identity above only covers the commits this helper makes. A real agent clone has
+  // this configured by quimby's provisioning.
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: repo })
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: repo })
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim()
+  execFileSync('git', ['checkout', '-q', '--detach'], { cwd: repo, env })
+  writeFileSync(join(repo, 'shared.txt'), content)
+  execFileSync('git', ['add', '.'], { cwd: repo, env })
+  execFileSync('git', ['commit', '-q', '-m', 'peer work'], { cwd: repo, env })
+  const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim()
+  execFileSync('git', ['tag', '-f', 'quimby/base', base], { cwd: repo, env })
+  execFileSync('git', ['checkout', '-q', head], { cwd: repo, env })
+  execFileSync('git', ['checkout', '-q', '-B', 'main', head], { cwd: repo, env })
+  return base
+}
+
+function gitIn(root: string, args: readonly string[]): string {
+  return execFileSync('git', [...args], { cwd: join(root, 'repo'), encoding: 'utf-8' }).trim()
+}
+
 describe('renderAgentScript', () => {
+  // The delivery signal. The host no longer rebases the agent underneath its own edits, so this
+  // footer is the ONLY thing that tells an agent its floor moved — it has to ride every command
+  // and stay silent otherwise, or it becomes noise people learn to skip.
+  it('says nothing about the base when the agent is current', () => {
+    const root = makeAgentWorkspace()
+    execFileSync('git', ['tag', 'quimby/base'], { cwd: join(root, 'repo') })
+    expect(runSh(root, ['status'])).not.toContain('quimby/base')
+  })
+
+  it('reports a moved base after every command, not just a dedicated one', () => {
+    const root = makeAgentWorkspace()
+    deliverBase(root)
+    // `status` is an ordinary, unrelated command — that is the point: the notice rides whatever
+    // the agent happened to run. It goes to stderr so piped stdout stays parseable.
+    const merged = execFileSync('sh', ['-c', `sh ${join(root, 'agent.sh')} status 2>&1`], {
+      cwd: root,
+      encoding: 'utf-8',
+    })
+    expect(merged).toContain('quimby/base is 1 commit(s) ahead')
+    expect(merged).toContain('./agent.sh rebase')
+  })
+
+  it('refuses to rebase over a dirty tree — the resurrection this split exists to prevent', () => {
+    const root = makeAgentWorkspace()
+    deliverBase(root)
+    writeFileSync(join(root, 'repo', 'in-flight.txt'), 'half a thought')
+    const { status, stderr } = runShFail(root, ['rebase'])
+    expect(status).not.toBe(0)
+    expect(stderr).toMatch(/tree is dirty/)
+    // and it really did not touch anything
+    expect(gitIn(root, ['status', '--porcelain'])).toContain('in-flight.txt')
+  })
+
+  it('applies the delivered base and keeps the peer work the agent replays onto', () => {
+    const root = makeAgentWorkspace()
+    const base = deliverBase(root, 'peer-landed')
+    writeFileSync(join(root, 'repo', 'mine.txt'), 'my feature')
+    execFileSync('git', ['add', '.'], { cwd: join(root, 'repo') })
+    execFileSync('git', ['commit', '-q', '-m', 'my work'], {
+      cwd: join(root, 'repo'),
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    })
+
+    expect(runSh(root, ['rebase'])).toContain('rebased onto quimby/base')
+
+    // the peer's file is present at the delivered content (not reverted), with the agent's commit
+    // replayed on top of it
+    expect(readFileSync(join(root, 'repo', 'shared.txt'), 'utf-8')).toBe('peer-landed')
+    expect(gitIn(root, ['log', '-1', '--format=%s'])).toBe('my work')
+    expect(gitIn(root, ['merge-base', '--is-ancestor', base, 'HEAD']) === '').toBe(true)
+  })
+
+  it('is a no-op that says so when already on the delivered base', () => {
+    const root = makeAgentWorkspace()
+    execFileSync('git', ['tag', 'quimby/base'], { cwd: join(root, 'repo') })
+    expect(runSh(root, ['rebase'])).toContain('already up to date')
+  })
+
   it('annotates peers with their edge, so the roster is not a flat list to infer rank from', () => {
     const root = makeAgentWorkspace({
       roster: ['manager', 'integration', 'critic'],

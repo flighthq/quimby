@@ -17,6 +17,18 @@ Quimby still stores assignment, status, mailbox, and peer mirrors as files under
 2. Do the work in `repo/` and commit as you go. Keep commit messages to a single line — no long body, no `Co-Authored-By` trailer. Keep all work on your original branch — don't create or switch branches; Quimby captures your working tree against its seed, so a new branch isn't carried.
 3. Keep your status current with `./agent.sh status set -m "..."` or `./agent.sh status append -m "..."` — what you're doing, what's done, blockers, the next concrete step. It's your handoff to your own successor, who resumes from it alone after a reset. Finish with `./agent.sh status done -m "done: …"`. These writes are silent; don't announce them.
 
+## Your floor moves, and you are the one who applies it — `./agent.sh rebase`
+
+Peers land work while you are mid-task, so the base under you advances. Quimby **delivers** that base as the `quimby/base` tag and **does not** rebase your repo underneath you: your commits keep their SHAs, your uncommitted work is never stashed, and nothing changes while you are mid-edit. Applying it is yours to do, because only you know when your tree is at a safe point.
+
+`agent.sh` tells you without interrupting: **every** command prints a one-line notice when `quimby/base` is ahead of you, and stays silent otherwise. There is no nudge for this — the footer is the signal.
+
+When you see it, finish the thought you are on, **commit**, then run `./agent.sh rebase`. It refuses on a dirty tree on purpose. Replaying over uncommitted work is how a pre-sync copy of a file gets restored on top of a peer's just-landed change — silently, with no conflict — and you then commit that revert inside a commit named after your own feature. Nothing downstream catches it: to git it looks like a deliberate edit.
+
+Reconcile **between** arcs, not in the middle of one. If you have been running a long time without applying, do it before you start the next piece of work rather than at the end, so your work is built on what actually shipped.
+
+Two habits that go with this. After any base move, **stage your own paths** rather than `git add -A`, so a file you never meant to touch cannot ride along. And when you check that your work survived a rebase, verify it **by content, not by SHA** — a rebase legitimately mints new SHAs, so a changed hash is not evidence of loss, and an unchanged file list is not evidence of safety.
+
 ## Keep `assignment.md` true — and know it ranks below the live user
 
 `assignment.md` is your standing task of record, but it is a **saved snapshot of a past instruction from the user** — not an authority that outranks newer user intent. User intent may reach you directly or through an agent the user explicitly asked to coordinate work. After that comes `assignment.md`, then ordinary peer suggestions (input to weigh only — see Peers).
