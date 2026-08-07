@@ -1,4 +1,4 @@
-import { chmod, readdir, rm } from 'node:fs/promises'
+import { chmod, mkdir, readdir, rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -16,6 +16,7 @@ import {
   AGENT_SCRIPT_SH_FILENAME,
   renderAgentAgentsMd,
   renderAgentClaudeMd,
+  renderAgentPreCommitHook,
   renderAgentScript,
   renderAgentScriptCmd,
 } from '@quimbyhq/template'
@@ -321,6 +322,15 @@ export async function writeRemoteAgentInstructions(
   await transport.exec(
     `rm -f ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_SH_FILENAME}`)} ${sp(`${rAgentDir}/${AGENT_SCRIPT_LEGACY_CMD_FILENAME}`)}`,
   )
+  // The advisory pre-commit hook (see the local twin). Best-effort for the same reason: a repo that
+  // is not yet cloned must not fail the instruction write, and the hook is a net, not a gate.
+  const hookPath = `${rAgentDir}/repo/.git/hooks/pre-commit`
+  try {
+    await transport.writeFile(hookPath, renderAgentPreCommitHook())
+    await transport.exec(`chmod +x ${sp(hookPath)}`)
+  } catch {
+    /* advisory only */
+  }
 }
 
 /**
@@ -480,6 +490,26 @@ export async function writeAgentInstructions(
   await writeText(join(agentDir, AGENT_SCRIPT_CMD_FILENAME), renderAgentScriptCmd(opts))
   await rm(join(agentDir, AGENT_SCRIPT_LEGACY_SH_FILENAME), { force: true })
   await rm(join(agentDir, AGENT_SCRIPT_LEGACY_CMD_FILENAME), { force: true })
+  await writeAgentPreCommitHook(join(agentDir, 'repo'))
+}
+
+/**
+ * Install the advisory pre-commit hook into an agent's clone. Regenerated alongside the rest of
+ * the Quimby tier, so it reaches an existing agent on its next launch or `quimby sync`.
+ *
+ * Best-effort: the hook is a safety net, and a repo that is missing, not yet cloned, or has an
+ * unusual `.git` layout must never fail the scaffold write that carries the agent's instructions.
+ */
+async function writeAgentPreCommitHook(repoDir: string): Promise<void> {
+  try {
+    const hooksDir = join(repoDir, '.git', 'hooks')
+    await mkdir(hooksDir, { recursive: true })
+    const hookPath = join(hooksDir, 'pre-commit')
+    await writeText(hookPath, renderAgentPreCommitHook())
+    await chmod(hookPath, 0o755)
+  } catch {
+    /* advisory only — never block provisioning on it */
+  }
 }
 
 async function getCurrentBranchOrRef(repoRoot: string): Promise<string> {
