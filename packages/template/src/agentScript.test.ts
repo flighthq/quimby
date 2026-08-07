@@ -488,6 +488,45 @@ describe('renderAgentScript', () => {
   // anything. The tags deliberately come from metadata rather than note prose — a sender-typed
   // "TO:" prefix cannot be enforced and decays silently, since a reader cannot tell "not for me"
   // from "the sender forgot".
+  // An advisory parcel deliberately does not wake its recipient, so without an ambient count the
+  // only thing that can tell an agent it arrived is the host reminder sweep — which needs a running
+  // server, is spaced by 10 minutes, and gives up after 3 tries. Until then the human relays "check
+  // your inbox", which is the messenger problem quimby exists to remove.
+  it.runIf(posix)('reports unread parcels after an unrelated command', () => {
+    const root = makeAgentWorkspace()
+    const p = join(root, 'handoff', 'in', 'received', 'auditor-a1')
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'README.md'), 'independent review: three findings')
+    writeFileSync(join(p, 'meta.yaml'), 'from: auditor\n')
+    const merged = execFileSync('sh', ['-c', `sh ${join(root, 'agent.sh')} status 2>&1`], {
+      cwd: root,
+      encoding: 'utf-8',
+    })
+    expect(merged).toContain('1 unread parcel(s) in your inbox')
+  })
+
+  it.runIf(posix)('stays silent about the inbox when it is empty', () => {
+    const root = makeAgentWorkspace()
+    const merged = execFileSync('sh', ['-c', `sh ${join(root, 'agent.sh')} status 2>&1`], {
+      cwd: root,
+      encoding: 'utf-8',
+    })
+    expect(merged).not.toContain('unread parcel')
+  })
+
+  it.runIf(posix)('does not repeat the count at inbox itself, which already shows the tray', () => {
+    const root = makeAgentWorkspace()
+    const p = join(root, 'handoff', 'in', 'received', 'auditor-a1')
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'README.md'), 'independent review')
+    const merged = execFileSync('sh', ['-c', `sh ${join(root, 'agent.sh')} inbox 2>&1`], {
+      cwd: root,
+      encoding: 'utf-8',
+    })
+    expect(merged).toContain('auditor-a1')
+    expect(merged).not.toContain('unread parcel(s)')
+  })
+
   it.runIf(posix)('tags each parcel with its interrupt class from meta.yaml', () => {
     const root = makeAgentWorkspace()
     const drop = (name: string, note: string, meta: string): void => {

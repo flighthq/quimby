@@ -23,6 +23,8 @@ Peers land work while you are mid-task, so the base under you advances. Quimby *
 
 `agent.sh` tells you without interrupting: **every** command prints a one-line notice when `quimby/base` is ahead of you, and stays silent otherwise. There is no nudge for this — the footer is the signal.
 
+The same footer reports **unread parcels**. Not everything delivered to you wakes you: an ordinary advisory — a peer's review, an FYI — lands passively by design, so the count is how you find out it arrived. Triage it with `./agent.sh inbox`, which previews each note's first line and tags what kind it is (`[user-directed]`, `[escalation]`, `[awaiting your reply]`, `[reply]`, `[diff]`), so you can tell what needs you without opening anything. Reserve `inbox show` for parcels you mean to read in full — it prints the whole note with no paging.
+
 When you see it, finish the thought you are on, **commit**, then run `./agent.sh rebase`. It refuses on a dirty tree on purpose. Replaying over uncommitted work is how a pre-sync copy of a file gets restored on top of a peer's just-landed change — silently, with no conflict — and you then commit that revert inside a commit named after your own feature. Nothing downstream catches it: to git it looks like a deliberate edit.
 
 Reconcile **between** arcs, not in the middle of one. If you have been running a long time without applying, do it before you start the next piece of work rather than at the end, so your work is built on what actually shipped.
