@@ -31,6 +31,17 @@ export function isSnapshotVersionSuperseded(version: string, tagVersion: string)
   const theirs = parseVersion(tagVersion)
   if (ours === null || theirs === null) return false
 
+  // A stable release is never superseded by a PRERELEASE. Snapshots bump the base
+  // (0.2.0 → 0.2.1-next.N), so a snapshot sitting on the target dist-tag compares as newer than
+  // the stable version being released — and without this the deliberate release would skip,
+  // publishing NOTHING while the workflow reported success. Dropping a snapshot is free (the next
+  // commit publishes another); dropping a release is silent and total.
+  //
+  // Deliberately narrow: a stable release IS still superseded by a newer STABLE one, so re-tagging
+  // an old commit cannot drag `latest` backwards over a shipped release. That protection is the
+  // reason this guard covers the stable path at all.
+  if (ours.count === null && theirs.count !== null) return false
+
   for (let index = 0; index < 3; index++) {
     const mine = ours.base[index] ?? 0
     const other = theirs.base[index] ?? 0
