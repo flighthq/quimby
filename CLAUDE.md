@@ -27,7 +27,7 @@ An npm-workspace monorepo. The domain is split into one package per capability s
 
 - `apps/cli/` — the `quimby` binary; commands only. A command parses args, calls **one operation** in a capability package, then renders the result and enacts CLI-only side effects (tmux `execa`, `process.exit`, the live-session nudge). The domain logic — assign/handoff/merge/sync/dispatch flows, tmux launch — lives in the packages, not here
   - `src/cli.ts` — entry point (citty root command, flat subcommands; intercepts `help`/`-h`/`--help`)
-  - `src/index.ts` — public API (type re-exports)
+  - `src/index.ts` — type re-exports. **Not built or published**: `quimby` ships as a CLI only (`bin`, no `exports`), because tsup's declaration rollup cannot inline the bundled `@quimbyhq/*` types, so shipping it meant a `.d.ts` naming a package the published manifest strips. A programmatic API belongs in a curated SDK package (see build-and-tooling.md), not here
   - `src/commands/` — one file per command (add, up, config, host, run, start, stop, restart, list, status, assign, delegate, nudge, diff, handoff, dispatch, merge, sync, rebuild, rename, remove, set, serve, restore, storage, doctor, log)
   - `src/reporter.ts` — `consolaReporter`: the one binding of consola to the `@quimbyhq/reporter` `Reporter` contract; passed into operations so packages narrate progress without importing consola
   - `src/banner.ts` — colored wordmark on root help; `src/help.ts` — grouped root-help renderer; `src/walkthrough.ts` — interactive agent config (`@clack/prompts`); `src/hostAlias.ts` — resolves an agent's SSH host alias to a concrete address at launch, prompting for + persisting an unbound alias's binding (used by run/start/restore)
