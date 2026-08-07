@@ -481,6 +481,7 @@ agent.sh publish <recipient>          # publish a parcel drafted with --draft
 agent.sh inbox [list | show <p> | done <p>]  # list / read / mark-processed delivered parcels
 agent.sh attest --command CMD --result pass|fail [--summary S]   # append a quimby-attest block, atCommit auto-filled from HEAD
 agent.sh peers [name]                 # list peer status mirrors, or read one
+agent.sh rebase                       # apply the delivered base (quimby/base); refuses on a dirty tree
 ```
 
 Four properties define its scope:
@@ -612,9 +613,20 @@ An agent is a _synchronization relationship_, not a checkout. It records two thi
 - **`seedCommit`** (mirrored by the `quimby/seed` tag) — the base the agent's work is measured from. A handoff's diff is the agent's working tree against this tag.
 - **`syncRef`** — the ref the agent synchronizes against (e.g. `main`, `refs/heads/release`). Defaults to the host branch at `quimby add` time; an explicit `--sync` wins.
 
+- **`quimby/base`** — the tag a sync moves to the resolved target. It is _delivery_: the base is available in the agent's repo whether or not the agent has moved onto it yet.
+
 `quimby sync <agent>` resolves `syncRef`'s tip _in the host repo_ (not the host's live `HEAD`, so syncing is deterministic) and brings the agent onto it, with three behaviors:
 
-- **default (safe)** — auto-stash the agent's uncommitted + untracked work, rebase its commits onto the new base, retag `quimby/seed`, then restore the stash. The agent's work is kept. A rebase or restore conflict aborts and reports, leaving the work intact. If the agent's repo is **already** wedged in an unresolved conflict when the sync begins (a merge/rebase in progress, or unmerged index entries), the auto-stash can't run, so the safe sync detects that up front and fails with an actionable error — naming what's blocking, the on-agent undo, `-f` as the hard-reset escape hatch, and a ready-to-paste `quimby nudge` — instead of surfacing git's cryptic `needs merge`. (`-f` skips this: it hard-resets, which clears the conflict.)
+- **default (deliver, and apply only when applying is not a rewrite)** — the sync always moves `quimby/base` to the target first. That is one ref write: it touches neither HEAD, the index, nor the working tree, so it cannot disturb in-flight work and runs even for an agent whose repo is wedged. Whether the agent is then _advanced_ onto it depends on what advancing would take:
+  - The agent has **no commits and a clean tree** → fast-forward and retag `quimby/seed`. Nothing of the agent's is rewritten, so no SHA it may have recorded (a `quimby-attest` `atCommit`, a parcel's `CommitMeta`) changes meaning.
+  - The agent has **commits of its own, or a dirty tree** → the advance is **deferred to the agent**. Its history, its uncommitted work, and its seed are left exactly as they were, and `sync` reports `base delivered … not applied`. The agent applies it with `./agent.sh rebase` when its tree is at a boundary it recognises.
+
+  The split exists because only the agent knows when its floor can safely move. The host has `isDirty()`, which reads the same for "my formatter touched twelve files" and "I am three edits into a refactor" — and the old always-rebase path stashed (`--include-untracked`), rebased, then popped, so a **clean** pop silently reinstated the agent's pre-sync copies on top of work that had just landed. With no conflict and no signal, the agent could then commit a revert of a peer's work inside a commit named after its own feature, and nothing downstream catches that: to git the revert is a deliberate edit, so the boundary merge lands it cleanly. Deferring removes the stash, and with it the resurrection.
+
+  A pre-existing wedge (a merge/rebase in progress, or unmerged index entries) still fails with an actionable error — naming what's blocking, the on-agent undo, `-f` as the hard-reset escape hatch, and a ready-to-paste `quimby nudge` — instead of git's cryptic `needs merge`. The base is delivered before that error, so the agent can see the new base while it resolves. (`-f` skips the gate: it hard-resets, which clears the conflict.)
+
+  Two callers opt back into the rewriting behavior, because both are a deliberate, user-present act on work being harvested right then: `merge`'s pre-sync (so base-drift conflicts surface on the agent rather than in your repo) and `merge`'s post seed-advance (without it the next diff re-carries everything that already landed).
+
 - **`-f` (hard)** — `reset --hard` to the base, discarding the agent's commits and working changes — but its **mailbox** (`handoff/`, `status/`, `assignment.md`, `status.md`) is untouched. For "my work shipped; snap me to the latest and keep me in the conversation."
 - **`--base <ref>`** — retarget `syncRef` to `<ref>` (persisted), then sync onto it. The way to move an agent to a different branch. (`set --sync` records the ref without syncing.)
 - **`--current`** — sugar for `--base <the host's current branch>`, resolved once at call time. The everyday "snap onto where I am" — pair it with `-f` for the most common move after integrating (`quimby sync <agent> --current -f`: drop the agent's now-shipped work and rebase it on the branch you just landed work onto). It still **persists** the resolved branch as `syncRef`, so plain `sync` stays deterministic afterward; only the one-time read of live `HEAD` is implicit, and it errors on a detached HEAD (no branch to track). Orthogonal to `-f`: without `-f` it rebases the agent's work onto your branch; with `-f` it resets. Unlike `--base`, it is allowed with `--all` (retarget every agent onto your integration branch in one call).
