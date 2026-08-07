@@ -483,6 +483,42 @@ describe('renderAgentScript', () => {
     },
   )
 
+  // The listing is a triage surface, not an index: it previews the note's first line AND tags the
+  // interrupt class from host-stamped meta.yaml, so an inbox can be triaged without opening
+  // anything. The tags deliberately come from metadata rather than note prose — a sender-typed
+  // "TO:" prefix cannot be enforced and decays silently, since a reader cannot tell "not for me"
+  // from "the sender forgot".
+  it.runIf(posix)('tags each parcel with its interrupt class from meta.yaml', () => {
+    const root = makeAgentWorkspace()
+    const drop = (name: string, note: string, meta: string): void => {
+      const p = join(root, 'handoff', 'in', 'received', name)
+      mkdirSync(p, { recursive: true })
+      writeFileSync(join(p, 'README.md'), note)
+      writeFileSync(join(p, 'meta.yaml'), meta)
+    }
+    drop('builder-b1', 'blocked on the fixture path', 'from: builder\nescalation: true\n')
+    drop('review-r1', 'which ref should I target?', 'from: review\nexpectsReply: true\n')
+    drop('builder-b2', 'answer: origin/main', 'from: builder\nreplyTo: manager-9f2\n')
+    drop('peer-p1', 'fyi, refactored the loader', 'from: peer\n')
+
+    const out = runSh(root, ['inbox'])
+    expect(out).toContain('builder-b1 [escalation] — blocked on the fixture path')
+    expect(out).toContain('review-r1 [awaiting your reply] — which ref should I target?')
+    expect(out).toContain('builder-b2 [reply] — answer: origin/main')
+    // An ordinary advisory gets no tag — the classes have to mean something, so everything cannot
+    // carry one.
+    expect(out).toContain('peer-p1 — fyi, refactored the loader')
+  })
+
+  // The mechanism has to be stated where it is discoverable. Describing `inbox` only by its result
+  // ("list delivered parcels") is how a tool gets used all session with its capability unseen.
+  it('documents that the listing previews and that show prints in full', () => {
+    const sh = renderAgentScript()
+    expect(sh).toMatch(/inbox \[list\][^\n]*PREVIEWS/)
+    expect(sh).toContain('[awaiting your reply]')
+    expect(sh).toMatch(/inbox show[^\n]*IN FULL/)
+  })
+
   it.runIf(posix)('inbox lists a delivered parcel and moves it to processed on done', () => {
     const root = makeAgentWorkspace()
     const parcel = join(root, 'handoff', 'in', 'received', 'builder-abc123')
