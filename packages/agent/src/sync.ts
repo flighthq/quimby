@@ -270,7 +270,7 @@ export function applyAgentCoordinationEdges(
   let changed = false
 
   const directs = edges.directs?.length ? [...edges.directs] : undefined
-  if ((agent.directs ?? []).join(' ') !== (directs ?? []).join(' ')) {
+  if ((agent.directs ?? []).join('\u0000') !== (directs ?? []).join('\u0000')) {
     if (directs) agent.directs = directs
     else delete agent.directs
     changed = true
