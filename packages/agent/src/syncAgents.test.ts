@@ -48,6 +48,8 @@ beforeEach(() => {
     newSeed: 'newseed01',
     rebased: false,
     commitsReplayed: 0,
+    baseCommit: 'newseed',
+    applied: true,
     edgesUpdated: false,
   })
 })
@@ -88,6 +90,8 @@ describe('syncAgents', () => {
       newSeed: 'forced01',
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
     const [outcome] = await syncAgents(opts({ force: true }))
@@ -100,6 +104,8 @@ describe('syncAgents', () => {
       newSeed: 'old',
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
     const [outcome] = await syncAgents(opts({}))
@@ -111,6 +117,8 @@ describe('syncAgents', () => {
       newSeed: 'newseed01',
       rebased: true,
       commitsReplayed: 3,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
     const [outcome] = await syncAgents(opts({}))
@@ -122,6 +130,8 @@ describe('syncAgents', () => {
       newSeed: 'newseed01',
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
     const [outcome] = await syncAgents(opts({}))
@@ -139,6 +149,8 @@ describe('syncAgents', () => {
       newSeed: 'n',
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
 

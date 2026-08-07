@@ -433,6 +433,8 @@ describe('syncAgent', () => {
       newSeed: head,
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: head,
+      applied: true,
       edgesUpdated: false,
     })
     // the seed is persisted and the tag moved in the agent's clone
@@ -440,6 +442,43 @@ describe('syncAgent', () => {
     const repoDir = getAgentRepoDir(dir, 'alice-id')
     expect((await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim()).toBe(head)
     expect((await execa('git', ['rev-parse', 'quimby/seed'], { cwd: repoDir })).stdout.trim()).toBe(
+      head,
+    )
+    // and the delivery ref is there for the agent to compare itself against
+    expect((await execa('git', ['rev-parse', 'quimby/base'], { cwd: repoDir })).stdout.trim()).toBe(
+      head,
+    )
+  })
+
+  // The routine path must not rewrite a working agent's history. This is the regression test for
+  // the silent revert: the old algorithm stashed the agent's pre-sync tree and popped it back over
+  // the newly-landed base, so a clean pop reinstated stale copies with no conflict and no signal.
+  it('delivers the base but does not touch a dirty agent with commits of its own', async () => {
+    await registerLocalAgentClone('carol', 'carol-id')
+    const repoDir = getAgentRepoDir(dir, 'carol-id')
+    // the agent is mid-arc: one commit of its own, plus an uncommitted edit
+    await writeFile(join(repoDir, 'agent-work.ts'), 'export const mine = 1\n')
+    await execa('git', ['add', '-A'], { cwd: repoDir })
+    await execa('git', ['commit', '-m', 'agent work'], { cwd: repoDir })
+    const agentHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim()
+    await writeFile(join(repoDir, 'in-flight.ts'), 'half a thought\n')
+
+    const head = await advanceHost('feature')
+    const result = await syncAgent(dir, 'carol')
+
+    expect(result.applied).toBe(false)
+    expect(result.deferred).toBe('commits')
+    expect(result.baseCommit).toBe(head)
+    // HEAD, the seed, and the uncommitted file are all exactly as the agent left them
+    expect((await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim()).toBe(
+      agentHead,
+    )
+    expect((await loadState(dir)).agents.carol.seedCommit).not.toBe(head)
+    expect(await readFile(join(repoDir, 'in-flight.ts'), 'utf8')).toBe('half a thought\n')
+    // nothing was stashed, so nothing can be restored stale over the new base
+    expect((await execa('git', ['stash', 'list'], { cwd: repoDir })).stdout.trim()).toBe('')
+    // but the base IS delivered, so the agent can see what it is behind
+    expect((await execa('git', ['rev-parse', 'quimby/base'], { cwd: repoDir })).stdout.trim()).toBe(
       head,
     )
   })
@@ -454,6 +493,8 @@ describe('syncAgent', () => {
       newSeed: seed,
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: seed,
+      applied: true,
       edgesUpdated: false,
     })
   })
@@ -470,6 +511,8 @@ describe('syncAgent', () => {
       newSeed: head,
       rebased: false,
       commitsReplayed: 0,
+      baseCommit: head,
+      applied: true,
       edgesUpdated: false,
     })
     expect(transport.syncProjectTo).toHaveBeenCalled()
@@ -479,6 +522,7 @@ describe('syncAgent', () => {
     expect(calls).toContain('git status --porcelain')
     expect(calls).toContain(`git reset --hard ${head}`)
     expect(calls).toContain(`git tag -f quimby/seed ${head}`)
+    expect(calls).toContain(`git tag -f quimby/base ${head}`)
     // no local commits → fast-forward, never a rebase
     expect(calls.some((c) => c.startsWith('git rebase'))).toBe(false)
   })
@@ -496,12 +540,14 @@ describe('syncAgent', () => {
     await registerSSHAgent('remote', 'remote-id', 'oldseed0000')
     const head = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
 
-    const result = await syncAgent(dir, 'remote')
+    const result = await syncAgent(dir, 'remote', { apply: true })
 
     expect(result).toEqual({
       newSeed: head,
       rebased: true,
       commitsReplayed: 2,
+      baseCommit: head,
+      applied: true,
       edgesUpdated: false,
     })
     expect(calls).toContain('git stash push --include-untracked -m quimby-sync')

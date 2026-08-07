@@ -674,7 +674,17 @@ async function settleAgentSeed(opts: {
   // A ref retargets the agent's sync ref while advancing (syncAgent persists `base`); without
   // one the seed advances onto the current base — the branch the merge just landed on. `force`
   // hard-resets (squashed); the safe sync (soft) rebases while keeping the agent's loose work.
-  const result = await syncAgent(repoRoot, name, { force: !soft, base: retargetRef })
+  //
+  // `apply: true` for the same reason as the pre-sync: a routine sync only DELIVERS the base and
+  // leaves applying to the agent, but this is the far end of a merge the user just ran against
+  // this agent's work. Deferring here would silently skip the advance and leave the next diff
+  // re-carrying everything that already landed — the cumulative-diff trap the advance exists to
+  // prevent. (The gate above already established the agent has not drifted since the snapshot.)
+  const result = await syncAgent(repoRoot, name, {
+    force: !soft,
+    base: retargetRef,
+    apply: true,
+  })
   const retargeted = retargetRef ? ` (now tracks ${retargetRef})` : ''
   const kept = soft ? ' (kept its loose work)' : ''
   logger.success(`Advanced "${name}" seed → ${result.newSeed.slice(0, 8)}${retargeted}${kept}`)

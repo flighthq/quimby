@@ -52,6 +52,8 @@ beforeEach(async () => {
     newSeed: 'newseedcommit',
     rebased: false,
     commitsReplayed: 0,
+    baseCommit: 'newseed',
+    applied: true,
     edgesUpdated: false,
   })
 })
@@ -228,6 +230,8 @@ describe('assignAgentTask', () => {
       newSeed: 'abcdef1234',
       rebased: true,
       commitsReplayed: 3,
+      baseCommit: 'newseed',
+      applied: true,
       edgesUpdated: false,
     })
 

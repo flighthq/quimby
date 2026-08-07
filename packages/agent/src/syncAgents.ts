@@ -5,6 +5,7 @@ import { silentReporter } from '@quimbyhq/reporter'
 import type { QuimbyState } from '@quimbyhq/types'
 
 import { syncAgent } from './sync'
+import type { SyncDeferReason } from './syncAlgorithm'
 
 export interface SyncAgentsOptions {
   state: Readonly<QuimbyState>
@@ -18,10 +19,19 @@ export interface SyncAgentsOptions {
 
 export interface SyncAgentOutcome {
   name: string
-  outcome: 'forced' | 'up-to-date' | 'rebased' | 'fast-forwarded' | 'skipped'
+  /**
+   * `delivered` is the deliver-without-applying outcome: `quimby/base` moved, the agent's history
+   * did not. It is deliberately NOT folded into `up-to-date` — the agent is still behind, and the
+   * advance is now its to make.
+   */
+  outcome: 'forced' | 'up-to-date' | 'rebased' | 'fast-forwarded' | 'delivered' | 'skipped'
   syncRef: string
   /** The new seed commit after syncing (absent when skipped). */
   newSeed?: string
+  /** What `quimby/base` points at (present for the 'delivered' outcome). */
+  baseCommit?: string
+  /** Why the advance was left to the agent (present for the 'delivered' outcome). */
+  deferred?: SyncDeferReason
   /** Commits rebased onto the new base (present for the 'rebased' outcome). */
   commitsReplayed?: number
   /** The failure message when the outcome is 'skipped' (only reachable under `all`). */
@@ -91,6 +101,25 @@ export async function syncAgents(
       if (opts.force) {
         reporter.success(`${name}: hard-reset to ${syncRef} (${seedShort})`)
         outcomes.push({ name, outcome: 'forced', syncRef, newSeed: result.newSeed })
+      } else if (!result.applied) {
+        // Deferred: the base is on the agent as `quimby/base`, its history is untouched. This MUST
+        // NOT fall through to the `newSeed === prevSeed` branch below, which would report "already
+        // up to date" — the seed genuinely did not move, so the check is true and the sentence is a
+        // lie. An advance the agent still has to make has to say so.
+        reporter.info(
+          `${name}: base delivered (${result.baseCommit.slice(0, 8)}) — not applied, the agent has ` +
+            `${result.deferred === 'commits' ? `${result.commitsReplayed} commit(s) to rebase` : 'uncommitted work'}. ` +
+            `It applies this itself; "quimby sync ${name} -f" forces (discards its work).`,
+        )
+        outcomes.push({
+          name,
+          outcome: 'delivered',
+          syncRef,
+          newSeed: result.newSeed,
+          baseCommit: result.baseCommit,
+          deferred: result.deferred,
+          commitsReplayed: result.commitsReplayed,
+        })
       } else if (result.newSeed === prevSeed) {
         reporter.info(`${name}: already up to date with ${syncRef}`)
         outcomes.push({ name, outcome: 'up-to-date', syncRef, newSeed: result.newSeed })

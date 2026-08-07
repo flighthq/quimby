@@ -36,7 +36,7 @@ import {
   writeAgentInstructions,
   writeRemoteAgentInstructions,
 } from './lifecycle'
-import type { RepoSyncOps } from './syncAlgorithm'
+import type { RepoSyncOps, SyncDeferReason } from './syncAlgorithm'
 import { runSyncAlgorithm } from './syncAlgorithm'
 
 export async function getAgentPendingWork(
@@ -173,7 +173,11 @@ export async function rebaseAgentOntoBase(
   reporter: Reporter = silentReporter,
 ): Promise<{ newSeed: string; rebased: boolean; commitsReplayed: number }> {
   reporter.start(`Syncing "${name}" onto its base`)
-  const result = await syncAgent(repoRoot, name)
+  // `apply: true` — this is the one sync a routine one is not: the user is present, invoked it
+  // deliberately, and is harvesting this agent's work right now, so rebasing it onto the target
+  // (rather than deferring) is what keeps base-drift conflicts on the agent instead of in their
+  // repo. A routine `quimby sync` / `assign` sync delivers and defers.
+  const result = await syncAgent(repoRoot, name, { apply: true })
   if (result.rebased) {
     reporter.success(
       `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
@@ -187,11 +191,15 @@ export async function rebaseAgentOntoBase(
 export async function syncAgent(
   repoRoot: string,
   name: string,
-  opts?: { force?: boolean; base?: string },
+  opts?: { force?: boolean; base?: string; apply?: boolean },
 ): Promise<{
   newSeed: string
   rebased: boolean
   commitsReplayed: number
+  baseCommit: string
+  /** False when the base was delivered but the agent was left to apply it (see `deferred`). */
+  applied: boolean
+  deferred?: SyncDeferReason
   /** Whether the sync brought the agent's coordination edges back in line with current config. */
   edgesUpdated: boolean
 }> {
@@ -224,6 +232,7 @@ export async function syncAgent(
     hostHead,
     seedCommit: agent.seedCommit,
     force: opts?.force,
+    apply: opts?.apply,
     name,
   })
 
@@ -436,6 +445,7 @@ function localSyncOps(repoDir: string): RepoSyncOps {
       return !(await git.isRebaseOrAmInProgress(repoDir))
     },
     tagSeed: (commit) => git.tagForce(repoDir, 'quimby/seed', commit),
+    tagBase: (commit) => git.tagForce(repoDir, 'quimby/base', commit),
     stashPop: () => git.stashPop(repoDir),
   }
 }
@@ -485,6 +495,9 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
     },
     tagSeed: async (commit) => {
       await transport.exec(`git tag -f quimby/seed ${commit}`, cwd)
+    },
+    tagBase: async (commit) => {
+      await transport.exec(`git tag -f quimby/base ${commit}`, cwd)
     },
     stashPop: async () => {
       await transport.exec(`git stash pop`, cwd)

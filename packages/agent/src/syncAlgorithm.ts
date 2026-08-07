@@ -33,6 +33,13 @@ export interface RepoSyncOps {
   rebaseAbort(): Promise<boolean>
   /** Move the `quimby/seed` tag to `commit`. */
   tagSeed(commit: string): Promise<void>
+  /**
+   * Move the `quimby/base` tag to `commit` — the DELIVERY half of a sync, and the only step that
+   * is unconditionally safe. It writes one ref and touches neither HEAD, the index, nor the
+   * working tree, so it cannot disturb in-flight work and runs even for an agent whose repo is
+   * wedged. The agent applies it on its own schedule.
+   */
+  tagBase(commit: string): Promise<void>
   /** Restore auto-stashed work; rejects on conflict. */
   stashPop(): Promise<void>
 }
@@ -44,14 +51,30 @@ export interface SyncAlgorithmInput {
   seedCommit?: string
   /** Hard-reset to hostHead, discarding the agent's commits + working changes. */
   force?: boolean
+  /**
+   * Rewrite the agent's history when that is what advancing takes — stash a dirty tree and rebase
+   * its commits, the pre-split behavior. Off by default: a routine sync DELIVERS the base and lets
+   * the agent apply it. Callers that are a deliberate, user-present act on work being harvested
+   * right now (`merge`'s pre-sync) opt in.
+   */
+  apply?: boolean
   /** Agent name, for the conflict error messages. */
   name: string
 }
+
+/** Why an advance was left for the agent to apply rather than done under it. */
+export type SyncDeferReason = 'commits' | 'dirty'
 
 export interface SyncAlgorithmResult {
   newSeed: string
   rebased: boolean
   commitsReplayed: number
+  /** What `quimby/base` now points at — delivered whether or not the agent was advanced onto it. */
+  baseCommit: string
+  /** Whether the agent's HEAD actually moved onto `baseCommit`. */
+  applied: boolean
+  /** Set when the advance was deferred to the agent; `applied` is then false. */
+  deferred?: SyncDeferReason
 }
 
 /**
@@ -73,14 +96,32 @@ export async function runSyncAlgorithm(
   const { hostHead, name } = input
   await ops.fetch()
 
+  // DELIVER FIRST, unconditionally. This is one ref write — it cannot disturb in-flight work, so
+  // it happens before every decision below and even on the paths that throw. It also means the tag
+  // exists from the first sync onward, so the agent's own "am I behind?" check never has to cope
+  // with a missing ref.
+  await ops.tagBase(hostHead)
+
   if (input.force) {
     await ops.resetHardTo(hostHead)
     await ops.tagSeed(hostHead)
-    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+    return {
+      newSeed: hostHead,
+      rebased: false,
+      commitsReplayed: 0,
+      baseCommit: hostHead,
+      applied: true,
+    }
   }
 
   if (hostHead === input.seedCommit) {
-    return { newSeed: hostHead, rebased: false, commitsReplayed: 0 }
+    return {
+      newSeed: hostHead,
+      rebased: false,
+      commitsReplayed: 0,
+      baseCommit: hostHead,
+      applied: true,
+    }
   }
 
   // A pre-existing conflicted state (in-progress merge/rebase, or unmerged index) makes the
@@ -96,6 +137,31 @@ export async function runSyncAlgorithm(
 
   const commitsReplayed = await ops.countCommitsSinceSeed()
   const dirty = await ops.isDirty()
+
+  // The split. Advancing an agent that has NO commits and a clean tree is a fast-forward: nothing
+  // of the agent's is rewritten, no SHA it may have recorded (a `quimby-attest` atCommit, a parcel's
+  // CommitMeta) changes meaning, and there is no stash. That case stays automatic.
+  //
+  // Anything else means rewriting the agent's history or restoring its work over a moved base, and
+  // the host cannot tell whether now is a safe moment: `isDirty()` reads the same for "my formatter
+  // touched twelve files" and "I am three edits into a refactor". So it is deferred. The base is
+  // already delivered above; the agent applies it at a boundary it recognises.
+  //
+  // This is what closes the silent-revert hole. The old path stashed (`--include-untracked`),
+  // rebased, then popped — and a CLEAN pop reinstates the agent's pre-sync copies on top of work
+  // that just landed, with no conflict and no signal, so the agent could commit a revert of a
+  // peer's work inside an unrelated commit. No stash, no resurrection.
+  if (!input.apply && (commitsReplayed > 0 || dirty)) {
+    return {
+      newSeed: input.seedCommit ?? hostHead,
+      rebased: false,
+      commitsReplayed,
+      baseCommit: hostHead,
+      applied: false,
+      deferred: commitsReplayed > 0 ? 'commits' : 'dirty',
+    }
+  }
+
   if (dirty) await ops.stash()
 
   if (commitsReplayed === 0) {
@@ -134,7 +200,13 @@ export async function runSyncAlgorithm(
     }
   }
 
-  return { newSeed: hostHead, rebased: commitsReplayed > 0, commitsReplayed }
+  return {
+    newSeed: hostHead,
+    rebased: commitsReplayed > 0,
+    commitsReplayed,
+    baseCommit: hostHead,
+    applied: true,
+  }
 }
 
 /**
