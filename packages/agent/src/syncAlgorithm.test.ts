@@ -31,7 +31,7 @@ interface FakeConfig {
   abortFails?: boolean
   /** Simulate git refusing the fast-forward because local changes would be overwritten. */
   ffRefuses?: boolean
-  /** What isDirty() reports AFTER a refused fast-forward — the race case reads dirty by then. */
+  /** What isDirty() reports once the advance has been attempted — the agent wrote mid-sync. */
   dirtyAfterFf?: boolean
 }
 
@@ -46,7 +46,10 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
     isDirty: async () => {
       // A live agent can dirty the tree between the first read and the advance, which is exactly
       // the race; the fake models that by answering differently once the ff has been attempted.
-      if (calls.some((c) => c.startsWith('ff:')) && cfg.dirtyAfterFf !== undefined) {
+      if (
+        calls.some((c) => c.startsWith('ff:') || c.startsWith('rebase:')) &&
+        cfg.dirtyAfterFf !== undefined
+      ) {
         return cfg.dirtyAfterFf
       }
       return cfg.dirty ?? false
@@ -318,6 +321,16 @@ describe('runSyncAlgorithm', () => {
     const { ops } = fakeOps({ commits: 0, dirty: false, ffRefuses: true })
     const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a' })
     expect(result.deferred).toBe('diverged')
+  })
+
+  // `git rebase` refuses on an unstaged change, so a rebase failing when we did NOT stash means the
+  // agent wrote to its tree mid-sync — not that its commits conflict. The old message sent the user
+  // to resolve a conflict that did not exist.
+  it('names a mid-sync working-tree change rather than calling it a rebase conflict', async () => {
+    const { ops } = fakeOps({ commits: 2, dirty: false, rebaseThrows: true, dirtyAfterFf: true })
+    await expect(
+      runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a', apply: true }),
+    ).rejects.toThrow(/changed its working tree while syncing/)
   })
 
   it('leaves the seed where it was when it defers, so the agent is still behind', async () => {

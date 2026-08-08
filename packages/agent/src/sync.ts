@@ -182,6 +182,18 @@ export async function rebaseAgentOntoBase(
     reporter.success(
       `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
     )
+  } else if (!result.applied) {
+    // Even in apply mode the advance can be declined — git refuses a fast-forward that would
+    // overwrite the working tree, which is how a concurrent edit is protected. Reporting that as
+    // "already based on host HEAD" would be a plain lie, and the caller (`merge`) would carry on
+    // believing the base moved when it did not.
+    reporter.warn(
+      result.deferred === 'diverged'
+        ? `"${name}" could not fast-forward onto ${result.baseCommit.slice(0, 8)} — its base has ` +
+            `diverged. Merging from its current seed; "quimby sync ${name} --current -f" retargets it.`
+        : `"${name}" was not advanced — it has uncommitted work, so the base was delivered ` +
+            `(${result.baseCommit.slice(0, 8)}) and left for it to apply. Merging from its current seed.`,
+    )
   } else {
     reporter.info(`Already based on host HEAD (${result.newSeed.slice(0, 8)})`)
   }

@@ -205,6 +205,19 @@ export async function runSyncAlgorithm(
     } catch {
       const aborted = await ops.rebaseAbort()
       if (dirty && aborted) await ops.stashPop().catch(() => {})
+
+      // `git rebase` also refuses outright on an unstaged change, so a rebase that fails when we
+      // did NOT stash (the tree read clean moments earlier) is not a conflict at all — the agent
+      // wrote to its tree while the sync was running. Saying "rebase conflicts" there sends the
+      // user to resolve a conflict that does not exist, and hides the fact that the agent is live.
+      if (!dirty && aborted && (await ops.isDirty())) {
+        throw new SyncConflictError(
+          `Agent "${name}" changed its working tree while syncing onto ${hostHead.slice(0, 8)}, so the ` +
+            `rebase could not run — nothing was lost and its repo is untouched. Re-run once it is idle, ` +
+            `or have it commit first ("./agent.sh rebase" applies the base itself).`,
+          true,
+        )
+      }
       // A clean abort leaves the repo back on its seed, work intact (`agentClean: true`), so a
       // caller whose own conflict test is more lenient — `merge`'s 3-way of the net change — can
       // proceed from the seed. A failed abort leaves it mid-rebase, so it is not clean.
