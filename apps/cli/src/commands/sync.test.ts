@@ -93,7 +93,9 @@ describe('runSyncCommand', () => {
   })
 
   it('dedupes positionals and forwards the flags into syncAgents', async () => {
-    syncAgents.mockResolvedValueOnce(undefined as never)
+    // Resolve to an empty outcome list, which is what the real syncAgents returns — mocking it as
+    // `undefined` was drift that hid the command's use of the return value.
+    syncAgents.mockResolvedValueOnce([] as never)
     const { default: cmd } = await import('./sync')
     await cmd.run!({
       args: {

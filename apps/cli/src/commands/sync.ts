@@ -1,9 +1,10 @@
 import { syncAgents } from '@quimbyhq/agent'
 import { SyncConflictError } from '@quimbyhq/errors'
+import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { offerConflictNudge } from '../conflictNudge'
+import { offerApplyBaseNudge, offerConflictNudge } from '../conflictNudge'
 import { consolaReporter } from '../reporter'
 
 export default defineCommand({
@@ -61,7 +62,7 @@ export async function runSyncCommand({
   const names = [...new Set([args.agent, ...(args._ ?? [])].filter((n): n is string => Boolean(n)))]
 
   try {
-    await syncAgents(
+    const outcomes = await syncAgents(
       {
         state,
         repoRoot,
@@ -73,6 +74,31 @@ export async function runSyncCommand({
       },
       consolaReporter,
     )
+
+    // A sync that DELIVERED the base without applying it leaves the agent behind on purpose, and
+    // nothing else here would tell the agent to take it: it finds out on its next `agent.sh`
+    // invocation, which for an idle agent may be a long time and for a stopped one is never. So
+    // offer the same way a conflict does — this is the direct product of a command just run.
+    //
+    // Single-agent only. Under `--all` a busy fleet would mean a prompt per agent, so that path
+    // reports the count and the one command that covers it.
+    const deferred = outcomes.filter((o) => o.outcome === 'delivered')
+    if (deferred.length > 0 && names.length === 1 && !args.all) {
+      const agent = state.agents[deferred[0].name]
+      if (agent) {
+        await offerApplyBaseNudge({
+          agent,
+          displayName: deferred[0].name,
+          behind: deferred[0].commitsReplayed,
+          whenNonInteractive: 'print',
+        })
+      }
+    } else if (deferred.length > 0) {
+      logger.info(
+        `${deferred.length} agent(s) have the base delivered but not applied — they apply it ` +
+          `themselves (\`./agent.sh rebase\`). To ask one now: quimby sync <agent>.`,
+      )
+    }
   } catch (err) {
     // A rebase conflict rolled back cleanly: the agent's work is intact, and the fix is for the
     // agent to rebase and resolve in its own clone (where the code context is). Rather than leave

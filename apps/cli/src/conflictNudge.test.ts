@@ -10,7 +10,8 @@ vi.mock('@clack/prompts', () => ({ confirm, isCancel: (v: unknown) => v === Symb
 vi.mock('@quimbyhq/session', () => ({ hasAgentSession, nudgeAgentSession }))
 vi.mock('@quimbyhq/utils', () => ({ logger: { info } }))
 
-const { conflictNudgeCommand, offerConflictNudge } = await import('./conflictNudge')
+const { applyBaseNudgeCommand, conflictNudgeCommand, offerApplyBaseNudge, offerConflictNudge } =
+  await import('./conflictNudge')
 
 const agent = { id: 'a1', name: 'builder', tmux: true } as AgentState
 
@@ -35,6 +36,63 @@ beforeEach(() => {
 afterEach(() => {
   process.stdout.isTTY = prevOut as boolean
   process.stdin.isTTY = prevIn as boolean
+})
+
+describe('applyBaseNudgeCommand', () => {
+  it('uses --raw, since this is an ephemeral poke rather than a durable assignment', () => {
+    const cmd = applyBaseNudgeCommand('builder')
+    expect(cmd).toContain('quimby nudge builder --raw')
+    expect(cmd).toContain('./agent.sh rebase')
+  })
+})
+
+// The deliver-vs-apply split made the CONFLICT offer unreachable for the common case: a routine
+// sync no longer attempts the rebase, so it cannot fail, so that prompt never appears. Without
+// this offer, syncing a busy agent delivers the base and leaves nobody able to tell it to take one.
+describe('offerApplyBaseNudge', () => {
+  it('nudges (forced) when the user accepts', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+
+    expect(
+      await offerApplyBaseNudge({ agent, displayName: 'builder', whenNonInteractive: 'print' }),
+    ).toBe(true)
+    expect(nudgeAgentSession).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
+    // it must name the TOOL, not a raw git rebase — the tool is what refuses on a dirty tree
+    expect(nudgeAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ courier: expect.stringContaining('./agent.sh rebase') }),
+    )
+  })
+
+  it('only prints when there is no TTY — waking an agent stays the user’s call', async () => {
+    setTTY(false)
+    expect(
+      await offerApplyBaseNudge({ agent, displayName: 'builder', whenNonInteractive: 'print' }),
+    ).toBe(false)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('quimby nudge builder --raw'))
+  })
+
+  it('prints the paste-able command when the user declines', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(false)
+    expect(
+      await offerApplyBaseNudge({ agent, displayName: 'builder', whenNonInteractive: 'print' }),
+    ).toBe(false)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('./agent.sh rebase'))
+  })
+
+  // A stopped agent has no prompt to type into, and it will apply the base itself on next run —
+  // so this reports that rather than implying the base is stuck.
+  it('reports how it resolves itself when the agent is not running', async () => {
+    hasAgentSession.mockResolvedValue(false)
+    expect(
+      await offerApplyBaseNudge({ agent, displayName: 'builder', whenNonInteractive: 'print' }),
+    ).toBe(false)
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("isn't running"))
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
 })
 
 describe('conflictNudgeCommand', () => {

@@ -148,6 +148,19 @@ export function renderResumeRequest(): string {
  * `quimby · rebase onto <syncRef> and resolve conflicts`; the git steps live in the agent's
  * AGENTS.md ("Resolving a merge conflict") so the lead itself stays short.
  */
+/**
+ * The courier request that asks an agent to apply a base quimby delivered but deliberately did not
+ * apply for it (it had commits, or a dirty tree, so advancing it would have meant rewriting its
+ * history under it).
+ *
+ * It names `./agent.sh rebase` rather than a raw `git rebase quimby/base`, because the tool refuses
+ * on a dirty tree — which is the whole safeguard. Handing the agent the raw command would route it
+ * around the one check that stops a pre-sync copy being replayed over work that just landed.
+ */
+export function renderApplyBaseRequest(): string {
+  return 'your base moved — run ./agent.sh rebase to apply it (commit first; it refuses on a dirty tree)'
+}
+
 export function renderResolveConflictRequest(syncRef: string): string {
   return `rebase onto ${remoteTrackingRef(syncRef)} and resolve conflicts`
 }
