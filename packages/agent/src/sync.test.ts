@@ -47,6 +47,8 @@ function fakeSSHTransport(logOut = ''): {
       calls.push(cmd)
       if (cmd.includes('log quimby/seed..HEAD')) return logOut
       if (cmd.includes('status --porcelain')) return ''
+      // The remote fast-forward probe echoes ok/no; a real transport returns 'ok' on success.
+      if (cmd.includes('merge --ff-only')) return 'ok'
       return ''
     }),
     writeFile: vi.fn(async (path: string, content: string) => {
@@ -520,7 +522,10 @@ describe('syncAgent', () => {
     expect(calls).toContain('git fetch origin')
     expect(calls).toContain('git log quimby/seed..HEAD --format=%H')
     expect(calls).toContain('git status --porcelain')
-    expect(calls).toContain(`git reset --hard ${head}`)
+    // the routine advance is a fast-forward, never a reset — a reset would overwrite a
+    // concurrent edit with no trace
+    expect(calls.some((c) => c.includes(`git merge --ff-only ${head}`))).toBe(true)
+    expect(calls.some((c) => c.startsWith('git reset --hard'))).toBe(false)
     expect(calls).toContain(`git tag -f quimby/seed ${head}`)
     expect(calls).toContain(`git tag -f quimby/base ${head}`)
     // no local commits → fast-forward, never a rebase

@@ -29,6 +29,10 @@ interface FakeConfig {
   conflict?: SyncConflictState
   /** Simulate a rebase abort that fails to clear the mid-rebase state. */
   abortFails?: boolean
+  /** Simulate git refusing the fast-forward because local changes would be overwritten. */
+  ffRefuses?: boolean
+  /** What isDirty() reports AFTER a refused fast-forward — the race case reads dirty by then. */
+  dirtyAfterFf?: boolean
 }
 
 function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
@@ -39,12 +43,23 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
     },
     countCommitsSinceSeed: async () => cfg.commits ?? 0,
     pendingConflictState: async () => cfg.conflict ?? null,
-    isDirty: async () => cfg.dirty ?? false,
+    isDirty: async () => {
+      // A live agent can dirty the tree between the first read and the advance, which is exactly
+      // the race; the fake models that by answering differently once the ff has been attempted.
+      if (calls.some((c) => c.startsWith('ff:')) && cfg.dirtyAfterFf !== undefined) {
+        return cfg.dirtyAfterFf
+      }
+      return cfg.dirty ?? false
+    },
     stash: async () => {
       calls.push('stash')
     },
     resetHardTo: async (c) => {
       calls.push(`reset:${c}`)
+    },
+    fastForwardTo: async (c) => {
+      calls.push(`ff:${c}`)
+      return !cfg.ffRefuses
     },
     rebaseOnto: async (c) => {
       calls.push(`rebase:${c}`)
@@ -113,7 +128,7 @@ describe('runSyncAlgorithm', () => {
     expect(calls).toEqual(['fetch', 'tagBase:same'])
   })
 
-  it('fast-forwards (reset) when the agent has no commits of its own', async () => {
+  it('fast-forwards (never resets) when the agent has no commits of its own', async () => {
     const { ops, calls } = fakeOps({ commits: 0 })
     const result = await runSyncAlgorithm(ops, {
       hostHead: 'H',
@@ -128,7 +143,7 @@ describe('runSyncAlgorithm', () => {
       baseCommit: 'H',
       applied: true,
     })
-    expect(calls).toEqual(['fetch', 'tagBase:H', 'reset:H', 'tag:H'])
+    expect(calls).toEqual(['fetch', 'tagBase:H', 'ff:H', 'tag:H'])
   })
 
   it('rebases the agent commits when it has some (clean tree)', async () => {
@@ -274,7 +289,35 @@ describe('runSyncAlgorithm', () => {
     const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a' })
     expect(result.applied).toBe(true)
     expect(result.deferred).toBeUndefined()
-    expect(calls).toEqual(['fetch', 'tagBase:H', 'reset:H', 'tag:H'])
+    expect(calls).toEqual(['fetch', 'tagBase:H', 'ff:H', 'tag:H'])
+  })
+
+  // The work-destroying race, and the reason the routine advance is a fast-forward rather than a
+  // hard reset. `isDirty()` is read from a LIVE, concurrently-editing process, so it can be stale
+  // by the time the advance runs; a reset would then overwrite an edit written in the gap, leaving
+  // a file matching HEAD, a clean status, and git's own mtime — invisible to every dirt-based
+  // check. Git re-checking under its index lock turns that silent loss into a refusal.
+  it('defers instead of overwriting when the tree went dirty after the isDirty() read', async () => {
+    const { ops, calls } = fakeOps({
+      commits: 0,
+      dirty: false,
+      ffRefuses: true,
+      dirtyAfterFf: true,
+    })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a' })
+    expect(result.applied).toBe(false)
+    expect(result.newSeed).toBe('old')
+    // never reached for a hard reset, which is what would have destroyed the edit
+    expect(calls).not.toContain('reset:H')
+    expect(calls).not.toContain('tag:H')
+  })
+
+  it('reports a refused fast-forward on a CLEAN tree as diverged, not as uncommitted work', async () => {
+    // Same refusal, different cause: the target is not a descendant (a rewritten branch). Calling
+    // that "uncommitted work" would send the user hunting for work that does not exist.
+    const { ops } = fakeOps({ commits: 0, dirty: false, ffRefuses: true })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a' })
+    expect(result.deferred).toBe('diverged')
   })
 
   it('leaves the seed where it was when it defers, so the agent is still behind', async () => {

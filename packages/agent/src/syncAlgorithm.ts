@@ -23,6 +23,17 @@ export interface RepoSyncOps {
   isDirty(): Promise<boolean>
   stash(): Promise<void>
   resetHardTo(commit: string): Promise<void>
+  /**
+   * Advance to `commit` without overwriting the working tree: true when it fast-forwarded, false
+   * when git refused because local changes would be lost.
+   *
+   * The routine path uses this rather than {@link resetHardTo} because `isDirty()` followed by a
+   * hard reset is check-then-act against a LIVE process. An edit the agent writes in that gap is
+   * destroyed with no trace — the file matches HEAD, `git status` is clean, and the mtime is git's
+   * own write, so every dirt-based detector reads it as "nothing happened". Letting git make the
+   * check itself, under its index lock, is the only way to close the window rather than narrow it.
+   */
+  fastForwardTo(commit: string): Promise<boolean>
   /** Rebase the agent's commits onto `commit`; rejects on conflict. */
   rebaseOnto(commit: string): Promise<void>
   /**
@@ -63,7 +74,7 @@ export interface SyncAlgorithmInput {
 }
 
 /** Why an advance was left for the agent to apply rather than done under it. */
-export type SyncDeferReason = 'commits' | 'dirty'
+export type SyncDeferReason = 'commits' | 'dirty' | 'diverged'
 
 export interface SyncAlgorithmResult {
   newSeed: string
@@ -165,7 +176,29 @@ export async function runSyncAlgorithm(
   if (dirty) await ops.stash()
 
   if (commitsReplayed === 0) {
-    await ops.resetHardTo(hostHead)
+    // The routine advance is a FAST-FORWARD, not a hard reset. `isDirty()` above was read from a
+    // live, concurrently-editing process, so by now it may be stale: an edit written between that
+    // read and this line would be silently destroyed by a reset, leaving a file matching HEAD, a
+    // clean status and git's own mtime — invisible to every dirt-based check. Fast-forward makes
+    // git re-check under its index lock and refuse, and a refusal simply becomes the deferral we
+    // would have chosen had we seen the edit in time.
+    //
+    // `apply` mode stashed above precisely so it can overwrite, and `force` returned much earlier,
+    // so neither reaches here.
+    if (!(await ops.fastForwardTo(hostHead))) {
+      // Two different refusals wear the same exit code: local changes would be overwritten (the
+      // race we just avoided), or the target is not a descendant at all (a rewritten/force-pushed
+      // branch). Re-reading dirtiness separates them, because reporting a diverged base as
+      // "uncommitted work" would send the user looking for work that isn't there.
+      return {
+        newSeed: input.seedCommit ?? hostHead,
+        rebased: false,
+        commitsReplayed,
+        baseCommit: hostHead,
+        applied: false,
+        deferred: (await ops.isDirty()) ? 'dirty' : 'diverged',
+      }
+    }
   } else {
     try {
       await ops.rebaseOnto(hostHead)

@@ -439,6 +439,7 @@ function localSyncOps(repoDir: string): RepoSyncOps {
       await git.stash(repoDir)
     },
     resetHardTo: (commit) => git.resetHard(repoDir, commit),
+    fastForwardTo: (commit) => git.fastForward(repoDir, commit),
     rebaseOnto: (commit) => git.rebase(repoDir, commit),
     rebaseAbort: async () => {
       await git.rebaseAbort(repoDir)
@@ -483,6 +484,13 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
     resetHardTo: async (commit) => {
       await transport.exec(`git reset --hard ${commit}`, cwd)
     },
+    fastForwardTo: async (commit) =>
+      (
+        await transport.exec(
+          `git merge --ff-only ${commit} >/dev/null 2>&1 && echo ok || echo no`,
+          cwd,
+        )
+      ).trim() === 'ok',
     rebaseOnto: async (commit) => {
       await transport.exec(`git rebase ${commit}`, cwd)
     },

@@ -129,6 +129,26 @@ export async function fetch(cwd: string, remote?: string, opts?: { ref?: string 
   await git(args, cwd)
 }
 
+/**
+ * Advance to `ref` WITHOUT ever overwriting the working tree: resolves true when it fast-forwarded,
+ * false when git refused because local changes would be lost.
+ *
+ * This is the safe counterpart to {@link resetHard}, and the difference matters because the agent
+ * is a live process editing this tree. Checking `isClean()` and then running `reset --hard` is a
+ * check-then-act race: an edit written in the gap is destroyed silently, leaving a file that
+ * matches HEAD, a clean `git status`, and the git write's mtime — no evidence that anything was
+ * lost. `merge --ff-only` closes the gap by making git perform the check itself, under its own
+ * index lock, as part of the same operation.
+ */
+export async function fastForward(cwd: string, ref: string): Promise<boolean> {
+  try {
+    await git(['merge', '--ff-only', ref], cwd)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function findRoot(cwd: string): Promise<string | undefined> {
   try {
     const stdout = await git(['rev-parse', '--show-toplevel'], cwd)
