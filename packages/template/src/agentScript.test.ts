@@ -492,6 +492,35 @@ describe('renderAgentScript', () => {
   // only thing that can tell an agent it arrived is the host reminder sweep — which needs a running
   // server, is spaced by 10 minutes, and gives up after 3 tries. Until then the human relays "check
   // your inbox", which is the messenger problem quimby exists to remove.
+  // A real incident: an agent gated on a prose "dispatch header", found a name that wasn't its own,
+  // and refused host-stamped work delivered into its own inbox — twice. Note text is not addressing,
+  // and an ABSENT addressee is not evidence either, so the host's routing has to be printed above
+  // the prose where the question actually gets adjudicated.
+  it.runIf(posix)(
+    'prints the host routing above the note, so prose cannot masquerade as it',
+    () => {
+      const root = makeAgentWorkspace()
+      const p = join(root, 'handoff', 'in', 'received', 'foreman-712c')
+      mkdirSync(p, { recursive: true })
+      writeFileSync(join(p, 'README.md'), 'TO: manager — decide the merge strategy\n\nbody\n')
+      writeFileSync(join(p, 'meta.yaml'), 'from: foreman\nto: builder3\nuserDirected: true\n')
+
+      const out = runSh(root, ['inbox', 'show', 'foreman-712c'])
+      expect(out).toContain('delivered by quimby: from foreman → to builder3')
+      // and it comes BEFORE the note, or it is not the thing being read first
+      expect(out.indexOf('delivered by quimby')).toBeLessThan(out.indexOf('TO: manager'))
+    },
+  )
+
+  it.runIf(posix)('degrades gracefully when meta.yaml carries no routing', () => {
+    const root = makeAgentWorkspace()
+    const p = join(root, 'handoff', 'in', 'received', 'peer-nometa')
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'README.md'), 'a note\n')
+    // No meta.yaml at all — an older parcel. Must still print the note rather than error.
+    expect(runSh(root, ['inbox', 'show', 'peer-nometa'])).toContain('a note')
+  })
+
   it.runIf(posix)('reports unread parcels after an unrelated command', () => {
     const root = makeAgentWorkspace()
     const p = join(root, 'handoff', 'in', 'received', 'auditor-a1')
