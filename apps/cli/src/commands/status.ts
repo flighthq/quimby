@@ -126,8 +126,20 @@ async function renderOverview(
     console.log(cells.join('  '))
   }
 
+  // Report the server EITHER way. Announcing only when it is up meant the one state worth knowing
+  // about was the silent one: with the server down, status mirroring and outbox auto-dispatch both
+  // stop, agents keep reading whatever peer status was last written, and nothing anywhere says so.
+  // A fleet lost nine days to this — every mirror frozen, and the only visible symptom was peers
+  // that appeared to have gone quiet.
   const server = await getServerInfo(repoRoot)
-  if (server) console.log(dim(`\nServer running on :${server.port} (PID ${server.pid})`))
+  if (server) {
+    console.log(dim(`\nServer running on :${server.port} (PID ${server.pid})`))
+  } else {
+    console.log(
+      dim('\nServer not running — peer status mirroring and outbox auto-dispatch are stopped.'),
+    )
+    console.log(dim('Agents are reading whatever peer status was last mirrored. `quimby serve`'))
+  }
 }
 
 async function renderDeepDive(

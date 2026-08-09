@@ -563,6 +563,24 @@ describe('renderAgentScript', () => {
     expect(runSh(root, ['wake'])).toContain('no peer has EVER reported')
   })
 
+  // The mixed case the all-placeholder check misses: some mirrors were fed once and then froze.
+  // "Everyone last reported 9 days ago" is a stopped server, not a quiet fleet — and read as peer
+  // state it invites precisely the wrong conclusions.
+  it.runIf(posix)(
+    'warns at wake when every mirror is old, not just when all are placeholders',
+    () => {
+      const root = makeAgentWorkspace()
+      writeFileSync(join(root, 'status', 'a.md'), '# Status: a\n\n_No status reported yet._\n')
+      const fed = join(root, 'status', 'b.md')
+      writeFileSync(fed, '# Status: b\n\nUpdated: 2026-07-31\n\nwork\n')
+      execFileSync('touch', ['-d', '9 days ago', fed])
+      const out = runSh(root, ['wake'])
+      expect(out).toContain('has been mirrored in 9d')
+      // and it must NOT claim nobody ever reported — one of them did
+      expect(out).not.toContain('no peer has EVER reported')
+    },
+  )
+
   it.runIf(posix)('stays quiet at wake when at least one peer has reported', () => {
     const root = makeAgentWorkspace()
     writeFileSync(join(root, 'status', 'a.md'), '# Status: a\n\n_No status reported yet._\n')
