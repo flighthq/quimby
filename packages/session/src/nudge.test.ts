@@ -241,12 +241,13 @@ describe('nudgeAgentSession', () => {
     })
 
     const argvs = execa.mock.calls.map((c) => c[1] as string[])
-    // The literal typed is `quimby · <label>`, never the bare label.
+    // The literal typed is `quimby · <label> · <MM-DD HH:MM>`, never the bare label. Matched by
+    // prefix because the trailing wall-clock stamp (for a human reading back) is not fixed.
     const literal = argvs.find(
       (a) =>
         a.includes('send-keys') &&
         a.includes('-l') &&
-        a.includes('quimby · parcel review-abc123 from review'),
+        a.some((x) => x.startsWith('quimby · parcel review-abc123 from review')),
     )
     expect(literal).toBeDefined()
     // `courier` supersedes any `text`; no bare label is typed.

@@ -50,6 +50,18 @@ const TMUX_EXEC_TIMEOUT_MS = 5000
 export const COURIER_PREFIX = 'quimby · '
 
 /**
+ * The wall-clock stamp appended to a courier line, as `MM-DD HH:MM` in the host's local time.
+ *
+ * Local rather than UTC because its only reader is a human scrolling back through a pane, and the
+ * date is included rather than just the time because agent sessions routinely span days — a bare
+ * `14:32` is ambiguous exactly when the scrollback is long enough to need it.
+ */
+export function formatCourierTime(at: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+
+/**
  * What a nudge attempt actually did.
  *
  * `held` is the one that matters to callers: the parcel is delivered but the wake was deferred by
@@ -210,7 +222,15 @@ export async function nudgeAgentSession(opts: {
 }): Promise<NudgeOutcome> {
   const { agent, clear, displayName, dashboardSession } = opts
   const reporter = opts.reporter ?? silentReporter
-  const message = opts.courier !== undefined ? `${COURIER_PREFIX}${opts.courier}` : opts.text
+  // The timestamp goes at the END, not after the lead: the agent's grammar reads the word straight
+  // after `quimby · ` as the KIND of message (parcel / delegated task / escalation / …), so a time
+  // inserted there would break every routing rule that depends on it. Trailing keeps the contract
+  // and still answers the question a human has when scrolling back through a long pane — when did
+  // this actually happen — which nothing in the transcript otherwise records.
+  const message =
+    opts.courier !== undefined
+      ? `${COURIER_PREFIX}${opts.courier} · ${formatCourierTime(new Date())}`
+      : opts.text
   if (message === undefined) {
     throw new Error('nudgeAgentSession requires either `text` or `courier`')
   }

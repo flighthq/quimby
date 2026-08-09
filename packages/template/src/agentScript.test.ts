@@ -217,7 +217,8 @@ describe('renderAgentScript', () => {
     expect(out).toMatch(/manager\s+\(directs you/)
     expect(out).toMatch(/integration\s+\(you direct/)
     // A peer holding no edge is listed plainly — no invented rank.
-    expect(out).toMatch(/^critic$/m)
+    // an unannotated peer still lists, now carrying its mirror provenance
+    expect(out).toMatch(/^critic\s+\[/m)
   })
 
   it('refuses a recipient that is not on the roster, and names the roster', () => {
@@ -519,6 +520,79 @@ describe('renderAgentScript', () => {
     writeFileSync(join(p, 'README.md'), 'a note\n')
     // No meta.yaml at all — an older parcel. Must still print the note rather than error.
     expect(runSh(root, ['inbox', 'show', 'peer-nometa'])).toContain('a note')
+  })
+
+  // A mirror is a push cache that can silently never arrive — a sleeping server writes nothing,
+  // ever. The distinction is already in the payload (a real snapshot has an `Updated:` line, the
+  // placeholder deliberately does not), but `cat` discarded it, and three agents each invented a
+  // different explanation for the same never-populated file.
+  it.runIf(posix)('distinguishes a never-reported mirror from an old one', () => {
+    const root = makeAgentWorkspace()
+    writeFileSync(
+      join(root, 'status', 'builder.md'),
+      '# Status: builder\n\n_No status reported yet._\n',
+    )
+    writeFileSync(
+      join(root, 'status', 'review.md'),
+      '# Status: review\n\nUpdated: 2026-07-31T10:00:00Z\n\nworking\n',
+    )
+    const out = runSh(root, ['peers'])
+    expect(out).toContain('builder')
+    expect(out).toMatch(/builder.*never reported/)
+    expect(out).toMatch(/review.*updated/)
+  })
+
+  it.runIf(posix)('leads a single peer read with its provenance, above the body', () => {
+    const root = makeAgentWorkspace()
+    writeFileSync(
+      join(root, 'status', 'builder.md'),
+      '# Status: builder\n\n_No status reported yet._\n',
+    )
+    const out = runSh(root, ['peers', 'builder'])
+    expect(out).toContain('never reported')
+    expect(out.indexOf('never reported')).toBeLessThan(out.indexOf('No status reported yet'))
+  })
+
+  // All placeholders means the HOST never fed them — a stopped server, not quiet peers. Deliberately
+  // reported at `wake` rather than in the per-command footer: with the server down this holds
+  // forever, and a line on every invocation would train the agent to skim the footer that also
+  // carries the base and unread-parcel notices.
+  it.runIf(posix)('says at wake when no peer has ever reported', () => {
+    const root = makeAgentWorkspace()
+    writeFileSync(join(root, 'status', 'a.md'), '# Status: a\n\n_No status reported yet._\n')
+    expect(runSh(root, ['wake'])).toContain('no peer has EVER reported')
+  })
+
+  it.runIf(posix)('stays quiet at wake when at least one peer has reported', () => {
+    const root = makeAgentWorkspace()
+    writeFileSync(join(root, 'status', 'a.md'), '# Status: a\n\n_No status reported yet._\n')
+    writeFileSync(join(root, 'status', 'b.md'), '# Status: b\n\nUpdated: 2026-08-01\n\nhi\n')
+    expect(runSh(root, ['wake'])).not.toContain('no peer has EVER reported')
+  })
+
+  // `append` is easy and `set` is effortful, so the journal only grows — and its whole job is to be
+  // the one thing a successor reads after a reset.
+  it.runIf(posix)('warns when the status journal has grown past a readable size', () => {
+    const root = makeAgentWorkspace()
+    writeFileSync(join(root, 'status.md'), 'x'.repeat(17_000))
+    const merged = execFileSync(
+      'sh',
+      ['-c', `sh ${join(root, 'agent.sh')} status append -m more 2>&1`],
+      { cwd: root, encoding: 'utf-8' },
+    )
+    expect(merged).toContain('status set')
+    // a warning, never a refusal — what belongs in the journal is judgment, not mechanics
+    expect(readFileSync(join(root, 'status.md'), 'utf-8')).toContain('more')
+  })
+
+  it.runIf(posix)('says nothing about size for a short journal', () => {
+    const root = makeAgentWorkspace()
+    const merged = execFileSync(
+      'sh',
+      ['-c', `sh ${join(root, 'agent.sh')} status append -m short 2>&1`],
+      { cwd: root, encoding: 'utf-8' },
+    )
+    expect(merged).not.toContain('status set')
   })
 
   it.runIf(posix)('reports unread parcels after an unrelated command', () => {

@@ -63,7 +63,7 @@ When you can't tell which, treat it as a **retask**. The failure modes are asymm
 
 ## Telling courier messages from the user: the `quimby ·` lead
 
-A line arriving in your session that begins **`quimby ·`** was delivered by the courier — not typed by the user live. The word after the lead is the kind, and tells you where to read (the message never inlines the content):
+A line arriving in your session that begins **`quimby ·`** was delivered by the courier — not typed by the user live. The word after the lead is the kind, and tells you where to read (the message never inlines the content). Each line ends with `· MM-DD HH:MM`, the host's local time when it was sent — it is for a human reading back through your pane, so ignore it when routing:
 
 - **`quimby · parcel <name> from <agent>`** — a peer (or `host`) sent you an ordinary parcel; immediately run `./agent.sh inbox show <name>`, then weigh it against your assignment.
 - **`quimby · delegated task <name> from <agent>`** — the host stamped this parcel as user-directed; immediately run `./agent.sh inbox show <name>`, then apply the conditional adoption rule above.
