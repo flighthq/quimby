@@ -25,6 +25,22 @@ export function createInboxReminderTracker(): InboxReminderTracker {
 }
 
 /**
+ * Record that a delivery just woke `name` about its inbox — which is an announcement of that inbox,
+ * so the reminder interval should start from here.
+ *
+ * Without this the first parcel into an empty inbox produced two wakes seconds apart: the delivery
+ * nudge, then the reminder on the very next cycle, because a first sighting has no previous entry
+ * for the interval to apply to. Observed as a `delegated task <parcel>` and a `parcel <parcel>
+ * unread in your inbox` for the SAME parcel in the same minute.
+ *
+ * Treating a delivery as an announcement collapses both the same-cycle and the next-cycle case into
+ * the one rule that already exists, rather than adding a second mechanism beside it.
+ */
+export function noteInboxDelivery(tracker: InboxReminderTracker, name: string, now: number): void {
+  tracker.seen.set(name, { signature: '', remindedAt: now, count: 0 })
+}
+
+/**
  * Re-announce parcels an idle agent still hasn't read — the safety net for an unattended fleet.
  *
  * Delivery is durable but the *wake* is not: a nudge can be lost to a dead session, a send-keys
@@ -47,13 +63,6 @@ export async function remindUnreadInboxes(
   now: number,
   reporter: Reporter = silentReporter,
   config: Readonly<QuimbyConfig> = {},
-  opts?: Readonly<{
-    /**
-     * Agents a dispatch already woke in this same cycle. Reminding them again is a duplicate of a
-     * wake that just landed, not a net for one that was lost.
-     */
-    alreadyNudged?: ReadonlySet<string>
-  }>,
 ): Promise<void> {
   for (const [name, agent] of Object.entries(state.agents)) {
     if (agent.enabled === false) continue
@@ -84,11 +93,6 @@ export async function remindUnreadInboxes(
     // agent has ignored exactly this work N times". A changed inbox is evidence of life, so the
     // count resets — which is right for giving up, and was wrong for pacing.
     if (sameInbox && previous.count >= MAX_REMINDERS) continue
-
-    // A delivery in this same cycle already woke the agent. Reminding it a second later is pure
-    // noise — it is the same message about the same inbox, and the log showed the pair one second
-    // apart. The reminder is a net for a wake that was LOST, not a second copy of one that landed.
-    if (opts?.alreadyNudged?.has(name)) continue
 
     // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
     // for its next launch. Everything live is attempted, and §7 (inside nudgeAgentSession) decides

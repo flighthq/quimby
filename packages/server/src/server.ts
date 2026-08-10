@@ -21,7 +21,7 @@ import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatc
 import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
-import { createInboxReminderTracker, remindUnreadInboxes } from './remind'
+import { createInboxReminderTracker, noteInboxDelivery, remindUnreadInboxes } from './remind'
 import { routeRequest } from './router'
 
 export interface ServerOptions {
@@ -141,6 +141,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             nudgePolicy,
             serverConfig ?? {},
           )
+          // A delivery wake IS an announcement of that inbox: record it so the reminder interval
+          // starts here, instead of the sweep re-announcing the same parcel a cycle later.
+          for (const name of nudged) noteInboxDelivery(reminderTracker, name, Date.now())
           // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
           // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep
           // the fleet moving without me".
@@ -151,7 +154,6 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             Date.now(),
             reporter,
             serverConfig ?? {},
-            { alreadyNudged: nudged },
           )
         }
         if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)

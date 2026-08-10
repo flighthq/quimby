@@ -14,8 +14,13 @@ const nudgeAgentSession = vi.hoisted(() =>
 
 vi.mock('@quimbyhq/session', () => ({ getAgentSessionState, nudgeAgentSession }))
 
-const { createInboxReminderTracker, MAX_REMINDERS, REMIND_INTERVAL_MS, remindUnreadInboxes } =
-  await import('./remind')
+const {
+  createInboxReminderTracker,
+  MAX_REMINDERS,
+  noteInboxDelivery,
+  REMIND_INTERVAL_MS,
+  remindUnreadInboxes,
+} = await import('./remind')
 
 let dir: string
 
@@ -207,20 +212,29 @@ describe('remindUnreadInboxes pacing', () => {
     expect(nudgeAgentSession).toHaveBeenCalled()
   })
 
-  it('skips an agent a dispatch already woke in this cycle', async () => {
-    await giveInbox('a-1')
+  // The reported double message: a `delegated task <parcel>` wake, then a `parcel <parcel> unread`
+  // wake for the SAME parcel in the same minute. A first sighting has no previous entry, so the
+  // interval could not apply — recording the delivery as an announcement is what closes it.
+  it('does not re-announce an inbox a delivery just woke the agent about', async () => {
+    await giveInbox('principal-d9188a02')
     const tracker = createInboxReminderTracker()
+    noteInboxDelivery(tracker, 'review', 10_000_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, 10_000_000 + 5_000, silentReporter, {})
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('does re-announce once the interval has passed since that delivery', async () => {
+    await giveInbox('principal-d9188a02')
+    const tracker = createInboxReminderTracker()
+    noteInboxDelivery(tracker, 'review', 10_000_000)
     await remindUnreadInboxes(
       dir,
       stateWith(),
       tracker,
-      10_000_000,
+      10_000_000 + REMIND_INTERVAL_MS + 1,
       silentReporter,
       {},
-      {
-        alreadyNudged: new Set(['review']),
-      },
     )
-    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(nudgeAgentSession).toHaveBeenCalled()
   })
 })
