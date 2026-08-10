@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { addAll, commit, init, tag } from '@quimbyhq/git'
 import { getAgentDir, getAgentHandoffOutQueuedRecipientDir, getAgentRepoDir } from '@quimbyhq/paths'
-import { collectingReporter } from '@quimbyhq/reporter'
+import { collectingReporter, silentReporter } from '@quimbyhq/reporter'
 import type { AgentAttestation, QuimbyState } from '@quimbyhq/types'
 import { exists, readYaml } from '@quimbyhq/utils'
 import { ensureWorkspace } from '@quimbyhq/workspace'
@@ -15,6 +15,7 @@ import {
   autoDispatchOutboxes,
   classifyOutboxDraft,
   createOutboxDispatchTracker,
+  createWakeBundler,
   forgetOutboxAttempt,
 } from './autodispatch'
 
@@ -126,8 +127,12 @@ describe('autoDispatchOutboxes', () => {
     const state = stateWith('review', 'builder')
     state.agents.review.directs = ['builder'] // review directs builder → directed → interrupts
 
-    await autoDispatchOutboxes(dir, state, tracker)
-    await autoDispatchOutboxes(dir, state, tracker)
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', {
+      wakeBundle: 0,
+    })
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', {
+      wakeBundle: 0,
+    })
 
     const inbox = join(getAgentDir(dir, 'builder'), 'handoff', 'in', 'received')
     const [parcelName] = await readdir(inbox)
@@ -150,8 +155,12 @@ describe('autoDispatchOutboxes', () => {
     state.agents.review.directs = ['builder']
     state.agents.integration.directs = ['builder']
 
-    await autoDispatchOutboxes(dir, state, tracker) // settle cycle
-    await autoDispatchOutboxes(dir, state, tracker) // deliver both → one coalesced wake
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', {
+      wakeBundle: 0,
+    }) // settle cycle
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', {
+      wakeBundle: 0,
+    }) // deliver both → one coalesced wake
 
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
     expect(nudgeAgentSession).toHaveBeenCalledWith(
@@ -241,6 +250,38 @@ describe('autoDispatchOutboxes', () => {
   })
 })
 
+describe('autoDispatchOutboxes bundling', () => {
+  it('holds the wake inside the window, then sends one for the whole burst', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'first')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+    state.agents.review.directs = ['builder']
+    const bundler = createWakeBundler()
+    const config = { wakeBundle: '12s' }
+
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', config, bundler, 0)
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', config, bundler, 10)
+    // still inside the window — delivered, but deliberately not woken yet
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+
+    // past the window, measured from the FIRST parcel
+    await autoDispatchOutboxes(
+      dir,
+      state,
+      tracker,
+      silentReporter,
+      'directed',
+      config,
+      bundler,
+      13_000,
+    )
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
+    expect(bundler.pending.size).toBe(0)
+  })
+})
+
 describe('classifyOutboxDraft', () => {
   it('waits on the first sighting (could still be mid-write)', () => {
     const tracker = createOutboxDispatchTracker()
@@ -278,6 +319,8 @@ describe('classifyOutboxDraft', () => {
   })
 })
 
+// The behaviour the window exists for: parcels arriving across CONSECUTIVE cycles cost one wake,
+// not one per cycle. Only the wake waits — each parcel is delivered to the inbox on its own cycle.
 describe('createOutboxDispatchTracker', () => {
   it('starts with empty maps', () => {
     const tracker = createOutboxDispatchTracker()
@@ -286,6 +329,29 @@ describe('createOutboxDispatchTracker', () => {
   })
 })
 
+describe('createWakeBundler', () => {
+  it('starts empty', () => {
+    expect(createWakeBundler().pending.size).toBe(0)
+  })
+
+  it('measures the window from the FIRST parcel, so a trickle cannot defer it forever', () => {
+    const bundler = createWakeBundler()
+    const agent = { id: 'a', name: 'review' } as never
+    bundler.pending.set('review', {
+      agent,
+      descriptors: ['parcel one'],
+      senders: new Set(['foreman']),
+      queuedAt: 1_000,
+    })
+    // a later parcel joins the existing entry and must NOT reset queuedAt
+    const entry = bundler.pending.get('review')!
+    entry.descriptors.push('parcel two')
+    expect(entry.queuedAt).toBe(1_000)
+  })
+})
+
+// A burst spread across consecutive poll cycles used to wake the recipient once per cycle, and each
+// wake costs that agent a turn of context. The window holds the wake so the burst lands as one.
 describe('forgetOutboxAttempt', () => {
   it('retries a failed carry on the next cycle instead of stranding it', async () => {
     // A transient failure must not be attempt-once: the draft is unchanged, so the very next cycle

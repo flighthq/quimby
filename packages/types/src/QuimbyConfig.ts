@@ -185,6 +185,22 @@ export interface QuimbyConfig {
    * draft and submits it, so raise it rather than lower it if you compose slowly.
    */
   focusGrace?: string | number
+
+  /**
+   * How long the server holds a pending wake so that parcels arriving close together become ONE
+   * nudge (`12s` default; a bare number is minutes, like every other duration key).
+   *
+   * Deliveries already coalesce within a single poll cycle, but a burst spread across consecutive
+   * cycles woke the recipient once per cycle — and every wake costs the agent a turn's context. The
+   * bundle window buys that back by waiting: anything arriving inside it joins the pending wake, and
+   * one courier line names the lot.
+   *
+   * The trade is latency on directed work, which is why it is short and configurable rather than
+   * generous. Nothing is exempt: an escalation bundled with a parcel is still one wake carrying
+   * both, which is strictly better than two. Delivery itself is never delayed — parcels land in the
+   * inbox immediately, and only the interruption waits.
+   */
+  wakeBundle?: string | number
 }
 
 export interface PoolConfig {

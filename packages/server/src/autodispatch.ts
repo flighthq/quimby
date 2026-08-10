@@ -12,12 +12,35 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { nudgeAgentSession } from '@quimbyhq/session'
 import type { AgentState, NudgePolicy, QuimbyConfig, QuimbyState } from '@quimbyhq/types'
-import { getFocusGraceSeconds, resolveAgentFocusPolicy } from '@quimbyhq/workspace'
+import { getFocusGraceSeconds, getWakeBundleMs, resolveAgentFocusPolicy } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
 export interface OutboxDispatchTracker {
   seen: Map<string, number>
   done: Set<string>
+}
+
+/**
+ * Wakes waiting to be sent, held across poll cycles so a burst becomes one nudge.
+ *
+ * Coalescing within a single cycle was never enough: parcels arriving in consecutive cycles woke the
+ * recipient once per cycle, and each wake costs that agent a turn of context. Holding a pending wake
+ * for a short window lets everything arriving inside it join, so five parcels over twenty seconds
+ * cost one interruption instead of five.
+ *
+ * Only the WAKE waits. Parcels are delivered to the inbox immediately, as before — so nothing is
+ * ever stranded by a server that stops mid-window, and the reminder sweep remains the net for a
+ * wake that is lost.
+ */
+export interface WakeBundler {
+  pending: Map<
+    string,
+    { agent: AgentState; descriptors: string[]; senders: Set<string>; queuedAt: number }
+  >
+}
+
+export function createWakeBundler(): WakeBundler {
+  return { pending: new Map() }
 }
 
 export async function autoDispatchOutboxes(
@@ -27,14 +50,14 @@ export async function autoDispatchOutboxes(
   reporter: Reporter = silentReporter,
   defaultNudge: NudgePolicy = 'directed',
   config: Readonly<QuimbyConfig> = {},
+  bundler: WakeBundler = createWakeBundler(),
+  now: number = Date.now(),
 ): Promise<ReadonlySet<string>> {
   // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
   // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
   // N times. Delivery stays per-parcel and immediate; only the wake is batched.
-  const pending = new Map<
-    string,
-    { agent: AgentState; descriptors: string[]; senders: Set<string> }
-  >()
+  // Carried across cycles by the caller, so a burst spread over several polls lands as one wake.
+  const pending = bundler.pending
   for (const sender of Object.keys(state.agents)) {
     const senderAgent = state.agents[sender]
     const senderId = senderAgent.id
@@ -114,6 +137,9 @@ export async function autoDispatchOutboxes(
             agent: recip,
             descriptors: [],
             senders: new Set<string>(),
+            // The window is measured from the FIRST parcel of a burst, not the latest — otherwise a
+            // steady trickle keeps resetting the timer and the wake never fires at all.
+            queuedAt: now,
           }
           entry.descriptors.push(`${kind} ${result.parcelName} from ${sender}`)
           entry.senders.add(sender)
@@ -139,10 +165,14 @@ export async function autoDispatchOutboxes(
     }
   }
 
-  // Flush the coalesced wakes: one nudge per recipient for the whole cycle. A single parcel keeps
-  // its specific courier; several collapse to a count naming the senders (§7a).
+  // Flush the wakes whose bundle window has elapsed. A single parcel keeps its specific courier;
+  // several collapse to a count naming the senders (§7a). Entries still inside their window stay
+  // pending for a later cycle — that wait is the whole point.
+  const windowMs = getWakeBundleMs(config)
   const nudged = new Set<string>()
-  for (const [recipient, entry] of pending) {
+  for (const [recipient, entry] of [...pending]) {
+    if (now - entry.queuedAt < windowMs) continue
+    pending.delete(recipient)
     const courier =
       entry.descriptors.length === 1
         ? entry.descriptors[0]

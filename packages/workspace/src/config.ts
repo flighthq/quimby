@@ -377,6 +377,17 @@ export function getFocusGraceSeconds(config: Readonly<QuimbyConfig> | undefined)
   return parsed !== null && parsed > 0 ? Math.round(parsed / 1000) : DEFAULT_FOCUS_GRACE_SECONDS
 }
 
+/**
+ * How long the server holds a pending wake so nearby deliveries become one nudge, in milliseconds.
+ *
+ * Zero disables bundling entirely (every delivery wakes immediately, the pre-bundle behaviour), so
+ * `wakeBundle: 0` is a supported answer rather than a broken value.
+ */
+export function getWakeBundleMs(config: Readonly<QuimbyConfig> | undefined): number {
+  const parsed = parseDuration(config?.wakeBundle)
+  return parsed !== null && parsed >= 0 ? parsed : DEFAULT_WAKE_BUNDLE_MS
+}
+
 export function resolveNudgePolicy(
   config: Readonly<QuimbyConfig>,
   agent?: Readonly<{ nudge?: string }>,
@@ -542,6 +553,10 @@ function defined<T extends object>(value: T | undefined): Partial<T> {
 // Long enough that a pause to think mid-prompt still holds; short enough that watching an agent
 // work stops holding almost at once. See getFocusGraceSeconds.
 const DEFAULT_FOCUS_GRACE_SECONDS = 45
+
+// Two to three poll cycles at the default 5s interval: long enough to absorb a burst that arrives
+// across consecutive cycles, short enough that a delegated task still feels immediate.
+const DEFAULT_WAKE_BUNDLE_MS = 12_000
 
 const AGENT_ROLE_KEYS = new Set([
   'instructions',

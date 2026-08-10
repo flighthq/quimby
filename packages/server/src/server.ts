@@ -17,7 +17,11 @@ import {
 } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
-import { autoDispatchOutboxes, createOutboxDispatchTracker } from './autodispatch'
+import {
+  autoDispatchOutboxes,
+  createOutboxDispatchTracker,
+  createWakeBundler,
+} from './autodispatch'
 import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
@@ -51,6 +55,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   const statusCache = new Map<string, StatusSnapshot>()
   const outboxTracker = createOutboxDispatchTracker()
   const reminderTracker = createInboxReminderTracker()
+  // Held across cycles so a burst of deliveries becomes one wake per recipient.
+  const wakeBundler = createWakeBundler()
   let state = await loadState(repoRoot)
   let stateMtime = 0
   // Read once at startup: auto-reaping is a standing policy, so a config edit takes effect on the
@@ -140,6 +146,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             reporter,
             nudgePolicy,
             serverConfig ?? {},
+            wakeBundler,
+            Date.now(),
           )
           // A delivery wake IS an announcement of that inbox: record it so the reminder interval
           // starts here, instead of the sweep re-announcing the same parcel a cycle later.
