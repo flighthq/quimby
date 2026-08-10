@@ -67,6 +67,10 @@ export async function runStatusCommand({
 
   if (args.agent) {
     await renderDeepDive(repoRoot, state, args.agent, args.interactive ?? false)
+    // The single-agent view reported the server not at all — so the natural way to ask "is the
+    // fleet healthy?" (`quimby status <agent>`) could not answer the one question that explains a
+    // frozen peer mirror. Both views report it now, and both report it either way.
+    await reportServerState(repoRoot)
     return
   }
 
@@ -76,6 +80,28 @@ export async function runStatusCommand({
     return
   }
   await renderOverview(repoRoot, state, names)
+  await reportServerState(repoRoot)
+}
+
+/**
+ * Report whether the server is running — in BOTH directions, from every status view.
+ *
+ * With it down, status mirroring and outbox auto-dispatch stop while everything else keeps working:
+ * agents run, commit, and hand off, and `quimby status` stays perfectly current because it reads
+ * the agent files directly and never consults the server. So the surface an operator reaches for to
+ * confirm the host side is healthy is exactly the surface that cannot see this failure, and peer
+ * mirrors silently freeze at the moment the server stopped.
+ */
+async function reportServerState(repoRoot: string): Promise<void> {
+  const server = await getServerInfo(repoRoot)
+  if (server) {
+    console.log(dim(`\nServer running on :${server.port} (PID ${server.pid})`))
+  } else {
+    console.log(
+      dim('\nServer not running — peer status mirroring and outbox auto-dispatch are stopped.'),
+    )
+    console.log(dim('Agents are reading whatever peer status was last mirrored. `quimby serve`'))
+  }
 }
 
 async function pushStatus(
@@ -124,21 +150,6 @@ async function renderOverview(
     // ("run quimby sync") is visible in the overview, not just the deep-dive.
     if (snap.behind > 0) cells.push(yellow(`${snap.behind} behind ${snap.syncRef}`))
     console.log(cells.join('  '))
-  }
-
-  // Report the server EITHER way. Announcing only when it is up meant the one state worth knowing
-  // about was the silent one: with the server down, status mirroring and outbox auto-dispatch both
-  // stop, agents keep reading whatever peer status was last written, and nothing anywhere says so.
-  // A fleet lost nine days to this — every mirror frozen, and the only visible symptom was peers
-  // that appeared to have gone quiet.
-  const server = await getServerInfo(repoRoot)
-  if (server) {
-    console.log(dim(`\nServer running on :${server.port} (PID ${server.pid})`))
-  } else {
-    console.log(
-      dim('\nServer not running — peer status mirroring and outbox auto-dispatch are stopped.'),
-    )
-    console.log(dim('Agents are reading whatever peer status was last mirrored. `quimby serve`'))
   }
 }
 

@@ -1,3 +1,5 @@
+import { rename } from 'node:fs/promises'
+
 import { getAgentStatusMirrorDir, remoteAgentStatusMirrorDir } from '@quimbyhq/paths'
 import { getTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
@@ -27,7 +29,7 @@ export async function deliverStatusSnapshot(opts: {
   } else {
     const statusMirrorDir = getAgentStatusMirrorDir(repoRoot, toAgent.id)
     await ensureDir(statusMirrorDir)
-    await writeText(join(statusMirrorDir, `${fromName}.md`), payload)
+    await replaceMirrorFile(join(statusMirrorDir, `${fromName}.md`), payload)
   }
 }
 
@@ -74,7 +76,8 @@ export async function deliverStatusSnapshots(opts: {
       .join('')
     await transport.exec(
       `mkdir -p ${sq(dir)} && while IFS=' ' read -r qb_name qb_b64; do ` +
-        `printf %s "$qb_b64" | base64 -d > ${sq(dir)}/"$qb_name" || exit 1; done`,
+        `printf %s "$qb_b64" | base64 -d > ${sq(dir)}/"$qb_name".tmp || exit 1; ` +
+        `mv ${sq(dir)}/"$qb_name".tmp ${sq(dir)}/"$qb_name" || exit 1; done`,
       { input },
     )
     return
@@ -85,6 +88,32 @@ export async function deliverStatusSnapshots(opts: {
   const statusMirrorDir = getAgentStatusMirrorDir(repoRoot, toAgent.id)
   await ensureDir(statusMirrorDir)
   for (const { fromName, payload } of snapshots) {
-    await writeText(join(statusMirrorDir, `${fromName}.md`), payload)
+    await replaceMirrorFile(join(statusMirrorDir, `${fromName}.md`), payload)
   }
+}
+
+/**
+ * Replace a mirror file by writing a sibling temp file and renaming it over the target, rather than
+ * rewriting it in place.
+ *
+ * The agent reading this file usually does so across a guest bind-mount (a sandbox, or virtiofs/9p),
+ * and an in-place rewrite is the one update shape such a mount can miss: the dentry and inode are
+ * unchanged, the PARENT DIRECTORY'S mtime does not move (verified — only a create/remove/rename
+ * touches it), and a guest holding cached attributes has nothing telling it to revalidate. A rename
+ * changes both the inode behind the name and the directory's mtime, which is the signal those caches
+ * key on.
+ *
+ * It also makes the write atomic: a reader either sees the previous snapshot or the new one, never a
+ * half-written file — which matters because the poller rewrites these every cycle while agents read
+ * them at arbitrary moments.
+ *
+ * Note the inverse of the `handoff/` rule, and it is not a contradiction: there, quimby keeps tray
+ * inodes STABLE because REPLACING a directory strands the guest on a dead one. Here it deliberately
+ * replaces a file's inode, because KEEPING it is what lets a guest serve a stale copy. Directory
+ * identity must persist; file contents must visibly turn over.
+ */
+async function replaceMirrorFile(path: string, payload: string): Promise<void> {
+  const tmp = `${path}.tmp`
+  await writeText(tmp, payload)
+  await rename(tmp, path)
 }
