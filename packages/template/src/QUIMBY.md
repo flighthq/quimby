@@ -104,7 +104,9 @@ When the user explicitly asks you to dispatch or delegate work to a peer, that i
 
 ## Sending work
 
-Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files). To read what's been delivered to you, use `./agent.sh inbox`, `./agent.sh inbox show <parcel>`, and `./agent.sh inbox done <parcel>`.
+Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files, `--note-file <path>` to take the body from a file).
+
+**One parcel carries both your note and your work.** Everything in `repo/` since `quimby/seed` — committed and uncommitted — travels with it automatically. There is no second step and no separate verb for "send the code": writing the note and sending the work are the same act. If you find yourself composing a message and then looking for a way to send your commits after it, you have already sent them. To read what's been delivered to you, use `./agent.sh inbox`, `./agent.sh inbox show <parcel>`, and `./agent.sh inbox done <parcel>`.
 
 Either way, the user runs `quimby dispatch {{agentName}}` (and the server auto-dispatches) to deliver queued parcels.
 

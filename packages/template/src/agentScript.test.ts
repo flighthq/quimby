@@ -779,8 +779,8 @@ describe('renderAgentScript note body', () => {
     )
     expect(merged).toContain('EMPTY note')
     expect(merged).toContain('--note-file')
-    // and it still publishes — a warning, not a refusal
-    expect(merged).toContain('drafted parcel')
+    // and it still proceeds — a warning, not a refusal
+    expect(merged).toContain('DRAFTED, NOT SENT')
   })
 
   it.runIf(posix)('takes the note body from --note-file, preserving shell metacharacters', () => {
