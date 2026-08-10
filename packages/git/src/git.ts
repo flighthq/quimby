@@ -234,6 +234,25 @@ export async function hasUnmergedPaths(cwd: string): Promise<boolean> {
   return stdout.trim() !== ''
 }
 
+/**
+ * Whether `ancestor` is reachable from `descendant` — i.e. the commit is already contained.
+ *
+ * The ground-truth answer to "has this base been applied?", independent of any tag, which is what
+ * lets a stale `quimby/seed` be detected and repaired rather than believed.
+ */
+export async function isAncestor(
+  cwd: string,
+  ancestor: string,
+  descendant: string,
+): Promise<boolean> {
+  try {
+    await git(['merge-base', '--is-ancestor', ancestor, descendant], cwd)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function isClean(cwd: string): Promise<boolean> {
   const stdout = await git(['status', '--porcelain'], cwd)
   return stdout.trim() === ''

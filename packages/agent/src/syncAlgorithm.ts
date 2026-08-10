@@ -23,6 +23,17 @@ export interface RepoSyncOps {
    */
   resolveSeedCommit(): Promise<string | null>
   /**
+   * Whether the agent's HEAD already contains `commit` — the ground truth for "has this base been
+   * applied?", independent of any tag.
+   *
+   * Needed because a tag can be stale for reasons the agent cannot fix: an agent that applied its
+   * base under an older `agent.sh` never advanced its seed, and re-running the apply is a no-op
+   * (it IS on the base), so the seed can never catch up on its own. The host would then insist on
+   * a rebase forever while the agent correctly answered "already up to date". Asking git what HEAD
+   * contains breaks that deadlock and lets the host repair the tag.
+   */
+  containsCommit(commit: string): Promise<boolean>
+  /**
    * The kind of unresolved conflict already sitting in the repo (an in-progress merge/rebase, or
    * unmerged index entries), or null when the tree is clean enough to stash. `git stash` refuses
    * while any of these exist, so the safe sync checks this before its auto-stash step and fails
@@ -140,7 +151,21 @@ export async function runSyncAlgorithm(
   // and disagree with the agent to its face. Reading the agent's tag makes host state follow the
   // reality it no longer controls.
   const agentSeed = await ops.resolveSeedCommit()
-  if (hostHead === input.seedCommit || hostHead === agentSeed) {
+  // `containsCommit` is the ground truth and the last of the three, because it is the only one that
+  // survives a stale tag. An agent that applied its base under an older tool has HEAD containing
+  // the base while its seed still points a day back — and re-applying is a no-op, so it can never
+  // fix itself. Without this the host nudges forever and the agent correctly answers "already up to
+  // date" forever; observed twice before it was diagnosed.
+  if (
+    hostHead === input.seedCommit ||
+    hostHead === agentSeed ||
+    (await ops.containsCommit(hostHead))
+  ) {
+    // Repair the tag while we are here — one ref write, and leaving it stale keeps every capture
+    // measured against the wrong baseline even though the agent is current. Only on a seed we
+    // actually READ and found different: a null means unreadable, which is not evidence of
+    // staleness and not a reason to write to the agent's repo.
+    if (agentSeed !== null && agentSeed !== hostHead) await ops.tagSeed(hostHead)
     return {
       newSeed: hostHead,
       rebased: false,

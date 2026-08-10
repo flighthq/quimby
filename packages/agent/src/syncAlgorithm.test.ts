@@ -33,6 +33,8 @@ interface FakeConfig {
   ffRefuses?: boolean
   /** What the AGENT's own quimby/seed tag points at — it advances this itself now. */
   agentSeed?: string
+  /** Whether the agent's HEAD already contains the base — true after it applied one itself. */
+  headContainsBase?: boolean
   /** What isDirty() reports once the advance has been attempted — the agent wrote mid-sync. */
   dirtyAfterFf?: boolean
 }
@@ -45,6 +47,9 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
     },
     countCommitsSinceSeed: async () => cfg.commits ?? 0,
     resolveSeedCommit: async () => cfg.agentSeed ?? null,
+    // Deliberately not recorded in `calls`: it is a read, and the exact call-sequence assertions
+    // elsewhere describe what the sync WROTE.
+    containsCommit: async () => cfg.headContainsBase ?? false,
     pendingConflictState: async () => cfg.conflict ?? null,
     isDirty: async () => {
       // A live agent can dirty the tree between the first read and the advance, which is exactly
@@ -413,5 +418,27 @@ describe('runSyncAlgorithm seed reconciliation', () => {
     const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
     expect(result.applied).toBe(false)
     expect(result.deferred).toBe('commits')
+  })
+})
+
+// Reported from the field, twice: the host kept sending "your base moved" while the agent answered
+// "already up to date". Its HEAD contained the base (applied under an older tool) but its seed tag
+// still pointed a day back — and re-applying is a no-op, so nothing could ever advance the tag.
+// Believing the tag deadlocks; asking git what HEAD contains breaks it.
+describe('runSyncAlgorithm stale-tag recovery', () => {
+  it('treats a HEAD that already contains the base as applied, whatever the tag says', async () => {
+    const { ops, calls } = fakeOps({ commits: 85, agentSeed: 'day-old', headContainsBase: true })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'day-old', name: 'a' })
+    expect(result.applied).toBe(true)
+    expect(result.newSeed).toBe('H')
+    // and it REPAIRS the stale tag, or every capture keeps measuring against the wrong baseline
+    expect(calls).toContain('tag:H')
+  })
+
+  it('does not repair a tag that is already correct', async () => {
+    const { ops, calls } = fakeOps({ commits: 0, agentSeed: 'H', headContainsBase: true })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
+    expect(result.applied).toBe(true)
+    expect(calls).not.toContain('tag:H')
   })
 })

@@ -441,6 +441,8 @@ function localSyncOps(repoDir: string): RepoSyncOps {
     countCommitsSinceSeed: async () =>
       (await git.log(repoDir, 'quimby/seed..HEAD', '%H')).split('\n').filter(Boolean).length,
     resolveSeedCommit: () => git.revParse(repoDir, 'quimby/seed').catch(() => null),
+    containsCommit: async (commit) =>
+      await git.isAncestor(repoDir, commit, 'HEAD').catch(() => false),
     pendingConflictState: async () => {
       if (await git.isRebaseOrAmInProgress(repoDir)) return 'rebase'
       if (await git.isMergeInProgress(repoDir)) return 'merge'
@@ -481,6 +483,12 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
         .filter(Boolean).length,
     resolveSeedCommit: async () =>
       (await transport.exec(`git rev-parse quimby/seed`, cwd).catch(() => '')).trim() || null,
+    containsCommit: async (commit) =>
+      (
+        await transport
+          .exec(`git merge-base --is-ancestor ${commit} HEAD && echo yes || echo no`, cwd)
+          .catch(() => 'no')
+      ).trim() === 'yes',
     pendingConflictState: async () => {
       const out = await transport.exec(
         `if ${rebaseInProgress}; then echo rebase; ` +
