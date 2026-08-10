@@ -31,6 +31,8 @@ interface FakeConfig {
   abortFails?: boolean
   /** Simulate git refusing the fast-forward because local changes would be overwritten. */
   ffRefuses?: boolean
+  /** What the AGENT's own quimby/seed tag points at — it advances this itself now. */
+  agentSeed?: string
   /** What isDirty() reports once the advance has been attempted — the agent wrote mid-sync. */
   dirtyAfterFf?: boolean
 }
@@ -42,6 +44,7 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
       calls.push('fetch')
     },
     countCommitsSinceSeed: async () => cfg.commits ?? 0,
+    resolveSeedCommit: async () => cfg.agentSeed ?? null,
     pendingConflictState: async () => cfg.conflict ?? null,
     isDirty: async () => {
       // A live agent can dirty the tree between the first read and the advance, which is exactly
@@ -387,5 +390,28 @@ describe('runSyncAlgorithm', () => {
     await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'old', name: 'a', apply: true })
     expect(calls).not.toContain('stash')
     expect(calls).not.toContain('stashPop')
+  })
+})
+
+// The agent applies the delivered base itself and advances its own seed, so host state can lag a
+// full day behind reality. Trusting host state made quimby compute a large `behind`, offer a rebase
+// the agent had already performed, and — worse — leave every capture measured against the stale
+// baseline, carrying peers' landed commits as the agent's own work.
+describe('runSyncAlgorithm seed reconciliation', () => {
+  it('treats an agent that already advanced its own seed as up to date', async () => {
+    const { ops, calls } = fakeOps({ commits: 7, agentSeed: 'H' })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
+    expect(result.applied).toBe(true)
+    expect(result.newSeed).toBe('H')
+    expect(result.deferred).toBeUndefined()
+    // and it does not go on to rebase or reset anything
+    expect(calls).toEqual(['fetch', 'tagBase:H'])
+  })
+
+  it('still defers when the agent seed is genuinely behind', async () => {
+    const { ops } = fakeOps({ commits: 7, agentSeed: 'stale' })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
+    expect(result.applied).toBe(false)
+    expect(result.deferred).toBe('commits')
   })
 })

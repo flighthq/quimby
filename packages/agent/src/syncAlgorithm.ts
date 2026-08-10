@@ -14,6 +14,15 @@ export interface RepoSyncOps {
   /** Number of commits the agent has made past its seed (`quimby/seed..HEAD`). */
   countCommitsSinceSeed(): Promise<number>
   /**
+   * The commit the agent's OWN `quimby/seed` tag points at, or null when it cannot be read.
+   *
+   * The agent is the authority on this now. Since it applies the delivered base itself, it also
+   * advances its own seed — so host state can be a day behind reality, and believing host state
+   * makes quimby insist on a rebase the agent already did, while every capture measures against
+   * the stale baseline and carries the peers' landed work as the agent's own.
+   */
+  resolveSeedCommit(): Promise<string | null>
+  /**
    * The kind of unresolved conflict already sitting in the repo (an in-progress merge/rebase, or
    * unmerged index entries), or null when the tree is clean enough to stash. `git stash` refuses
    * while any of these exist, so the safe sync checks this before its auto-stash step and fails
@@ -125,7 +134,13 @@ export async function runSyncAlgorithm(
     }
   }
 
-  if (hostHead === input.seedCommit) {
+  // Reconcile against the agent's OWN seed before deciding anything. When the agent applied the
+  // delivered base itself (`./agent.sh rebase`), it advanced its seed and host state did not — so
+  // the host would otherwise compute a large `behind`, offer a rebase the agent has already done,
+  // and disagree with the agent to its face. Reading the agent's tag makes host state follow the
+  // reality it no longer controls.
+  const agentSeed = await ops.resolveSeedCommit()
+  if (hostHead === input.seedCommit || hostHead === agentSeed) {
     return {
       newSeed: hostHead,
       rebased: false,
