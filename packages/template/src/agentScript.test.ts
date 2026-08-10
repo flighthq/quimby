@@ -707,6 +707,46 @@ describe('renderAgentScript', () => {
   })
 })
 
+describe('renderAgentScript note body', () => {
+  const posix = process.platform !== 'win32'
+
+  it.runIf(posix)('warns when attaching files with no note body', () => {
+    const root = makeAgentWorkspace({ roster: ['builder'] })
+    writeFileSync(join(root, 'ruling.md'), 'the body\n')
+    // advisory, so the command SUCCEEDS — capture the merged stream rather than a failure
+    const merged = execFileSync(
+      'sh',
+      ['-c', `sh ${join(root, 'agent.sh')} handoff builder --file ruling.md --draft 2>&1`],
+      { cwd: root, encoding: 'utf-8' },
+    )
+    expect(merged).toContain('EMPTY note')
+    expect(merged).toContain('--note-file')
+    // and it still publishes — a warning, not a refusal
+    expect(merged).toContain('drafted parcel')
+  })
+
+  it.runIf(posix)('takes the note body from --note-file, preserving shell metacharacters', () => {
+    const root = makeAgentWorkspace({ roster: ['builder'] })
+    writeFileSync(join(root, 'ruling.md'), 'has `backticks` and $(not-run)\n')
+    runSh(root, ['handoff', 'builder', '--note-file', 'ruling.md', '--draft'])
+    const note = readFileSync(
+      join(root, 'handoff', 'out', 'draft', 'builder', 'README.md'),
+      'utf-8',
+    )
+    expect(note).toContain('`backticks`')
+    expect(note).toContain('$(not-run)')
+  })
+
+  it.runIf(posix)('refuses an escalation with no body — a wake carrying nothing', () => {
+    const root = makeAgentWorkspace({ roster: ['manager'], escalatesTo: ['manager'] })
+    const { status, stderr } = runShFail(root, ['escalate', 'manager'])
+    expect(status).not.toBe(0)
+    expect(stderr).toMatch(/-m \(or --note-file\) required/)
+  })
+})
+
+// `--file` attaches; `status set --file` uses the file AS the content. Same flag, opposite meanings
+// in one tool — and it sent real parcels out with empty notes before anyone noticed.
 describe('renderAgentScriptCmd', () => {
   it('is a batch script that mirrors the sh verbs and uses CRLF line endings', () => {
     const cmd = renderAgentScriptCmd()
