@@ -12,7 +12,11 @@ vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   getTransport: () => ({ exec }),
 }))
 
-import { deliverStatusSnapshot, deliverStatusSnapshots } from './statusDelivery'
+import {
+  deliverStatusSnapshot,
+  deliverStatusSnapshots,
+  renderRemoteStatusDelivery,
+} from './statusDelivery'
 import { formatStatusSnapshot } from './statusSnapshot'
 
 let dir: string
@@ -142,5 +146,31 @@ describe('deliverStatusSnapshots', () => {
     const mirrorDir = getAgentStatusMirrorDir(dir, 'l1')
     expect(await readFile(join(mirrorDir, 'backend.md'), 'utf-8')).toContain('x')
     expect(await readFile(join(mirrorDir, 'critic.md'), 'utf-8')).toContain('y')
+  })
+})
+
+// The nine-day bug. `sq()` quotes a path whole, so a leading `~/` never expands: the remote shell
+// creates a directory literally named `~`, every write lands inside it, the command exits 0, and
+// the server reports success while nothing reaches the agent. Verified against a real shell before
+// the fix — the payload appeared at `$HOME/~/.quimby/...`.
+describe('renderRemoteStatusDelivery', () => {
+  const dir = '~/.quimby/workspaces/PID/.quimby/agents/AID/status'
+
+  it('leaves the leading ~/ unquoted so the remote shell expands it', () => {
+    const cmd = renderRemoteStatusDelivery(dir)
+    expect(cmd).toContain("~/'.quimby/workspaces/PID/.quimby/agents/AID/status'")
+    // the failure mode, stated as the thing that must never appear
+    expect(cmd).not.toContain("'~/")
+  })
+
+  it('creates the directory and writes via a temp file in the same invocation', () => {
+    const cmd = renderRemoteStatusDelivery(dir)
+    expect(cmd.startsWith('mkdir -p ~/')).toBe(true)
+    expect(cmd).toContain('.tmp')
+    expect(cmd).toContain('mv ')
+  })
+
+  it('quotes an absolute base normally, since only ~ needs the exception', () => {
+    expect(renderRemoteStatusDelivery('/srv/agents/a/status')).toContain("'/srv/agents/a/status'")
   })
 })

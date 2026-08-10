@@ -3,7 +3,7 @@ import { remoteAgentHandoffInReceivedDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import { getAgentSessionState, nudgeAgentSession } from '@quimbyhq/session'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
+import { getSSHTransport, sp } from '@quimbyhq/transport'
 import type { AgentState, QuimbyConfig, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { getFocusGraceSeconds, resolveAgentFocusPolicy } from '@quimbyhq/workspace'
@@ -145,7 +145,10 @@ async function readUnreadParcels(
   }
   const dir = remoteAgentHandoffInReceivedDir(projectId, agent.id, agent.location.base)
   try {
-    const out = await getSSHTransport(agent.location).exec(`ls -1 ${sq(dir)} 2>/dev/null || true`)
+    // `sp`, not `sq`: the path starts with `~/`, and quoting it whole makes the remote shell
+    // read a literal `~` directory — which is always empty, so this sweep silently concluded
+    // every SSH agent's inbox was clear and never re-announced an unread parcel to one.
+    const out = await getSSHTransport(agent.location).exec(`ls -1 ${sp(dir)} 2>/dev/null || true`)
     return out.split('\n').filter(Boolean).sort()
   } catch {
     return []

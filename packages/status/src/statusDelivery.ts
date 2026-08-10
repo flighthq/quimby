@@ -1,7 +1,7 @@
 import { rename } from 'node:fs/promises'
 
 import { getAgentStatusMirrorDir, remoteAgentStatusMirrorDir } from '@quimbyhq/paths'
-import { getTransport, sq } from '@quimbyhq/transport'
+import { getTransport, sp } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { ensureDir, writeText } from '@quimbyhq/utils'
@@ -74,12 +74,7 @@ export async function deliverStatusSnapshots(opts: {
           `${fromName}.md ${Buffer.from(payload, 'utf-8').toString('base64')}\n`,
       )
       .join('')
-    await transport.exec(
-      `mkdir -p ${sq(dir)} && while IFS=' ' read -r qb_name qb_b64; do ` +
-        `printf %s "$qb_b64" | base64 -d > ${sq(dir)}/"$qb_name".tmp || exit 1; ` +
-        `mv ${sq(dir)}/"$qb_name".tmp ${sq(dir)}/"$qb_name" || exit 1; done`,
-      { input },
-    )
+    await transport.exec(renderRemoteStatusDelivery(dir), { input })
     return
   }
 
@@ -90,6 +85,28 @@ export async function deliverStatusSnapshots(opts: {
   for (const { fromName, payload } of snapshots) {
     await replaceMirrorFile(join(statusMirrorDir, `${fromName}.md`), payload)
   }
+}
+
+/**
+ * The remote command that decodes one `<name> <base64>` line per file from stdin into `dir`.
+ *
+ * Extracted as a pure builder so the quoting can be pinned by a test, because getting it wrong is
+ * SILENT: the remote path begins with `~/`, and `sq()` quotes the whole string, so `'~/...'` is
+ * never expanded by the remote shell. `mkdir -p` then cheerfully creates a directory literally
+ * named `~` under the SSH session's home, every write lands inside it, the command exits 0, and the
+ * server reports `status → N peer(s)` — while not one byte reaches the agent. `sp()` leaves the
+ * leading `~/` unquoted and quotes the rest, which is the whole difference.
+ *
+ * Verified against a real shell: with `sq()` the payload appeared at `$HOME/~/.quimby/...` and the
+ * real mirror directory stayed empty.
+ */
+export function renderRemoteStatusDelivery(dir: string): string {
+  const d = sp(dir)
+  return (
+    `mkdir -p ${d} && while IFS=' ' read -r qb_name qb_b64; do ` +
+    `printf %s "$qb_b64" | base64 -d > ${d}/"$qb_name".tmp || exit 1; ` +
+    `mv ${d}/"$qb_name".tmp ${d}/"$qb_name" || exit 1; done`
+  )
 }
 
 /**
