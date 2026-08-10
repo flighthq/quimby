@@ -122,7 +122,9 @@ describe('assembleParcel', () => {
       fakeOps({
         seedDiff: 'big diff\n',
         subjects: ['feat: a', 'fix: b'],
-        patchFiles: ['0001-a.patch', '0002-b.patch'],
+        // format-patch order: 0001 is the OLDEST commit
+        patchFiles: ['0001-b.patch', '0002-a.patch'],
+        // git log order: newest first, so h1 (feat: a) is the newest and belongs to 0002-a
         commitLog: 'h1|feat: a|me|2024\nh2|fix: b|me|2024',
         headDiff: 'uncommitted bit\n',
       }),
@@ -130,7 +132,9 @@ describe('assembleParcel', () => {
     const staged = getStagingHandoffDir(dir, meta.name)
     expect(await exists(join(staged, 'uncommitted.diff'))).toBe(true)
     expect(meta.commits).toHaveLength(2)
-    expect(meta.commits[0]).toMatchObject({ hash: 'h1', patchFile: '0001-a.patch' })
+    // The newest commit pairs with the LAST patch — log and format-patch run opposite ways.
+    expect(meta.commits[0]).toMatchObject({ hash: 'h1', patchFile: '0002-a.patch' })
+    expect(meta.commits[1]).toMatchObject({ hash: 'h2', patchFile: '0001-b.patch' })
     // subjects drive the description + suggested message
     expect(meta.description).toBe('feat: a; fix: b')
   })
@@ -177,15 +181,38 @@ describe('parcelName', () => {
 })
 
 describe('parseCommits', () => {
-  it('pairs each pipe-delimited log line with its patch file by index', () => {
-    const commits = parseCommits('h1|msg one|amy|2024\nh2|msg two|bob|2025', [
-      '0001.patch',
-      '0002.patch',
+  // The two inputs run in OPPOSITE directions: `git log` is newest-first, `git format-patch` numbers
+  // oldest-first (`0001-` is the oldest commit). Pairing them by raw index maps every commit to the
+  // wrong patch — exactly reversed, so only the middle of an odd-length run lands right, which is
+  // why it reached recipients looking intermittent. Verified against real git: three commits
+  // first/second/third produced `third → 0001-first.patch`.
+  it('pairs the newest commit with the LAST patch, since the two run in opposite directions', () => {
+    const commits = parseCommits('newest|msg one|amy|2024\noldest|msg two|bob|2025', [
+      '0001-oldest.patch',
+      '0002-newest.patch',
     ])
     expect(commits).toEqual([
-      { hash: 'h1', message: 'msg one', author: 'amy', date: '2024', patchFile: '0001.patch' },
-      { hash: 'h2', message: 'msg two', author: 'bob', date: '2025', patchFile: '0002.patch' },
+      {
+        hash: 'newest',
+        message: 'msg one',
+        author: 'amy',
+        date: '2024',
+        patchFile: '0002-newest.patch',
+      },
+      {
+        hash: 'oldest',
+        message: 'msg two',
+        author: 'bob',
+        date: '2025',
+        patchFile: '0001-oldest.patch',
+      },
     ])
+  })
+
+  it('keeps the emitted order newest-first, reversing only the patch lookup', () => {
+    const commits = parseCommits('c3|three|a|d\nc2|two|a|d\nc1|one|a|d', ['p1', 'p2', 'p3'])
+    expect(commits.map((c) => c.hash)).toEqual(['c3', 'c2', 'c1'])
+    expect(commits.map((c) => c.patchFile)).toEqual(['p3', 'p2', 'p1'])
   })
 
   it('leaves patchFile empty when there are fewer patches than commits', () => {

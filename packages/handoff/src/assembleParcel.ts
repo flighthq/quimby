@@ -118,14 +118,23 @@ export function contentDigest(parts: readonly string[]): string {
   return createHash('sha256').update(parts.join('\0')).digest('hex')
 }
 
+/**
+ * Pair each commit with the patch file that actually contains it.
+ *
+ * The two inputs run in OPPOSITE directions: `git log` is newest-first, while `git format-patch`
+ * numbers oldest-first (`0001-` is the oldest commit). Zipping them by index therefore mapped every
+ * commit to the wrong patch — exactly reversed, so only the middle commit of an odd-length run
+ * happened to land right, which is why it presented as intermittent rather than as total.
+ *
+ * The emitted order stays newest-first (what the field is documented as and what readers expect);
+ * only the patch lookup is reversed.
+ */
 export function parseCommits(fullLog: string, patchFiles: readonly string[]): CommitMeta[] {
-  return fullLog
-    .split('\n')
-    .filter(Boolean)
-    .map((line, i) => {
-      const [hash, message, author, date] = line.split('|')
-      return { hash, message, author, date, patchFile: patchFiles[i] ?? '' }
-    })
+  const lines = fullLog.split('\n').filter(Boolean)
+  return lines.map((line, i) => {
+    const [hash, message, author, date] = line.split('|')
+    return { hash, message, author, date, patchFile: patchFiles[lines.length - 1 - i] ?? '' }
+  })
 }
 
 function buildMeta(opts: {
