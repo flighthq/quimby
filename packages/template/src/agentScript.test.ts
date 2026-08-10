@@ -731,6 +731,24 @@ describe('renderAgentScript bulk inbox close', () => {
     expect(existsSync(join(root, 'handoff', 'in', 'processed', 'read-1'))).toBe(true)
   })
 
+  // A count says something was held back; only the name says WHICH. Closed parcels get a count
+  // instead — you already opened those, and printing hundreds of names into your own context is
+  // the token cost this command exists to avoid.
+  it.runIf(posix)('names the parcels it kept, and bounds the list', () => {
+    const root = makeAgentWorkspace()
+    drop(root, 'aaa-buried-parcel')
+    for (let i = 0; i < 60; i++) drop(root, `bulk-${String(i).padStart(3, '0')}`)
+    const merged = execFileSync(
+      'sh',
+      ['-c', `sh ${join(root, 'agent.sh')} inbox done --all 2>&1`],
+      { cwd: root, encoding: 'utf-8' },
+    )
+    expect(merged).toContain('- aaa-buried-parcel')
+    expect(merged).toContain('and 11 more')
+    // bounded rather than 61 lines
+    expect(merged.split('\n').filter((l) => l.trim().startsWith('- ')).length).toBe(50)
+  })
+
   it.runIf(posix)('closes nothing when nothing has been opened', () => {
     const root = makeAgentWorkspace()
     drop(root, 'never-read')
