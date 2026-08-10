@@ -62,7 +62,7 @@ describe('remindUnreadInboxes', () => {
     const { reporter } = collectingReporter()
     await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0, reporter)
     expect(nudgeAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ courier: 'parcel builder-a1 unread in your inbox' }),
+      expect.objectContaining({ courier: 'parcel builder-a1 unprocessed in your inbox' }),
     )
   })
 
@@ -167,7 +167,11 @@ describe('remindUnreadInboxes', () => {
     expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 2)
   })
 
-  it('resets the cap when the inbox changes, so new work always gets announced', async () => {
+  // The cap resets on DRAINAGE, not on arrival. It used to reset whenever the inbox changed, so a
+  // single new parcel re-armed it — and an agent that never marked anything processed was poked
+  // indefinitely while its tray only grew. That is the 300-parcel backlog case, and the reason
+  // agents began dismissing the notice as "same notification about unreads".
+  it('stops reminding when new parcels arrive but nothing is ever processed', async () => {
     await giveInbox('builder-a1')
     const tracker = createInboxReminderTracker()
     for (let i = 0; i <= MAX_REMINDERS + 1; i++) {
@@ -175,23 +179,69 @@ describe('remindUnreadInboxes', () => {
     }
     expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS)
 
+    // a new arrival is NOT evidence the agent is working — it must not re-arm the sweep
     await giveInbox('builder-a2')
     await remindUnreadInboxes(dir, stateWith(), tracker, 999 * REMIND_INTERVAL_MS)
-    expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 1)
-    expect(nudgeAgentSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ courier: '2 unread parcels in your inbox' }),
-    )
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS)
   })
 })
 
 // Two spam sources the SSH tilde fix exposed the moment this sweep started working: on a busy fleet
 // the inbox changes every cycle, and a delivery already nudges its recipient.
+describe('remindUnreadInboxes on a backlog', () => {
+  it('names what is NEW since the last reminder, not just the total', async () => {
+    await giveInbox('a-1', 'b-2', 'c-3')
+    const tracker = createInboxReminderTracker()
+    tracker.seen.set('review', {
+      signature: 'a-1,b-2',
+      remindedAt: 0,
+      count: 1,
+      known: ['a-1', 'b-2'],
+    })
+    await remindUnreadInboxes(dir, stateWith(), tracker, REMIND_INTERVAL_MS + 1, silentReporter, {})
+    const courier = nudgeAgentSession.mock.calls[0][0] as unknown as { courier: string }
+    expect(courier.courier).toContain('1 new parcel(s) since I last told you')
+    expect(courier.courier).toContain('3 unprocessed in total')
+  })
+
+  it('gives up on a tray that never drains, even as new parcels arrive', async () => {
+    await giveInbox('a-1', 'b-2')
+    const tracker = createInboxReminderTracker()
+    // reminded MAX_REMINDERS times already, and nothing it knew about has been processed
+    tracker.seen.set('review', {
+      signature: 'older',
+      remindedAt: 0,
+      count: MAX_REMINDERS,
+      known: ['a-1'],
+    })
+    await remindUnreadInboxes(dir, stateWith(), tracker, REMIND_INTERVAL_MS + 1, silentReporter, {})
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('resumes reminding once the agent actually processes something', async () => {
+    await giveInbox('b-2')
+    const tracker = createInboxReminderTracker()
+    // a-1 is gone from the tray — it was processed, which is evidence of life
+    tracker.seen.set('review', {
+      signature: 'older',
+      remindedAt: 0,
+      count: MAX_REMINDERS,
+      known: ['a-1', 'b-2'],
+    })
+    await remindUnreadInboxes(dir, stateWith(), tracker, REMIND_INTERVAL_MS + 1, silentReporter, {})
+    expect(nudgeAgentSession).toHaveBeenCalled()
+  })
+})
+
+// Agents were answering "same notification about unreads, ignoring" — and they were right: a repeat
+// restating the same total is information they already have. And a tray nobody drains was poked
+// forever, because a single new arrival reset the give-up counter.
 describe('remindUnreadInboxes pacing', () => {
   it('holds the interval even when the inbox changed, so a busy agent is not reminded every cycle', async () => {
     await giveInbox('a-1', 'b-2')
     const tracker = createInboxReminderTracker()
     // reminded a minute ago about a DIFFERENT inbox — previously any change bypassed the interval
-    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1 })
+    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1, known: [] })
     await remindUnreadInboxes(dir, stateWith(), tracker, 1_000 + 60_000, silentReporter, {})
     expect(nudgeAgentSession).not.toHaveBeenCalled()
     expect(tracker.seen.get('review')?.remindedAt).toBe(1_000)
@@ -200,7 +250,7 @@ describe('remindUnreadInboxes pacing', () => {
   it('still reminds once the interval has genuinely elapsed', async () => {
     await giveInbox('a-1')
     const tracker = createInboxReminderTracker()
-    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1 })
+    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1, known: [] })
     await remindUnreadInboxes(
       dir,
       stateWith(),

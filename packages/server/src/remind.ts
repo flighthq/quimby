@@ -16,7 +16,14 @@ export interface InboxReminderTracker {
    */
   seen: Map<
     string,
-    { signature: string; remindedAt: number; count: number; heldReported?: boolean }
+    {
+      signature: string
+      remindedAt: number
+      count: number
+      heldReported?: boolean
+      /** The parcels this agent was last told about, so the next notice can name only the new ones. */
+      known: string[]
+    }
   >
 }
 
@@ -37,7 +44,7 @@ export function createInboxReminderTracker(): InboxReminderTracker {
  * the one rule that already exists, rather than adding a second mechanism beside it.
  */
 export function noteInboxDelivery(tracker: InboxReminderTracker, name: string, now: number): void {
-  tracker.seen.set(name, { signature: '', remindedAt: now, count: 0 })
+  tracker.seen.set(name, { signature: '', remindedAt: now, count: 0, known: [] })
 }
 
 /**
@@ -89,10 +96,13 @@ export async function remindUnreadInboxes(
     // bound cannot depend on what arrived in the meantime.
     if (previous && !retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
 
-    // The give-up CAP still keys on an unchanged inbox, and that is deliberate: it means "this
-    // agent has ignored exactly this work N times". A changed inbox is evidence of life, so the
-    // count resets — which is right for giving up, and was wrong for pacing.
-    if (sameInbox && previous.count >= MAX_REMINDERS) continue
+    // The give-up CAP keys on DRAINAGE: did the agent process anything it already knew about?
+    // Keying it on an unchanged signature meant a single new arrival reset the counter, so an agent
+    // that never marks anything processed was poked forever while its tray only grew — which is
+    // exactly the state a 300-parcel backlog produces, and why agents started answering "same
+    // notification about unreads, ignoring". They were right: nothing had changed for them.
+    const drained = previous ? previous.known.some((p) => !unread.includes(p)) : true
+    if (previous && !drained && previous.count >= MAX_REMINDERS) continue
 
     // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
     // for its next launch. Everything live is attempted, and §7 (inside nudgeAgentSession) decides
@@ -114,10 +124,11 @@ export async function remindUnreadInboxes(
     const outcome = await nudgeAgentSession({
       agent,
       displayName: name,
-      courier:
-        unread.length === 1
-          ? `parcel ${unread[0]} unread in your inbox`
-          : `${unread.length} unread parcels in your inbox`,
+      // "unprocessed", never "unread": the tray holds everything not yet marked done, INCLUDING
+      // parcels the agent has read. Telling an agent it has 374 unread items it knows it has read
+      // is false from where it sits, and a claim it can dismiss. Naming what is NEW since the last
+      // reminder is the part it cannot already know.
+      courier: reminderCourier(unread, previous?.known ?? []),
       whenFocused: resolveAgentFocusPolicy(config, state, name),
       focusGraceSeconds: getFocusGraceSeconds(config),
       projectId: state.id,
@@ -135,23 +146,45 @@ export async function remindUnreadInboxes(
         remindedAt: previous?.signature === signature ? previous.remindedAt : 0,
         count: previous?.signature === signature ? previous.count : 0,
         heldReported: true,
+        known: previous?.known ?? [],
       })
       continue
     }
     // Anything that never reached the agent (no session, refused) is likewise not an announcement.
     if (outcome !== 'sent') continue
 
-    const count = sameInbox ? previous.count + 1 : 1
-    tracker.seen.set(name, { signature, remindedAt: now, count })
+    // Counts a delivered reminder that the agent did NOT act on. Resetting only when it actually
+    // processed something is what lets the sweep give up on a tray nobody is draining.
+    const count = previous && !drained ? previous.count + 1 : 1
+    tracker.seen.set(name, { signature, remindedAt: now, count, known: unread })
 
     if (count >= MAX_REMINDERS) {
       reporter.warn(
-        `[remind] "${name}" has ignored ${unread.length} parcel(s) across ${count} delivered ` +
-          'reminders — it may be stuck or out of context. No further reminders until its inbox ' +
-          'changes.',
+        `[remind] "${name}" has not processed anything across ${count} reminders and is holding ` +
+          `${unread.length} parcel(s). No further reminders until it drains some. If the tray is ` +
+          'simply too deep to clear one at a time, `./agent.sh inbox done --all` empties it.',
       )
     }
   }
+}
+
+/**
+ * What a reminder actually says. A repeat that restates the same total is information the agent
+ * already has, and it correctly ignores it — so lead with what is NEW since it was last told.
+ */
+function reminderCourier(unread: readonly string[], known: readonly string[]): string {
+  const fresh = unread.filter((p) => !known.includes(p))
+  if (unread.length === 1) return `parcel ${unread[0]} unprocessed in your inbox`
+  if (fresh.length > 0 && fresh.length < unread.length) {
+    return (
+      `${fresh.length} new parcel(s) since I last told you (${unread.length} unprocessed in total) — ` +
+      '`./agent.sh inbox` to triage, `inbox done --all` to clear the rest'
+    )
+  }
+  return (
+    `${unread.length} unprocessed parcels in your inbox — \`./agent.sh inbox\` to triage, ` +
+    '`inbox done --all` to clear them'
+  )
 }
 
 /** How long an unread inbox sits before the sweep re-announces it. */
