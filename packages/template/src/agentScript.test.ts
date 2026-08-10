@@ -707,6 +707,46 @@ describe('renderAgentScript', () => {
   })
 })
 
+// `--all` was added to make a 300-parcel backlog clearable, and agents immediately used it as a
+// reflex: process one parcel, close everything, then correctly report that messages were missing.
+// Closing is a claim that you are finished with something, which you cannot be if you never read it.
+describe('renderAgentScript bulk inbox close', () => {
+  const posix = process.platform !== 'win32'
+
+  function drop(root: string, name: string): void {
+    const p = join(root, 'handoff', 'in', 'received', name)
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'README.md'), `body of ${name}\n`)
+  }
+
+  it.runIf(posix)('closes only the parcels that were opened, and keeps the rest', () => {
+    const root = makeAgentWorkspace()
+    for (const n of ['read-1', 'read-2', 'unopened-3']) drop(root, n)
+    runSh(root, ['inbox', 'show', 'read-1'])
+    runSh(root, ['inbox', 'show', 'read-2'])
+
+    const out = runSh(root, ['inbox', 'done', '--all'])
+    expect(out).toContain('marked 2 opened parcel(s)')
+    expect(existsSync(join(root, 'handoff', 'in', 'received', 'unopened-3'))).toBe(true)
+    expect(existsSync(join(root, 'handoff', 'in', 'processed', 'read-1'))).toBe(true)
+  })
+
+  it.runIf(posix)('closes nothing when nothing has been opened', () => {
+    const root = makeAgentWorkspace()
+    drop(root, 'never-read')
+    runSh(root, ['inbox', 'done', '--all'])
+    expect(existsSync(join(root, 'handoff', 'in', 'received', 'never-read'))).toBe(true)
+  })
+
+  // The escape hatch stays: naming a parcel explicitly is a deliberate act, so it always closes.
+  it.runIf(posix)('still closes an unopened parcel when it is named outright', () => {
+    const root = makeAgentWorkspace()
+    drop(root, 'never-read')
+    runSh(root, ['inbox', 'done', 'never-read'])
+    expect(existsSync(join(root, 'handoff', 'in', 'processed', 'never-read'))).toBe(true)
+  })
+})
+
 describe('renderAgentScript note body', () => {
   const posix = process.platform !== 'win32'
 
