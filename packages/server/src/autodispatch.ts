@@ -27,7 +27,7 @@ export async function autoDispatchOutboxes(
   reporter: Reporter = silentReporter,
   defaultNudge: NudgePolicy = 'directed',
   config: Readonly<QuimbyConfig> = {},
-): Promise<void> {
+): Promise<ReadonlySet<string>> {
   // §7a: coalesce this cycle's interrupting deliveries into ONE nudge per recipient — N parcels
   // arriving in a poll window wake the recipient once (fewer tokens, fewer injections) rather than
   // N times. Delivery stays per-parcel and immediate; only the wake is batched.
@@ -141,6 +141,7 @@ export async function autoDispatchOutboxes(
 
   // Flush the coalesced wakes: one nudge per recipient for the whole cycle. A single parcel keeps
   // its specific courier; several collapse to a count naming the senders (§7a).
+  const nudged = new Set<string>()
   for (const [recipient, entry] of pending) {
     const courier =
       entry.descriptors.length === 1
@@ -155,7 +156,12 @@ export async function autoDispatchOutboxes(
       projectId: state.id,
       reporter,
     })
+    nudged.add(recipient)
   }
+
+  // Reported so the reminder sweep, which runs next in the same cycle, does not re-announce an
+  // inbox to an agent this just woke — the two nudges landed a second apart otherwise.
+  return nudged
 }
 
 export function classifyOutboxDraft(

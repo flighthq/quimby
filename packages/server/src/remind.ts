@@ -47,6 +47,13 @@ export async function remindUnreadInboxes(
   now: number,
   reporter: Reporter = silentReporter,
   config: Readonly<QuimbyConfig> = {},
+  opts?: Readonly<{
+    /**
+     * Agents a dispatch already woke in this same cycle. Reminding them again is a duplicate of a
+     * wake that just landed, not a net for one that was lost.
+     */
+    alreadyNudged?: ReadonlySet<string>
+  }>,
 ): Promise<void> {
   for (const [name, agent] of Object.entries(state.agents)) {
     if (agent.enabled === false) continue
@@ -64,8 +71,24 @@ export async function remindUnreadInboxes(
     // reminders, and a hold delivered nothing. Without this exemption the retry would itself be
     // held off for REMIND_INTERVAL_MS, which is the delay the retry exists to remove.
     const retryingHold = Boolean(sameInbox && previous.heldReported)
-    if (sameInbox && !retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
+
+    // The INTERVAL applies whatever the inbox contains. Gating it on `sameInbox` meant any change
+    // reset it — and on a working fleet the inbox changes constantly, because every delivery adds
+    // a parcel. So a busy agent was reminded on nearly every poll cycle instead of every ten
+    // minutes: observed at 09:43:48, 09:44:54, 09:45:23 for one agent whose count merely went
+    // 32 → 33 → 32. The interval exists to bound how often an agent is interrupted, and that
+    // bound cannot depend on what arrived in the meantime.
+    if (previous && !retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
+
+    // The give-up CAP still keys on an unchanged inbox, and that is deliberate: it means "this
+    // agent has ignored exactly this work N times". A changed inbox is evidence of life, so the
+    // count resets — which is right for giving up, and was wrong for pacing.
     if (sameInbox && previous.count >= MAX_REMINDERS) continue
+
+    // A delivery in this same cycle already woke the agent. Reminding it a second later is pure
+    // noise — it is the same message about the same inbox, and the log showed the pair one second
+    // apart. The reminder is a net for a wake that was LOST, not a second copy of one that landed.
+    if (opts?.alreadyNudged?.has(name)) continue
 
     // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
     // for its next launch. Everything live is attempted, and §7 (inside nudgeAgentSession) decides

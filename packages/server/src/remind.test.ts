@@ -2,7 +2,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
 import { getAgentHandoffInReceivedDir } from '@quimbyhq/paths'
-import { collectingReporter } from '@quimbyhq/reporter'
+import { collectingReporter, silentReporter } from '@quimbyhq/reporter'
 import type { QuimbyState } from '@quimbyhq/types'
 import { join } from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -176,5 +176,51 @@ describe('remindUnreadInboxes', () => {
     expect(nudgeAgentSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ courier: '2 unread parcels in your inbox' }),
     )
+  })
+})
+
+// Two spam sources the SSH tilde fix exposed the moment this sweep started working: on a busy fleet
+// the inbox changes every cycle, and a delivery already nudges its recipient.
+describe('remindUnreadInboxes pacing', () => {
+  it('holds the interval even when the inbox changed, so a busy agent is not reminded every cycle', async () => {
+    await giveInbox('a-1', 'b-2')
+    const tracker = createInboxReminderTracker()
+    // reminded a minute ago about a DIFFERENT inbox — previously any change bypassed the interval
+    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1 })
+    await remindUnreadInboxes(dir, stateWith(), tracker, 1_000 + 60_000, silentReporter, {})
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(tracker.seen.get('review')?.remindedAt).toBe(1_000)
+  })
+
+  it('still reminds once the interval has genuinely elapsed', async () => {
+    await giveInbox('a-1')
+    const tracker = createInboxReminderTracker()
+    tracker.seen.set('review', { signature: 'old-parcel', remindedAt: 1_000, count: 1 })
+    await remindUnreadInboxes(
+      dir,
+      stateWith(),
+      tracker,
+      1_000 + REMIND_INTERVAL_MS + 1,
+      silentReporter,
+      {},
+    )
+    expect(nudgeAgentSession).toHaveBeenCalled()
+  })
+
+  it('skips an agent a dispatch already woke in this cycle', async () => {
+    await giveInbox('a-1')
+    const tracker = createInboxReminderTracker()
+    await remindUnreadInboxes(
+      dir,
+      stateWith(),
+      tracker,
+      10_000_000,
+      silentReporter,
+      {},
+      {
+        alreadyNudged: new Set(['review']),
+      },
+    )
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
   })
 })

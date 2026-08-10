@@ -133,7 +133,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           }
         }
         if (autoDispatch) {
-          await autoDispatchOutboxes(
+          const nudged = await autoDispatchOutboxes(
             repoRoot,
             state,
             outboxTracker,
@@ -151,6 +151,7 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             Date.now(),
             reporter,
             serverConfig ?? {},
+            { alreadyNudged: nudged },
           )
         }
         if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
