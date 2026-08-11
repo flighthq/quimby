@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import {
   getAgentDir,
@@ -321,18 +321,45 @@ describe('getAgentWorkSummary', () => {
 })
 
 describe('pruneAgentMailboxCaches', () => {
+  // Mark parcels as ones the agent opened or deliberately closed — the ledger `agent.sh` writes,
+  // and the signal that separates a genuine archive entry from work closed without being read.
+  async function markOpened(agentId: string, ...names: string[]): Promise<void> {
+    const { getAgentHandoffInOpenedLedgerPath } = await import('@quimbyhq/paths')
+    const path = getAgentHandoffInOpenedLedgerPath(dir, agentId)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${names.join('\n')}\n`)
+  }
+
+  it('keeps a processed parcel the agent never opened, so the sweep cannot destroy unread work', async () => {
+    const processed = getAgentHandoffInProcessedDir(dir, 'gc-id')
+    await mkdir(join(processed, 'review-read'), { recursive: true })
+    await mkdir(join(processed, 'review-buried'), { recursive: true })
+    await markOpened('gc-id', 'review-read')
+    const state = await loadState(dir)
+    state.agents.led = { id: 'gc-id', name: 'led', location: { type: 'local' } } as AgentState
+
+    await pruneAgentMailboxCaches(dir, state.agents.led, state.id)
+
+    expect(await exists(join(processed, 'review-read'))).toBe(false)
+    // Closed without ever being read — it is unread work, not cache, so the GC leaves it alone.
+    expect(await exists(join(processed, 'review-buried'))).toBe(true)
+  })
+
   it('records processed parcel names in the ledger before sweeping them', async () => {
     const { getAgentHandoffInProcessedLedgerPath } = await import('@quimbyhq/paths')
     await mkdir(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'review-abc123'), {
       recursive: true,
     })
+    await markOpened('gc-id', 'review-abc123')
     const state = await loadState(dir)
     state.agents.led = { id: 'gc-id', name: 'led', location: { type: 'local' } } as AgentState
 
     await pruneAgentMailboxCaches(dir, state.agents.led, state.id)
 
     // the parcel is gone, but its NAME survives — the reply-interrupt correlation still resolves
-    expect(await exists(getAgentHandoffInProcessedDir(dir, 'gc-id'))).toBe(false)
+    expect(await exists(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'review-abc123'))).toBe(
+      false,
+    )
     expect(await readFile(getAgentHandoffInProcessedLedgerPath(dir, 'gc-id'), 'utf-8')).toContain(
       'review-abc123',
     )
@@ -346,6 +373,7 @@ describe('pruneAgentMailboxCaches', () => {
     await mkdir(join(getAgentHandoffInProcessedDir(dir, 'carol-id'), 'builder-abc'), {
       recursive: true,
     })
+    await markOpened('carol-id', 'builder-abc')
     // Active mailbox that must survive:
     await mkdir(join(agentDir, 'handoff', 'out', 'queued', 'reviewer'), { recursive: true })
     await mkdir(join(agentDir, 'handoff', 'in', 'received', 'builder-xyz'), { recursive: true })
@@ -355,7 +383,9 @@ describe('pruneAgentMailboxCaches', () => {
     await pruneAgentMailboxCaches(dir, agent, 'proj-id')
 
     expect(await exists(getAgentHandoffOutSentDir(dir, 'carol-id'))).toBe(false)
-    expect(await exists(getAgentHandoffInProcessedDir(dir, 'carol-id'))).toBe(false)
+    expect(await exists(join(getAgentHandoffInProcessedDir(dir, 'carol-id'), 'builder-abc'))).toBe(
+      false,
+    )
     expect(await exists(join(agentDir, 'handoff', 'out', 'queued', 'reviewer'))).toBe(true)
     expect(await exists(join(agentDir, 'handoff', 'in', 'received', 'builder-xyz'))).toBe(true)
     expect(await exists(join(agentDir, 'assignment.md'))).toBe(true)
@@ -371,6 +401,9 @@ describe('pruneAgentMailboxCaches', () => {
 
     expect(calls.some((c) => c.includes('rm -rf') && c.includes('/handoff/out/sent'))).toBe(true)
     expect(calls.some((c) => c.includes('/handoff/in/processed'))).toBe(true)
+    // The remote sweep must consult `.opened` per parcel, not blanket-remove the directory —
+    // the same unread-work exemption the local path applies.
+    expect(calls.some((c) => c.includes('/handoff/in/.opened'))).toBe(true)
   })
 })
 
@@ -411,12 +444,16 @@ describe('syncAgent', () => {
     await mkdir(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'builder-abc'), {
       recursive: true,
     })
+    const { getAgentHandoffInOpenedLedgerPath } = await import('@quimbyhq/paths')
+    await writeFile(getAgentHandoffInOpenedLedgerPath(dir, 'gc-id'), 'builder-abc\n')
     await advanceHost('feature')
 
     await syncAgent(dir, 'gc')
 
     expect(await exists(getAgentHandoffOutSentDir(dir, 'gc-id'))).toBe(false)
-    expect(await exists(getAgentHandoffInProcessedDir(dir, 'gc-id'))).toBe(false)
+    expect(await exists(join(getAgentHandoffInProcessedDir(dir, 'gc-id'), 'builder-abc'))).toBe(
+      false,
+    )
   })
 
   it('throws a clear error when the sync ref does not resolve', async () => {

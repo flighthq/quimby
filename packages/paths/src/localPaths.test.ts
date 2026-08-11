@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getAgentDir,
   getAgentHandoffDir,
+  getAgentHandoffInOpenedLedgerPath,
   getAgentHandoffInProcessedDir,
   getAgentHandoffInReceivedDir,
   getAgentHandoffInReceivedParcelDir,
@@ -37,6 +38,14 @@ describe('getAgentDir', () => {
 describe('getAgentHandoffDir', () => {
   it('returns the handoff root under agent dir', () => {
     expect(getAgentHandoffDir('/root', 'alice')).toBe('/root/.quimby/agents/alice/handoff')
+  })
+})
+
+describe('getAgentHandoffInOpenedLedgerPath', () => {
+  it('returns the engaged-parcels ledger under in/', () => {
+    expect(getAgentHandoffInOpenedLedgerPath('/root', 'alice')).toBe(
+      '/root/.quimby/agents/alice/handoff/in/.opened',
+    )
   })
 })
 

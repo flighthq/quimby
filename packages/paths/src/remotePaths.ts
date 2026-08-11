@@ -64,6 +64,15 @@ export function remoteAgentHandoffInReceivedDir(
   return `${remoteAgentHandoffDir(projectId, agentId, base)}/in/received`
 }
 
+/** The remote twin of {@link getAgentHandoffInOpenedLedgerPath}. */
+export function remoteAgentHandoffInOpenedLedgerPath(
+  projectId: string,
+  agentId: string,
+  base?: string,
+): string {
+  return `${remoteAgentHandoffDir(projectId, agentId, base)}/in/.opened`
+}
+
 /** The remote twin of {@link getAgentHandoffInProcessedLedgerPath}. */
 export function remoteAgentHandoffInProcessedLedgerPath(
   projectId: string,

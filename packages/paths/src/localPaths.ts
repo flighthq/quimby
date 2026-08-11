@@ -203,6 +203,16 @@ export function getAgentHandoffInReceivedParcelDir(
   return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', 'received', parcelName)
 }
 
+/**
+ * The names-only ledger of parcels this agent has ENGAGED with — opened via `agent.sh inbox show`,
+ * or closed by name. Written by the agent, read by the host: the mailbox GC keeps a processed
+ * parcel absent from this list rather than sweeping it, because a parcel closed without ever being
+ * read is unread work, not cache.
+ */
+export function getAgentHandoffInOpenedLedgerPath(repoRoot: string, agentId: string): string {
+  return join(repoRoot, '.quimby', 'agents', agentId, 'handoff', 'in', '.opened')
+}
+
 // `in/processed/<sender>-<hash>` — parcels the recipient has acted on (was `inbox/.done/…`).
 /**
  * The names-only ledger of parcels this agent has processed. `sync` sweeps the processed parcels

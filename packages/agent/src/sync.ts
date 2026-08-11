@@ -1,15 +1,17 @@
-import { appendFile, readdir, rm } from 'node:fs/promises'
+import { appendFile, readdir, readFile, rm } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import {
   getAgentDir,
+  getAgentHandoffInOpenedLedgerPath,
   getAgentHandoffInProcessedDir,
   getAgentHandoffInProcessedLedgerPath,
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
   QUIMBY_DIRNAME,
   remoteAgentDir,
+  remoteAgentHandoffInOpenedLedgerPath,
   remoteAgentHandoffInProcessedDir,
   remoteAgentHandoffInProcessedLedgerPath,
   remoteAgentHandoffOutSentDir,
@@ -30,6 +32,7 @@ import {
   resolveConfiguredAgentRole,
   saveState,
 } from '@quimbyhq/workspace'
+import { join } from 'pathe'
 
 import {
   resolveAgentGraph,
@@ -326,6 +329,12 @@ export function applyAgentCoordinationEdges(
  * so GC is folded into `sync` (and covered by `rebuild`'s full mailbox wipe). Active queued/
  * received parcels, `assignment.md`, and `status.md` are left untouched — this only sweeps the
  * archives.
+ *
+ * A processed parcel the agent never ENGAGED with is exempt. "Processed" covers two different
+ * things once bulk-close exists: a parcel read and finished with (genuine cache), and one closed
+ * without ever being opened (unread work that only looks archived). Sweeping the second destroys
+ * the parcel — note, diff and all — and the agent has no way to notice, because the reminder sweep
+ * watches only `in/received`. The agent's `.opened` ledger is what distinguishes them.
  */
 export async function pruneAgentMailboxCaches(
   repoRoot: string,
@@ -340,22 +349,32 @@ export async function pruneAgentMailboxCaches(
     const base = agent.location.base
     const processed = remoteAgentHandoffInProcessedDir(stateId, agent.id, base)
     const ledger = remoteAgentHandoffInProcessedLedgerPath(stateId, agent.id, base)
+    const opened = remoteAgentHandoffInOpenedLedgerPath(stateId, agent.id, base)
+    // Remove each processed parcel individually, skipping any name absent from `.opened`. A blanket
+    // `rm -rf` on the directory cannot express the exemption, and the loop stays one round trip.
     await getSSHTransport(agent.location).exec(
-      `if [ -d ${processed} ]; then ls -1 ${processed} 2>/dev/null >> ${ledger} || true; fi; ` +
-        `rm -rf ${remoteAgentHandoffOutSentDir(stateId, agent.id, base)} ${processed}`,
+      `rm -rf ${remoteAgentHandoffOutSentDir(stateId, agent.id, base)}; ` +
+        `if [ -d ${processed} ]; then ` +
+        `for d in ${processed}/*/; do [ -d "$d" ] || continue; n=$(basename "$d"); ` +
+        `grep -qxF "$n" ${opened} 2>/dev/null || continue; ` +
+        `printf '%s\\n' "$n" >> ${ledger}; rm -rf "$d"; done; fi`,
     )
     return
   }
   const processedDir = getAgentHandoffInProcessedDir(repoRoot, agent.id)
   const names = await readdir(processedDir).catch(() => [] as string[])
-  if (names.length > 0) {
+  const engaged = await readOpenedLedger(getAgentHandoffInOpenedLedgerPath(repoRoot, agent.id))
+  const sweepable = names.filter((n) => engaged.has(n))
+  if (sweepable.length > 0) {
     await appendFile(
       getAgentHandoffInProcessedLedgerPath(repoRoot, agent.id),
-      `${names.join('\n')}\n`,
+      `${sweepable.join('\n')}\n`,
     )
   }
   await rm(getAgentHandoffOutSentDir(repoRoot, agent.id), { recursive: true, force: true })
-  await rm(processedDir, { recursive: true, force: true })
+  for (const name of sweepable) {
+    await rm(join(processedDir, name), { recursive: true, force: true })
+  }
 }
 
 /**
@@ -556,6 +575,26 @@ async function resolveSyncTarget(
         `Retarget it with "quimby set ${agent.name} --sync <ref>".`,
     )
   }
+}
+
+// The parcel names an agent has opened or deliberately closed. Absent (an agent scaffolded before
+// the ledger existed, or one that has never opened anything) reads as an empty set, so the GC keeps
+// its whole processed archive rather than sweeping work that was never read.
+//
+// That deliberately errs toward keeping: an agent predating the ledger holds parcels it really did
+// read, and those now survive the sweep permanently — nothing will ever add their names, since
+// reading one out of the archive is not recorded as engagement. The cost is disk bounded by agent
+// lifetime (the backlog cannot grow, and `rebuild` clears it); the cost of guessing the other way
+// is destroying a parcel nobody has ever seen. Parcels handled from here on are recorded normally,
+// so the archive resumes draining.
+async function readOpenedLedger(path: string): Promise<Set<string>> {
+  const raw = await readFile(path, 'utf8').catch(() => '')
+  return new Set(
+    raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean),
+  )
 }
 
 /** Sum a `git diff --numstat` block (remote SSH path) into file/insertion/deletion counts. */

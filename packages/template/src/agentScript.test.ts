@@ -762,6 +762,64 @@ describe('renderAgentScript bulk inbox close', () => {
     drop(root, 'never-read')
     runSh(root, ['inbox', 'done', 'never-read'])
     expect(existsSync(join(root, 'handoff', 'in', 'processed', 'never-read'))).toBe(true)
+    // Naming it IS engagement, so the host GC may sweep it — otherwise the archive never drains.
+    expect(readFileSync(join(root, 'handoff', 'in', '.opened'), 'utf-8')).toContain('never-read')
+  })
+})
+
+// Parcels closed before the opened-gate existed sit in `in/processed` unread, and nothing announces
+// them: the host reminder sweep watches only `in/received`. Without a way to see, read, and restore
+// them they are invisible from every direction.
+describe('renderAgentScript buried parcel recovery', () => {
+  const posix = process.platform !== 'win32'
+
+  function bury(root: string, name: string): void {
+    const p = join(root, 'handoff', 'in', 'processed', name)
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'README.md'), `body of ${name}\n`)
+  }
+
+  it.runIf(posix)('lists processed parcels nobody opened, and says how to get them back', () => {
+    const root = makeAgentWorkspace()
+    bury(root, 'review-buried')
+
+    const out = runSh(root, ['inbox'])
+    expect(out).toContain('review-buried')
+    expect(out).toContain('closed without ever being read')
+    expect(out).toContain('inbox reopen')
+  })
+
+  it.runIf(posix)('reads a processed parcel, without marking it engaged', () => {
+    const root = makeAgentWorkspace()
+    bury(root, 'review-buried')
+
+    const out = runSh(root, ['inbox', 'show', 'review-buried'])
+    expect(out).toContain('body of review-buried')
+    expect(out).toContain('already processed')
+    // Marking it opened here would clear the GC exemption and let the next sync delete the very
+    // parcel just recovered.
+    expect(existsSync(join(root, 'handoff', 'in', '.opened'))).toBe(false)
+  })
+
+  it.runIf(posix)('reopens a processed parcel back into the tray', () => {
+    const root = makeAgentWorkspace()
+    bury(root, 'review-buried')
+
+    runSh(root, ['inbox', 'reopen', 'review-buried'])
+
+    expect(existsSync(join(root, 'handoff', 'in', 'received', 'review-buried'))).toBe(true)
+    expect(existsSync(join(root, 'handoff', 'in', 'processed', 'review-buried'))).toBe(false)
+    expect(runSh(root, ['inbox'])).toContain('review-buried')
+  })
+
+  it.runIf(posix)('refuses to reopen a name it does not hold', () => {
+    const root = makeAgentWorkspace()
+    const merged = execFileSync(
+      'sh',
+      ['-c', `sh ${join(root, 'agent.sh')} inbox reopen nope-123 2>&1 || true`],
+      { cwd: root, encoding: 'utf-8' },
+    )
+    expect(merged).toContain('no processed parcel')
   })
 })
 

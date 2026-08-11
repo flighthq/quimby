@@ -6,6 +6,7 @@ import {
   dashboardViewSessionName,
   remoteAgentDir,
   remoteAgentHandoffDir,
+  remoteAgentHandoffInOpenedLedgerPath,
   remoteAgentHandoffInProcessedDir,
   remoteAgentHandoffInReceivedDir,
   remoteAgentHandoffOutDraftDir,
@@ -56,6 +57,14 @@ describe('remoteAgentHandoffDir', () => {
   it('returns the handoff root under the remote agent dir', () => {
     expect(remoteAgentHandoffDir('proj-id', 'alice', '/base')).toBe(
       '/base/.quimby/agents/alice/handoff',
+    )
+  })
+})
+
+describe('remoteAgentHandoffInOpenedLedgerPath', () => {
+  it('returns the remote engaged-parcels ledger', () => {
+    expect(remoteAgentHandoffInOpenedLedgerPath('proj-id', 'alice', '/base')).toBe(
+      '/base/.quimby/agents/alice/handoff/in/.opened',
     )
   })
 })
