@@ -10,8 +10,13 @@ vi.mock('@clack/prompts', () => ({ confirm, isCancel: (v: unknown) => v === Symb
 vi.mock('@quimbyhq/session', () => ({ hasAgentSession, nudgeAgentSession }))
 vi.mock('@quimbyhq/utils', () => ({ logger: { info } }))
 
-const { applyBaseNudgeCommand, conflictNudgeCommand, offerApplyBaseNudge, offerConflictNudge } =
-  await import('./conflictNudge')
+const {
+  applyBaseNudgeCommand,
+  conflictNudgeCommand,
+  offerApplyBaseNudge,
+  offerApplyBaseNudgeAll,
+  offerConflictNudge,
+} = await import('./conflictNudge')
 
 const agent = { id: 'a1', name: 'builder', tmux: true } as AgentState
 
@@ -92,6 +97,69 @@ describe('offerApplyBaseNudge', () => {
     ).toBe(false)
     expect(info).toHaveBeenCalledWith(expect.stringContaining("isn't running"))
     expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+})
+
+// `sync --all` deferring several agents used to print a count and stop, so the sweep looked broken
+// next to a single `quimby sync <agent>` — which defers identically and only LOOKS successful
+// because it goes on to offer this nudge. One prompt for the set closes that gap without
+// reintroducing a prompt per agent.
+describe('offerApplyBaseNudgeAll', () => {
+  const two = [
+    { agent, displayName: 'foreman' },
+    { agent: { id: 'b2', name: 'builder2', tmux: true } as AgentState, displayName: 'builder2' },
+  ]
+
+  it('asks once for the whole set, then nudges each agent', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+
+    expect(await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })).toBe(2)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(2)
+    expect(nudgeAgentSession).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
+  })
+
+  it('names the agents in the prompt, so it is clear what is being woken', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+    await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('foreman, builder2') }),
+    )
+  })
+
+  it('nudges nothing and prints the per-agent commands when declined', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(false)
+    expect(await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })).toBe(0)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('quimby sync foreman'))
+  })
+
+  it('only prints when there is no TTY', async () => {
+    setTTY(false)
+    expect(await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })).toBe(0)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+  })
+
+  // A stopped agent cannot be typed into and applies the base on its next run; it must be named
+  // rather than silently dropped from the set the prompt covers.
+  it('reports stopped agents separately and prompts only for the live ones', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+    hasAgentSession.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    expect(await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })).toBe(1)
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('foreman'))
+    expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing at all when no deferred agent is running', async () => {
+    setTTY(true)
+    hasAgentSession.mockResolvedValue(false)
+    expect(await offerApplyBaseNudgeAll({ agents: two, whenNonInteractive: 'print' })).toBe(0)
+    expect(confirm).not.toHaveBeenCalled()
   })
 })
 

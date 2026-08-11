@@ -82,6 +82,76 @@ export async function offerApplyBaseNudge(
   })
 }
 
+/**
+ * The sweep counterpart: ONE offer covering every agent a multi-agent sync deferred.
+ *
+ * `sync --all` used to report the deferred count and point at `quimby sync <agent>`, on the
+ * reasoning that a prompt per agent would be unbearable on a busy fleet. That reasoning is right
+ * and the conclusion was wrong: it left the sweep unable to do the one thing that makes the
+ * per-agent command work. Running `quimby sync --all` and then `quimby sync foreman` produces the
+ * SAME deferral twice — the second only looks like it succeeded because it offers this nudge. So
+ * the sweep reads as broken and the single sync as the fix, when the difference is entirely the
+ * prompt.
+ *
+ * One prompt for the whole set keeps the original concern satisfied: a fleet of ten deferred agents
+ * asks once, not ten times, and the names are listed so it is clear what is being woken.
+ */
+export async function offerApplyBaseNudgeAll(
+  opts: Readonly<{
+    agents: ReadonlyArray<{ agent: Readonly<AgentState>; displayName: string; behind?: number }>
+    whenNonInteractive: 'nudge' | 'print'
+  }>,
+): Promise<number> {
+  // Only agents with a live session can be typed into. A stopped one applies the base on its next
+  // run, so it is reported rather than counted as something the prompt could act on.
+  const live: { agent: Readonly<AgentState>; displayName: string; behind?: number }[] = []
+  const stopped: string[] = []
+  for (const entry of opts.agents) {
+    if (await hasAgentSession(entry.agent)) live.push(entry)
+    else stopped.push(entry.displayName)
+  }
+  if (stopped.length > 0) {
+    logger.info(
+      `${stopped.join(', ')} — not running; each applies the base itself on its next run ` +
+        '(`./agent.sh rebase`).',
+    )
+  }
+  if (live.length === 0) return 0
+
+  const names = live.map((e) => e.displayName).join(', ')
+  const interactive = Boolean(process.stdout.isTTY && process.stdin.isTTY)
+  if (!interactive) {
+    if (opts.whenNonInteractive === 'print') {
+      logger.info(
+        `To ask them yourself: ${live.map((e) => `quimby sync ${e.displayName}`).join('; ')}`,
+      )
+      return 0
+    }
+  } else {
+    const answer = await confirm({
+      message: `Nudge ${live.length} agent(s) to apply the delivered base? (${names})`,
+      initialValue: true,
+    })
+    if (isCancel(answer) || !answer) {
+      logger.info(
+        `To ask them yourself: ${live.map((e) => `quimby sync ${e.displayName}`).join('; ')}`,
+      )
+      return 0
+    }
+  }
+
+  for (const entry of live) {
+    await nudgeAgentSession({
+      agent: entry.agent,
+      displayName: entry.displayName,
+      courier: renderApplyBaseRequest(),
+      force: true,
+      reporter: consolaReporter,
+    })
+  }
+  return live.length
+}
+
 /** The ready-to-paste equivalent for the deferral case. */
 export function applyBaseNudgeCommand(displayName: string): string {
   return `To ask it yourself: quimby nudge ${displayName} --raw -m "${renderApplyBaseRequest()}"`
