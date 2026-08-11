@@ -13,7 +13,12 @@ import { mergeSSHLocation } from '@quimbyhq/transport'
 import type { RuntimeType } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
-import { loadQuimbyConfig, resolveRole, resolveWorkspace } from '@quimbyhq/workspace'
+import {
+  loadQuimbyConfig,
+  resolveHostAlias,
+  resolveRole,
+  resolveWorkspace,
+} from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 export default defineCommand({
@@ -49,6 +54,11 @@ export default defineCommand({
       type: 'string',
       alias: 'H',
       description: 'Update SSH host (e.g. user@box or user@box:/remote/path)',
+    },
+    hostAlias: {
+      type: 'string',
+      description:
+        'Point the agent at a private host alias instead of a flattened address, so a rebinding propagates',
     },
     port: {
       type: 'string',
@@ -87,6 +97,7 @@ export async function runSetCommand({
     role?: string
     cmd?: string
     host?: string
+    hostAlias?: string
     port?: string
     sync?: string
     local?: boolean
@@ -107,6 +118,7 @@ export async function runSetCommand({
     args.role === undefined &&
     !args.cmd &&
     !args.host &&
+    !args.hostAlias &&
     !args.port &&
     args.sync === undefined &&
     !args.local &&
@@ -114,13 +126,22 @@ export async function runSetCommand({
     args.verifyByDefault === undefined
   ) {
     throw new QuimbyError(
-      'Specify at least one of --runtime, --runtime-profile, --role, --cmd, --host, --port, --sync, --local, --check, or --verify-by-default',
+      'Specify at least one of --runtime, --runtime-profile, --role, --cmd, --host, --host-alias, --port, --sync, --local, --check, or --verify-by-default',
     )
   }
 
-  // --local drops the remote location; it can't coexist with --host/--port, which set one.
-  if (args.local && (args.host || args.port)) {
-    throw new QuimbyError('--local cannot be combined with --host/--port')
+  // --local drops the remote location; it can't coexist with the flags that set one.
+  if (args.local && (args.host || args.hostAlias || args.port)) {
+    throw new QuimbyError('--local cannot be combined with --host/--host-alias/--port')
+  }
+
+  // An alias is an indirection and a raw host is a flattened address — setting both in one call
+  // leaves it ambiguous which one the agent should end up storing, so say so rather than pick.
+  if (args.host && args.hostAlias) {
+    throw new QuimbyError(
+      '--host and --host-alias both set the location — pass one. --host-alias is the one that ' +
+        'keeps resolving from config, so a rebinding reaches every agent on that alias.',
+    )
   }
 
   if (args.runtime && !runtimeTypes.includes(args.runtime as RuntimeType)) {
@@ -171,7 +192,20 @@ export async function runSetCommand({
     await setAgentLocation(repoRoot, args.agent, { type: 'local' })
   }
 
-  if (args.host || args.port) {
+  if (args.hostAlias) {
+    // Store the alias REFERENCE, never a flattened address: the concrete host is resolved from
+    // layered config at launch, so rebinding the alias propagates to every agent that shares it.
+    // This is the migration path off a legacy flattened `location.host` — without it, changing a
+    // worker's address meant a per-agent `set --host` or hand-editing state.yaml.
+    // resolveHostAlias asserts the alias is at least declared, so a typo fails now.
+    resolveHostAlias(await loadQuimbyConfig(repoRoot), args.hostAlias)
+    const port = args.port ? parseInt(args.port, 10) : undefined
+    await setAgentLocation(repoRoot, args.agent, {
+      type: 'ssh',
+      alias: args.hostAlias,
+      ...(port ? { port } : {}),
+    })
+  } else if (args.host || args.port) {
     const location = mergeSSHLocation(agent.location, {
       hostSpec: args.host,
       port: args.port ? parseInt(args.port, 10) : undefined,

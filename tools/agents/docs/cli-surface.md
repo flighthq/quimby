@@ -22,7 +22,7 @@ quimby stop <agent>                                  Kill the agent's tmux sessi
 quimby disable <agent>                               Free the agent's live session (sandbox/tmux slot) and keep its work on disk, dropping it from layouts until re-enabled — the middle rung between stop (transient) and remove (destructive); the binding fleet constraint is live sessions, not disk
 quimby enable <agent>                                Re-enable a disabled agent so it rejoins layouts and launches (resumes from status.md on the next run/start)
 quimby restart <agent...> | --all                    Recreate the agent's tmux session with its current launch config (role-resolved), keeping its work/mailbox; --all restarts every running agent
-quimby set <agent> [-r <rt>] [--cmd <cmd>] [--role <role>] [-H <host>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --check sets the agent's advisory self-check command; --role attaches the config role the agent resolves its launch config through, "" to clear)
+quimby set <agent> [-r <rt>] [--cmd <cmd>] [--role <role>] [-H <host>] [--host-alias <alias>] [--port <n>] [-s <ref>] [--local] [--check <cmd>] [--verify-by-default|--no-verify-by-default]   Update agent config (--local converts an SSH agent back to local; --host-alias repoints the agent at a declared alias, storing the reference so a rebinding propagates — the migration path off a legacy flattened address; --check sets the agent's advisory self-check command; --role attaches the config role the agent resolves its launch config through, "" to clear)
 quimby help [command]                                 Root help (grouped, with banner) or usage for a single command
 quimby host [alias] [--set <user@host>] [-p <port>] [--global]   Inspect/bind SSH host aliases (no arg lists all with bound/unbound status; --set binds to ignored local config, --global to user config; a bare `host <alias>` prints it or prompts to bind when unbound)
 quimby doctor [agent] [-r <runtime>] [--host-alias <alias>]   Check required local/remote dependencies for the selected agent/runtime/host
@@ -97,7 +97,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--verify-by-default` / `--no-verify-by-default` (set — whether `assign` should append the advisory check request when neither `--verify` nor `--no-verify` is passed)
 - `--role` (add — creation defaults from layered config, commonly ignored `.quimby/local.yaml`)
 - `--runtime-profile` (add, run, start, set, doctor — named runtime/profile settings from layered config, commonly ignored `.quimby/local.yaml`; `set --runtime-profile ""` clears the saved reference)
-- `--host-alias` (add, doctor — private host binding from user/local config)
+- `--host-alias` (add, set, doctor — private host binding from user/local config. On `set` it stores the alias _reference_, replacing a flattened `location.host`, so the address keeps resolving from config and a rebinding reaches every agent on that alias; it cannot be combined with `--host`, which sets a flattened address instead)
 - `--default` (up — use the configured default preset)
 - `--layout` (run — saved dashboard layout or preset layout)
 - `--default` / `--global` (run — save the opened `--layout` as the default a bare `quimby run` opens; `--global` writes to user config instead of `.quimby/local.yaml`)

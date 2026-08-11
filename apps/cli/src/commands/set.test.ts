@@ -27,7 +27,10 @@ let resolved: {
 vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   resolveWorkspace: vi.fn(async () => resolved),
-  loadQuimbyConfig: vi.fn(async () => ({ roles: { builder: {} } })),
+  loadQuimbyConfig: vi.fn(async () => ({
+    roles: { builder: {} },
+    hosts: { remote: { host: 'user@gpu-box' } },
+  })),
 }))
 
 function workspace(agents: Record<string, { location: AgentLocation }>) {
@@ -123,5 +126,47 @@ describe('runSetCommand', () => {
     await expect(
       cmd.run!({ args: { agent: 'researcher', local: true, host: 'user@other' } } as never),
     ).rejects.toThrow('cannot be combined')
+  })
+
+  // The migration path off a legacy flattened address: an agent stored with a raw `host` never
+  // re-resolves, so changing the worker's IP otherwise meant a per-agent --host or editing
+  // state.yaml by hand. Storing the alias REFERENCE is what makes a rebinding propagate.
+  it('--host-alias replaces a flattened address with an alias reference', async () => {
+    resolved = workspace({ researcher: { location: { type: 'ssh', host: '10.0.0.5' } } })
+    setAgentLocation.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'researcher', hostAlias: 'remote' } } as never)
+    expect(setAgentLocation).toHaveBeenCalledWith('/fake/root', 'researcher', {
+      type: 'ssh',
+      alias: 'remote',
+    })
+  })
+
+  it('--host-alias carries a --port alongside it', async () => {
+    resolved = workspace({ researcher: { location: { type: 'ssh', host: '10.0.0.5' } } })
+    setAgentLocation.mockClear()
+    const { default: cmd } = await import('./set')
+    await cmd.run!({ args: { agent: 'researcher', hostAlias: 'remote', port: '2222' } } as never)
+    expect(setAgentLocation).toHaveBeenCalledWith('/fake/root', 'researcher', {
+      type: 'ssh',
+      alias: 'remote',
+      port: 2222,
+    })
+  })
+
+  it('--host-alias rejects an alias no config declares, so a typo fails now', async () => {
+    resolved = workspace({ researcher: { location: { type: 'ssh', host: '10.0.0.5' } } })
+    const { default: cmd } = await import('./set')
+    await expect(
+      cmd.run!({ args: { agent: 'researcher', hostAlias: 'ghost' } } as never),
+    ).rejects.toThrow(/Host alias "ghost" not found/)
+  })
+
+  it('refuses --host and --host-alias together rather than picking one', async () => {
+    resolved = workspace({ researcher: { location: { type: 'ssh', host: '10.0.0.5' } } })
+    const { default: cmd } = await import('./set')
+    await expect(
+      cmd.run!({ args: { agent: 'researcher', host: 'user@box', hostAlias: 'remote' } } as never),
+    ).rejects.toThrow('pass one')
   })
 })

@@ -183,10 +183,13 @@ For an SSH agent, `sync` rsyncs the project to the remote before fast-forwarding
 quimby set researcher --host user@new-box
 quimby set researcher --port 2222
 quimby set researcher --host user@box:/different/path
+quimby set researcher --host-alias remote        # repoint at a declared alias (stores the reference, not an address)
 quimby set researcher --local                    # convert back to a local agent (drops the remote location)
 ```
 
-`--local` is the flag counterpart to what the `config` walkthrough could already do — it drops the SSH `location` so the agent runs locally. It errors if the agent is already local, and cannot be combined with `--host`/`--port` (which set a remote location).
+`--local` is the flag counterpart to what the `config` walkthrough could already do — it drops the SSH `location` so the agent runs locally. It errors if the agent is already local, and cannot be combined with `--host`/`--host-alias`/`--port` (which set a remote location).
+
+`--host-alias` is the migration path **off** a flattened address. An agent created before aliases (or with an explicit `--host`) stores a concrete `location.host`, which is never re-resolved — so moving that worker meant a `set --host` per agent, or hand-editing `state.yaml`. Passing `--host-alias <alias>` stores the alias _reference_ instead, and from then on the address resolves from layered config at launch, so rebinding the alias once reaches every agent that shares it. The alias must at least be declared (a typo fails immediately rather than at launch), and `--host` and `--host-alias` cannot be combined — they store different things, so quimby asks rather than guessing.
 
 ### Removing an unreachable SSH agent
 
