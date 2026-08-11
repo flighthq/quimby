@@ -206,7 +206,24 @@ export async function rebaseAgentOntoBase(
 export async function syncAgent(
   repoRoot: string,
   name: string,
-  opts?: { force?: boolean; base?: string; apply?: boolean },
+  opts?: {
+    force?: boolean
+    base?: string
+    apply?: boolean
+    /**
+     * A per-run memo of remote project roots already rsynced, so a sweep over several agents does
+     * not re-push the identical tree once per agent.
+     *
+     * The remote project root is keyed by PROJECT, not by agent, so every SSH agent sharing a host
+     * resolves to the same destination — an 8-agent fleet was rsyncing the whole project 8 times
+     * per `sync --all`, each with `--delete` and its own `git ls-files --ignored` scan. That is 8x
+     * the wall time and 8x the exposure to a transient ssh/rsync failure, which is the mechanical
+     * reason `--all` can fail where syncing the same agent alone succeeds.
+     *
+     * Omitted (a single-agent sync) means always push, so one-agent behaviour is unchanged.
+     */
+    syncedProjects?: Set<string>
+  },
 ): Promise<{
   newSeed: string
   rebased: boolean
@@ -236,8 +253,15 @@ export async function syncAgent(
   let ops: RepoSyncOps
   if (isSSH(agent.location)) {
     const transport = getSSHTransport(agent.location)
-    // Push the latest project to the remote before advancing the agent onto it.
-    await transport.syncProjectTo(repoRoot, remoteProjectRoot(state.id, agent.location.base))
+    // Push the latest project to the remote before advancing the agent onto it — once per
+    // destination, not once per agent (see `syncedProjects`). Keyed by host too, since the same
+    // project root path on two different boxes is two different destinations.
+    const projectRoot = remoteProjectRoot(state.id, agent.location.base)
+    const destination = `${agent.location.alias ?? agent.location.host ?? ''}:${projectRoot}`
+    if (!opts?.syncedProjects?.has(destination)) {
+      await transport.syncProjectTo(repoRoot, projectRoot)
+      opts?.syncedProjects?.add(destination)
+    }
     ops = remoteSyncOps(transport, remoteAgentRepoDir(state.id, agent.id, agent.location.base))
   } else {
     ops = localSyncOps(getAgentRepoDir(repoRoot, agent.id))

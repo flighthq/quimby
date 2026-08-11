@@ -96,7 +96,11 @@ describe('syncAgents', () => {
     })
     const [outcome] = await syncAgents(opts({ force: true }))
     expect(outcome).toMatchObject({ name: 'alice', outcome: 'forced', newSeed: 'forced01' })
-    expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', { force: true, base: undefined })
+    expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', {
+      force: true,
+      base: undefined,
+      syncedProjects: expect.any(Set),
+    })
   })
 
   it('classifies an up-to-date agent (seed unchanged)', async () => {
@@ -141,7 +145,11 @@ describe('syncAgents', () => {
   it('resolves --current to the host branch and passes it as the base', async () => {
     mockedBranch.mockResolvedValue('feature/x')
     await syncAgents(opts({ current: true }))
-    expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', { force: false, base: 'feature/x' })
+    expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', {
+      force: false,
+      base: 'feature/x',
+      syncedProjects: expect.any(Set),
+    })
   })
 
   it('under --all, skips a conflicted agent and continues', async () => {
@@ -169,5 +177,23 @@ describe('syncAgents', () => {
   it('for an explicit name, a conflict throws instead of skipping', async () => {
     mockedSync.mockRejectedValue(new Error('rebase conflicts'))
     await expect(syncAgents(opts({}))).rejects.toThrow(/rebase conflicts/)
+  })
+
+  // Every SSH agent on a host shares one remote project root, so the sweep must carry ONE memo
+  // across the whole run — otherwise each agent re-pushes the identical tree, multiplying the wall
+  // time and the exposure to a transient rsync failure that turns an agent into a `skipped`.
+  it('threads one project-sync memo across every agent in the sweep', async () => {
+    await syncAgents(
+      opts({
+        all: true,
+        names: [],
+        state: stateWith({ alice: { seedCommit: 'old' }, bob: { seedCommit: 'old' } }),
+      }),
+    )
+
+    const memos = mockedSync.mock.calls.map((c) => c[2]?.syncedProjects)
+    expect(memos).toHaveLength(2)
+    expect(memos[0]).toBeInstanceOf(Set)
+    expect(memos[1]).toBe(memos[0])
   })
 })

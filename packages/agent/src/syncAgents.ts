@@ -83,6 +83,11 @@ export async function syncAgents(
   }
 
   const outcomes: SyncAgentOutcome[] = []
+  // One project push per remote destination for the whole sweep. Every SSH agent on a host shares
+  // one remote project root, so without this a sweep rsyncs the identical tree once per agent —
+  // multiplying both the wall time and the chance that one transient ssh/rsync failure turns an
+  // agent into a `skipped` that syncs fine on its own a moment later.
+  const syncedProjects = new Set<string>()
   for (const name of names) {
     const agent = state.agents[name]
     if (!agent) {
@@ -92,7 +97,7 @@ export async function syncAgents(
     const syncRef = agent.syncRef ?? state.sourceRef
 
     try {
-      const result = await syncAgent(repoRoot, name, { force: opts.force, base })
+      const result = await syncAgent(repoRoot, name, { force: opts.force, base, syncedProjects })
       const seedShort = result.newSeed.slice(0, 8)
       // The graph edit reached the agent — say so, since it takes effect on the next dispatch
       // and is otherwise invisible next to the seed advance.

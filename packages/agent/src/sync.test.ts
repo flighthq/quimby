@@ -538,6 +538,33 @@ describe('syncAgent', () => {
     })
   })
 
+  // The remote project root is keyed by PROJECT, so every SSH agent on a host resolves to the same
+  // destination. Without a shared memo an 8-agent `sync --all` rsyncs the identical tree 8 times.
+  it('pushes the project once per remote destination when a sweep shares a memo', async () => {
+    const { transport } = fakeSSHTransport('')
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remo1', 'remo1-id', 'oldseed0000')
+    await registerSSHAgent('remo2', 'remo2-id', 'oldseed0000')
+    const syncedProjects = new Set<string>()
+
+    await syncAgent(dir, 'remo1', { syncedProjects })
+    await syncAgent(dir, 'remo2', { syncedProjects })
+
+    expect(transport.syncProjectTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('pushes the project for every agent when no memo is supplied (single-agent sync)', async () => {
+    const { transport } = fakeSSHTransport('')
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remo1', 'remo1-id', 'oldseed0000')
+    await registerSSHAgent('remo2', 'remo2-id', 'oldseed0000')
+
+    await syncAgent(dir, 'remo1')
+    await syncAgent(dir, 'remo2')
+
+    expect(transport.syncProjectTo).toHaveBeenCalledTimes(2)
+  })
+
   it('drives the remote git commands over transport for an SSH agent (no local commits)', async () => {
     const { transport, calls } = fakeSSHTransport('') // no commits past seed
     mockedGetSSH.mockReturnValue(transport)
