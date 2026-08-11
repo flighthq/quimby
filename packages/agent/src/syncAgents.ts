@@ -13,6 +13,17 @@ export interface SyncAgentsOptions {
   names: readonly string[]
   all: boolean
   force: boolean
+  /**
+   * Rebase the agent onto the base from the host instead of deferring — stash, replay its commits,
+   * pop. The work-preserving counterpart to `force`, which discards.
+   *
+   * A routine sync defers because the host cannot tell a safe moment from an unsafe one, and the
+   * stash/pop it avoids is how a pre-sync copy silently gets reinstated over a peer's landed work.
+   * That reasoning is about a BACKGROUND sync; a user typing this is the same deliberate,
+   * user-present act that `merge`'s pre-sync already opts in for. Without it the only escape from a
+   * stuck agent was `-f` (discards) or running `merge` for its side effect.
+   */
+  apply: boolean
   base?: string
   current: boolean
 }
@@ -68,6 +79,13 @@ export async function syncAgents(
   if (opts.all && opts.base) {
     throw new QuimbyError('--base retargets a single agent; use it with a name, not --all')
   }
+  // Both advance the agent from the host, but they differ on what happens to its work — so picking
+  // one has to be explicit rather than resolved by precedence.
+  if (opts.force && opts.apply) {
+    throw new QuimbyError(
+      "Use -f or --apply, not both: -f discards the agent's work, --apply rebases and keeps it.",
+    )
+  }
 
   // --current is sugar for `--base <the host's current branch>`, resolved once. Unlike an
   // arbitrary --base it reads as "snap onto where I am", so it is allowed with --all.
@@ -103,7 +121,12 @@ export async function syncAgents(
     const syncRef = agent.syncRef ?? state.sourceRef
 
     try {
-      const result = await syncAgent(repoRoot, name, { force: opts.force, base, syncedProjects })
+      const result = await syncAgent(repoRoot, name, {
+        force: opts.force,
+        apply: opts.apply,
+        base,
+        syncedProjects,
+      })
       const seedShort = result.newSeed.slice(0, 8)
       // The graph edit reached the agent — say so, since it takes effect on the next dispatch
       // and is otherwise invisible next to the seed advance.
@@ -120,7 +143,8 @@ export async function syncAgents(
         reporter.info(
           `${name}: base delivered (${result.baseCommit.slice(0, 8)}) — not applied, the agent has ` +
             `${result.deferred === 'commits' ? `${result.commitsReplayed} commit(s) to rebase` : 'uncommitted work'}. ` +
-            `It applies this itself; "quimby sync ${name} -f" forces (discards its work).`,
+            `It applies this itself; "quimby sync ${name} --apply" rebases it from here (keeps its ` +
+            `work), "-f" hard-resets (discards it).`,
         )
         outcomes.push({
           name,

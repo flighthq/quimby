@@ -36,6 +36,7 @@ function opts(overrides: Record<string, unknown>) {
     names: ['alice'],
     all: false,
     force: false,
+    apply: false,
     current: false,
     ...overrides,
   } as Parameters<typeof syncAgents>[0]
@@ -98,6 +99,7 @@ describe('syncAgents', () => {
     expect(outcome).toMatchObject({ name: 'alice', outcome: 'forced', newSeed: 'forced01' })
     expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', {
       force: true,
+      apply: false,
       base: undefined,
       syncedProjects: expect.any(Set),
     })
@@ -147,6 +149,7 @@ describe('syncAgents', () => {
     await syncAgents(opts({ current: true }))
     expect(mockedSync).toHaveBeenCalledWith('/r', 'alice', {
       force: false,
+      apply: false,
       base: 'feature/x',
       syncedProjects: expect.any(Set),
     })
@@ -197,6 +200,38 @@ describe('syncAgents', () => {
   it('for an explicit name, a conflict throws instead of skipping', async () => {
     mockedSync.mockRejectedValue(new Error('rebase conflicts'))
     await expect(syncAgents(opts({}))).rejects.toThrow(/rebase conflicts/)
+  })
+
+  // The escape hatch from an agent that will not apply its base: rebase it from here, keeping its
+  // work. Before this the only ways out were -f (discards) or running `merge` for its side effect.
+  it('passes --apply through, so the host rebases instead of deferring', async () => {
+    await syncAgents(opts({ apply: true }))
+    expect(mockedSync).toHaveBeenCalledWith(
+      '/r',
+      'alice',
+      expect.objectContaining({ apply: true, force: false }),
+    )
+  })
+
+  it('refuses -f together with --apply rather than silently preferring one', async () => {
+    await expect(syncAgents(opts({ force: true, apply: true }))).rejects.toThrow(/not both/)
+  })
+
+  it('names --apply in the deferral message, since that is the way out', async () => {
+    const { reporter, events } = collectingReporter()
+    mockedSync.mockResolvedValue({
+      newSeed: 'old',
+      rebased: false,
+      commitsReplayed: 4,
+      baseCommit: 'basecommit',
+      applied: false,
+      deferred: 'commits',
+      edgesUpdated: false,
+    })
+
+    await syncAgents(opts({}), reporter)
+
+    expect(events.at(-1)?.message).toContain('quimby sync alice --apply')
   })
 
   // Every SSH agent on a host shares one remote project root, so the sweep must carry ONE memo

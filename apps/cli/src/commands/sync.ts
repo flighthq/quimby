@@ -29,6 +29,12 @@ export default defineCommand({
       description: "Hard-reset to the base, discarding the agent's work (its mailbox is kept)",
       default: false,
     },
+    apply: {
+      type: 'boolean',
+      description:
+        'Rebase the agent onto the base from here instead of deferring, keeping its work (the work-preserving counterpart to -f)',
+      default: false,
+    },
     base: {
       type: 'string',
       description: "Retarget the agent's sync ref to this branch, then sync onto it",
@@ -50,6 +56,7 @@ export async function runSyncCommand({
     _?: string[]
     all: boolean
     force: boolean
+    apply: boolean
     base?: string
     current: boolean
   }
@@ -68,6 +75,7 @@ export async function runSyncCommand({
         names,
         all: args.all,
         force: args.force,
+        apply: args.apply,
         base: args.base,
         current: args.current,
       },
