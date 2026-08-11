@@ -174,6 +174,26 @@ describe('syncAgents', () => {
     expect(outcomes.find((o) => o.name === 'bob')?.outcome).not.toBe('skipped')
   })
 
+  // "fast-forwarded" would claim credit for an advance the AGENT made, which is exactly what made a
+  // deferring sweep look broken next to the single sync that followed it.
+  it('reports an agent-made advance as reconciled, naming who applied it', async () => {
+    const { reporter, events } = collectingReporter()
+    mockedSync.mockResolvedValue({
+      newSeed: 'agentapplied',
+      rebased: false,
+      commitsReplayed: 0,
+      baseCommit: 'agentapplied',
+      applied: true,
+      reconciled: true,
+      edgesUpdated: false,
+    })
+
+    const [outcome] = await syncAgents(opts({}), reporter)
+
+    expect(outcome).toMatchObject({ name: 'alice', outcome: 'reconciled' })
+    expect(events.at(-1)?.message).toContain('the agent applied the base itself')
+  })
+
   it('for an explicit name, a conflict throws instead of skipping', async () => {
     mockedSync.mockRejectedValue(new Error('rebase conflicts'))
     await expect(syncAgents(opts({}))).rejects.toThrow(/rebase conflicts/)

@@ -23,8 +23,14 @@ export interface SyncAgentOutcome {
    * `delivered` is the deliver-without-applying outcome: `quimby/base` moved, the agent's history
    * did not. It is deliberately NOT folded into `up-to-date` — the agent is still behind, and the
    * advance is now its to make.
+   *
+   * `reconciled` means the agent had ALREADY applied this base itself and only host state moved —
+   * distinct from `fast-forwarded`, where this call advanced the agent. Conflating them is what
+   * made a sweep look broken next to a single sync: the sweep defers, the agent applies seconds
+   * later off its footer notice, and the next sync claims credit for an advance nobody made here.
    */
-  outcome: 'forced' | 'up-to-date' | 'rebased' | 'fast-forwarded' | 'delivered' | 'skipped'
+  outcome:
+    'forced' | 'up-to-date' | 'rebased' | 'fast-forwarded' | 'reconciled' | 'delivered' | 'skipped'
   syncRef: string
   /** The new seed commit after syncing (absent when skipped). */
   newSeed?: string
@@ -125,6 +131,12 @@ export async function syncAgents(
           deferred: result.deferred,
           commitsReplayed: result.commitsReplayed,
         })
+      } else if (result.reconciled) {
+        reporter.success(
+          `${name}: already on ${syncRef} (${seedShort}) — the agent applied the base itself; ` +
+            'host state caught up',
+        )
+        outcomes.push({ name, outcome: 'reconciled', syncRef, newSeed: result.newSeed })
       } else if (result.newSeed === prevSeed) {
         reporter.info(`${name}: already up to date with ${syncRef}`)
         outcomes.push({ name, outcome: 'up-to-date', syncRef, newSeed: result.newSeed })

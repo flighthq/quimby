@@ -130,6 +130,7 @@ describe('runSyncAlgorithm', () => {
     expect(result).toEqual({
       newSeed: 'same',
       rebased: false,
+      reconciled: false,
       commitsReplayed: 0,
       baseCommit: 'same',
       applied: true,
@@ -418,6 +419,21 @@ describe('runSyncAlgorithm seed reconciliation', () => {
     const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
     expect(result.applied).toBe(false)
     expect(result.deferred).toBe('commits')
+  })
+
+  // The agent applied the base itself and host state was behind. Flagging that separately is what
+  // keeps the next sync from claiming credit for an advance it did not perform — the ambiguity
+  // that made a sweep look broken next to the single sync that followed it.
+  it('flags an advance the AGENT made as reconciled, not as this call advancing it', async () => {
+    const { ops } = fakeOps({ commits: 7, agentSeed: 'H' })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'stale', name: 'a' })
+    expect(result.reconciled).toBe(true)
+  })
+
+  it('does not flag reconciled when host state already knew the agent was current', async () => {
+    const { ops } = fakeOps({ commits: 0, agentSeed: 'H' })
+    const result = await runSyncAlgorithm(ops, { hostHead: 'H', seedCommit: 'H', name: 'a' })
+    expect(result.reconciled).toBe(false)
   })
 })
 

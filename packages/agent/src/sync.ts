@@ -231,6 +231,8 @@ export async function syncAgent(
   baseCommit: string
   /** False when the base was delivered but the agent was left to apply it (see `deferred`). */
   applied: boolean
+  /** True when the agent had already applied this base itself and only host state moved. */
+  reconciled?: boolean
   deferred?: SyncDeferReason
   /** Whether the sync brought the agent's coordination edges back in line with current config. */
   edgesUpdated: boolean

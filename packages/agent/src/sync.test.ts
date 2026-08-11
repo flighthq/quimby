@@ -531,6 +531,7 @@ describe('syncAgent', () => {
     expect(result).toEqual({
       newSeed: seed,
       rebased: false,
+      reconciled: false,
       commitsReplayed: 0,
       baseCommit: seed,
       applied: true,

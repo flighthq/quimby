@@ -104,6 +104,17 @@ export interface SyncAlgorithmResult {
   baseCommit: string
   /** Whether the agent's HEAD actually moved onto `baseCommit`. */
   applied: boolean
+  /**
+   * The agent was ALREADY on the base when this sync ran — it applied the delivered base itself,
+   * and this call only caught host state up. Nothing in the agent's repo moved.
+   *
+   * Reported separately because otherwise it is indistinguishable from a fast-forward this command
+   * performed, and that ambiguity is actively misleading: a sweep says "base delivered, not
+   * applied", the agent applies it seconds later off the footer notice, and the next single sync
+   * announces "fast-forwarded" — so the sweep looks broken and the single sync looks like the fix,
+   * when neither did the work.
+   */
+  reconciled?: boolean
   /** Set when the advance was deferred to the agent; `applied` is then false. */
   deferred?: SyncDeferReason
 }
@@ -172,6 +183,9 @@ export async function runSyncAlgorithm(
       commitsReplayed: 0,
       baseCommit: hostHead,
       applied: true,
+      // Host state disagreed and the agent was right: it had already applied this base. Say so,
+      // rather than let it read as an advance this call performed.
+      reconciled: hostHead !== input.seedCommit,
     }
   }
 
