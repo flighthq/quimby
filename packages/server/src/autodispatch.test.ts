@@ -280,6 +280,31 @@ describe('autoDispatchOutboxes bundling', () => {
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
     expect(bundler.pending.size).toBe(0)
   })
+
+  it('reports a recipient whose wake is still bundled, so the sweep does not beat it to the punch', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'first')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+    state.agents.review.directs = ['builder']
+    const bundler = createWakeBundler()
+    const config = { wakeBundle: '12s' }
+
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', config, bundler, 0)
+    const nudged = await autoDispatchOutboxes(
+      dir,
+      state,
+      tracker,
+      silentReporter,
+      'directed',
+      config,
+      bundler,
+      10,
+    )
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect([...nudged]).toEqual(['builder'])
+  })
 })
 
 describe('classifyOutboxDraft', () => {

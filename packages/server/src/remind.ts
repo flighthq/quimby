@@ -32,8 +32,9 @@ export function createInboxReminderTracker(): InboxReminderTracker {
 }
 
 /**
- * Record that a delivery just woke `name` about its inbox — which is an announcement of that inbox,
- * so the reminder interval should start from here.
+ * Record that a delivery just woke `name` about its inbox — or is about to, with a wake still
+ * inside its bundle window. Either way that is an announcement of that inbox, so the reminder
+ * interval should start from here.
  *
  * Without this the first parcel into an empty inbox produced two wakes seconds apart: the delivery
  * nudge, then the reminder on the very next cycle, because a first sighting has no previous entry
@@ -56,12 +57,13 @@ export function noteInboxDelivery(tracker: InboxReminderTracker, name: string, n
  * until morning. Since an unwoken agent is a worse failure than a duplicate nudge, this sweeps for
  * agents sitting on unread parcels and pokes them again.
  *
- * Three bounds keep it from becoming noise: a **stopped** session is skipped (nothing to type
- * into) while a live one defers to §7, which holds only for the window the human is typing in
- * (flashing its status line instead of injecting), reminders are spaced by
- * {@link REMIND_INTERVAL_MS}, and an inbox that does not change is reminded at most
- * {@link MAX_REMINDERS} times before the sweep concludes the agent is stuck and says so instead of
- * poking it all night.
+ * Four bounds keep it from becoming noise: a **first sighting** is recorded rather than announced
+ * (the parcel's carrier has its own nudge rule, and this sweep is the net for when that rule's wake
+ * is lost — not a second wake beside it), a **stopped** session is skipped (nothing to type into)
+ * while a live one defers to §7, which holds only for the window the human is typing in (flashing
+ * its status line instead of injecting), reminders are spaced by {@link REMIND_INTERVAL_MS}, and an
+ * inbox that does not change is reminded at most {@link MAX_REMINDERS} times before the sweep
+ * concludes the agent is stuck and says so instead of poking it all night.
  */
 export async function remindUnreadInboxes(
   repoRoot: string,
@@ -82,7 +84,26 @@ export async function remindUnreadInboxes(
     }
 
     const previous = tracker.seen.get(name)
-    const sameInbox = previous?.signature === signature
+
+    // FIRST SIGHTING is recorded, never announced. This sweep is a net for a wake that was LOST,
+    // and it cannot tell one from a wake that was just sent by someone it does not share a tracker
+    // with — a `quimby delegate`/`handoff`/`dispatch` from the CLI, or another process entirely. So
+    // announcing an inbox the moment it appears re-woke the agent seconds after the command that
+    // carried the parcel already had, for the same parcel.
+    //
+    // It also overrode §6a: an ADVISORY parcel is delivered deliberately without a wake, and this
+    // announced it on the next poll cycle anyway — quietly undoing `nudge: directed` for any agent
+    // whose tray was otherwise clear.
+    //
+    // Waiting one interval lets the carrier's own nudge rule govern a fresh parcel, and the net
+    // still catches what that rule dropped — one interval later rather than one poll cycle later,
+    // which is the same bound every repeat already lives under.
+    if (!previous) {
+      tracker.seen.set(name, { signature, remindedAt: now, count: 0, known: unread })
+      continue
+    }
+
+    const sameInbox = previous.signature === signature
     // A previously HELD attempt is always eligible to retry: the interval spaces out *delivered*
     // reminders, and a hold delivered nothing. Without this exemption the retry would itself be
     // held off for REMIND_INTERVAL_MS, which is the delay the retry exists to remove.
@@ -94,15 +115,15 @@ export async function remindUnreadInboxes(
     // minutes: observed at 09:43:48, 09:44:54, 09:45:23 for one agent whose count merely went
     // 32 → 33 → 32. The interval exists to bound how often an agent is interrupted, and that
     // bound cannot depend on what arrived in the meantime.
-    if (previous && !retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
+    if (!retryingHold && now - previous.remindedAt < REMIND_INTERVAL_MS) continue
 
     // The give-up CAP keys on DRAINAGE: did the agent process anything it already knew about?
     // Keying it on an unchanged signature meant a single new arrival reset the counter, so an agent
     // that never marks anything processed was poked forever while its tray only grew — which is
     // exactly the state a 300-parcel backlog produces, and why agents started answering "same
     // notification about unreads, ignoring". They were right: nothing had changed for them.
-    const drained = previous ? previous.known.some((p) => !unread.includes(p)) : true
-    if (previous && !drained && previous.count >= MAX_REMINDERS) continue
+    const drained = previous.known.some((p) => !unread.includes(p))
+    if (!drained && previous.count >= MAX_REMINDERS) continue
 
     // Only a STOPPED session is skipped — it has no prompt to type into, and the work is on disk
     // for its next launch. Everything live is attempted, and §7 (inside nudgeAgentSession) decides
@@ -128,7 +149,7 @@ export async function remindUnreadInboxes(
       // parcels the agent has read. Telling an agent it has 374 unread items it knows it has read
       // is false from where it sits, and a claim it can dismiss. Naming what is NEW since the last
       // reminder is the part it cannot already know.
-      courier: reminderCourier(unread, previous?.known ?? []),
+      courier: reminderCourier(unread, previous.known),
       whenFocused: resolveAgentFocusPolicy(config, state, name),
       focusGraceSeconds: getFocusGraceSeconds(config),
       projectId: state.id,
@@ -143,10 +164,10 @@ export async function remindUnreadInboxes(
       // later, or never once the cap was spent.
       tracker.seen.set(name, {
         signature,
-        remindedAt: previous?.signature === signature ? previous.remindedAt : 0,
-        count: previous?.signature === signature ? previous.count : 0,
+        remindedAt: sameInbox ? previous.remindedAt : 0,
+        count: sameInbox ? previous.count : 0,
         heldReported: true,
-        known: previous?.known ?? [],
+        known: previous.known,
       })
       continue
     }
@@ -155,7 +176,7 @@ export async function remindUnreadInboxes(
 
     // Counts a delivered reminder that the agent did NOT act on. Resetting only when it actually
     // processed something is what lets the sweep give up on a tray nobody is draining.
-    const count = previous && !drained ? previous.count + 1 : 1
+    const count = drained ? 1 : previous.count + 1
     tracker.seen.set(name, { signature, remindedAt: now, count, known: unread })
 
     if (count >= MAX_REMINDERS) {

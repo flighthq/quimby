@@ -149,8 +149,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             wakeBundler,
             Date.now(),
           )
-          // A delivery wake IS an announcement of that inbox: record it so the reminder interval
-          // starts here, instead of the sweep re-announcing the same parcel a cycle later.
+          // A delivery wake IS an announcement of that inbox — including one still waiting out its
+          // bundle window: record it so the reminder interval starts here, instead of the sweep
+          // re-announcing the same parcel a cycle later (or seconds before the bundle flushes).
           for (const name of nudged) noteInboxDelivery(reminderTracker, name, Date.now())
           // Safety net: re-announce parcels an idle agent still hasn't read, so a lost wake doesn't
           // strand work until a human looks. Shares the --no-dispatch switch, since both are "keep

@@ -37,6 +37,19 @@ async function giveInbox(...parcels: string[]): Promise<void> {
   }
 }
 
+/**
+ * A tracker that has already SIGHTED the inbox. The first sweep only records — it never announces —
+ * so every test about announcing starts from here. {@link FIRST_ELIGIBLE} is the earliest moment
+ * after that sighting at which a reminder may be delivered.
+ */
+async function sightedTracker() {
+  const tracker = createInboxReminderTracker()
+  await remindUnreadInboxes(dir, stateWith(), tracker, 0, silentReporter)
+  return tracker
+}
+
+const FIRST_ELIGIBLE = REMIND_INTERVAL_MS + 1
+
 beforeEach(async () => {
   dir = join(tmpdir(), `quimby-remind-${crypto.randomUUID()}`)
   await mkdir(dir, { recursive: true })
@@ -60,10 +73,24 @@ describe('remindUnreadInboxes', () => {
   it('re-announces an unread inbox on an idle agent', async () => {
     await giveInbox('builder-a1')
     const { reporter } = collectingReporter()
-    await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0, reporter)
+    const tracker = await sightedTracker()
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE, reporter)
     expect(nudgeAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ courier: 'parcel builder-a1 unprocessed in your inbox' }),
     )
+  })
+
+  // The sweep is a net for a LOST wake, and it shares no tracker with whoever carried the parcel —
+  // a `quimby delegate` from the CLI, or a server wake still inside its bundle window. Announcing
+  // on sight re-woke the agent seconds after that carrier already had, for the same parcel; it also
+  // announced a deliberately ADVISORY parcel, undoing §6a for any agent with an otherwise clear
+  // tray. So the first sighting is recorded and the carrier's own rule is left to govern it.
+  it('records a first sighting instead of announcing it', async () => {
+    await giveInbox('builder-a1')
+    const tracker = createInboxReminderTracker()
+    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(tracker.seen.get('review')?.known).toEqual(['builder-a1'])
   })
 
   it('says nothing when the inbox is empty', async () => {
@@ -84,19 +111,19 @@ describe('remindUnreadInboxes', () => {
     // nudgeAgentSession already holds for the one window the human is typing in.
     await giveInbox('builder-a1')
     getAgentSessionState.mockResolvedValue('attached')
-    await remindUnreadInboxes(dir, stateWith(), createInboxReminderTracker(), 0)
+    await remindUnreadInboxes(dir, stateWith(), await sightedTracker(), FIRST_ELIGIBLE)
     // Not forced — §7 must still be free to hold it for the one focused window.
     expect(nudgeAgentSession).toHaveBeenCalledWith(expect.not.objectContaining({ force: true }))
   })
 
   it('spaces reminders by the interval rather than nudging every poll cycle', async () => {
     await giveInbox('builder-a1')
-    const tracker = createInboxReminderTracker()
-    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
-    await remindUnreadInboxes(dir, stateWith(), tracker, REMIND_INTERVAL_MS - 1)
+    const tracker = await sightedTracker()
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + REMIND_INTERVAL_MS - 1)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(1)
 
-    await remindUnreadInboxes(dir, stateWith(), tracker, REMIND_INTERVAL_MS + 1)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + REMIND_INTERVAL_MS + 1)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(2)
   })
 
@@ -113,12 +140,12 @@ describe('remindUnreadInboxes', () => {
     // A hold delivered nothing, so the interval — which spaces out DELIVERED reminders — must not
     // gate the retry, or the wake waits the full 10 minutes the retry exists to avoid.
     await giveInbox('builder-a1')
-    const tracker = createInboxReminderTracker()
+    const tracker = await sightedTracker()
     nudgeAgentSession.mockResolvedValue('held')
 
-    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
-    await remindUnreadInboxes(dir, stateWith(), tracker, 5_000) // one poll cycle later
-    await remindUnreadInboxes(dir, stateWith(), tracker, 10_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 5_000) // one poll cycle later
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 10_000)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(3)
   })
 
@@ -126,30 +153,30 @@ describe('remindUnreadInboxes', () => {
     // Sitting in an agent's pane used to burn all three reminders without one reaching it, after
     // which quimby went silent and reported a perfectly healthy agent as stuck.
     await giveInbox('builder-a1')
-    const tracker = createInboxReminderTracker()
+    const tracker = await sightedTracker()
     nudgeAgentSession.mockResolvedValue('held')
     for (let i = 0; i < MAX_REMINDERS + 5; i++) {
-      await remindUnreadInboxes(dir, stateWith(), tracker, i * 5_000)
+      await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + i * 5_000)
     }
     expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 5)
 
     // …and the moment the human looks away it lands, then normal spacing resumes.
     nudgeAgentSession.mockResolvedValue('sent')
     const delivered = nudgeAgentSession.mock.calls.length
-    await remindUnreadInboxes(dir, stateWith(), tracker, 100_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 100_000)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(delivered + 1)
-    await remindUnreadInboxes(dir, stateWith(), tracker, 105_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 105_000)
     expect(nudgeAgentSession).toHaveBeenCalledTimes(delivered + 1)
   })
 
   it('narrates a hold once, not once per retry, so a watched pane is not spammed', async () => {
     await giveInbox('builder-a1')
-    const tracker = createInboxReminderTracker()
+    const tracker = await sightedTracker()
     nudgeAgentSession.mockResolvedValue('held')
 
-    await remindUnreadInboxes(dir, stateWith(), tracker, 0)
-    await remindUnreadInboxes(dir, stateWith(), tracker, 5_000)
-    await remindUnreadInboxes(dir, stateWith(), tracker, 10_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 5_000)
+    await remindUnreadInboxes(dir, stateWith(), tracker, FIRST_ELIGIBLE + 10_000)
 
     const quiet = nudgeAgentSession.mock.calls.map(
       (c) => (c[0] as { quietHold?: boolean }).quietHold,
@@ -161,7 +188,7 @@ describe('remindUnreadInboxes', () => {
     await giveInbox('builder-a1')
     const tracker = createInboxReminderTracker()
     nudgeAgentSession.mockResolvedValue('no-session')
-    for (let i = 0; i < MAX_REMINDERS + 2; i++) {
+    for (let i = 0; i <= MAX_REMINDERS + 2; i++) {
       await remindUnreadInboxes(dir, stateWith(), tracker, i * REMIND_INTERVAL_MS * 2)
     }
     expect(nudgeAgentSession).toHaveBeenCalledTimes(MAX_REMINDERS + 2)

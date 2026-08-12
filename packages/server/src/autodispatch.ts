@@ -191,6 +191,13 @@ export async function autoDispatchOutboxes(
 
   // Reported so the reminder sweep, which runs next in the same cycle, does not re-announce an
   // inbox to an agent this just woke — the two nudges landed a second apart otherwise.
+  //
+  // A recipient whose wake is still BUNDLED counts too. Delivery is immediate but the wake waits
+  // out its window, so for those cycles the parcel sits unprocessed with nothing yet sent — which
+  // the sweep read as a lost wake and announced itself, seconds before the bundle flushed the real
+  // one. Observed as `parcel <p> unprocessed in your inbox` followed by `delegated task <p> from
+  // <sender>` for the SAME parcel, in that order. A pending wake is not a lost wake.
+  for (const recipient of pending.keys()) nudged.add(recipient)
   return nudged
 }
 
