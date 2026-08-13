@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 
+import { getAgentWorkSummary } from '@quimbyhq/agent'
 import { getAgentDir, getQuimbyDir, remoteAgentDir } from '@quimbyhq/paths'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
@@ -60,7 +61,19 @@ export async function readChangedStatus(
     cache.set(name, { content, mtime })
   }
 
-  return formatStatusSnapshot(name, content, new Date().toISOString())
+  // Where this agent stands vs the base — the half of base staleness a PEER cannot see for itself.
+  // Probed only for an agent whose status actually changed, which is what keeps it off the hot
+  // path: this fan-out is the poll cycle's dominant cost, and an unconditional probe would add a
+  // round trip per SSH agent per cycle for a number that had not moved. The consequence is that the
+  // position is as fresh as the snapshot carrying it — which is the mirror's contract already, and
+  // why the line sits beside `Updated:` rather than pretending to be live.
+  const summary = await getAgentWorkSummary(repoRoot, state.id, agent).catch(() => null)
+  return formatStatusSnapshot(
+    name,
+    content,
+    new Date().toISOString(),
+    summary ? { commits: summary.commits, files: summary.files } : undefined,
+  )
 }
 
 /**

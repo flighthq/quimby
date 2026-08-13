@@ -120,6 +120,8 @@ Use the handoff and status lanes through `./agent.sh` on your own initiative —
 
 When the user explicitly asks you to dispatch or delegate work to a peer, that is not your own agenda: send the task with `./agent.sh delegate <recipient> -m "…"`. The distinct verb records a delegation claim that the host promotes into trusted parcel metadata. Never use `delegate` to set a peer's agenda on your own initiative.
 
+**Before you report a defect or start a fix, check whether a peer is already holding it.** `./agent.sh peers <name>` prints an `Unmerged:` line — the commits and files that exist in that peer's clone and are **not** on your base. Your own footer only tells you the opposite direction (that the base moved ahead of you); this is the direction you cannot see for yourself, and missing it is how two agents fix one defect twice, and how a bug is reported in airtight detail against code a peer repaired hours ago. A peer with unmerged work is not a peer whose landed state you can infer from your own tree. The line is a snapshot taken when that status was written, not a live reading — treat it as "as of `Updated:`".
+
 ## Sending work
 
 Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files, `--note-file <path>` to take the body from a file). For anything longer than a line, or containing backticks or `$`, use `--note-file` — see the quoting rule above, which has silently eaten words out of real parcels.

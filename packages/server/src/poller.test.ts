@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentDir, getAgentStatusMirrorDir } from '@quimbyhq/paths'
+import { getAgentDir, getAgentRepoDir, getAgentStatusMirrorDir } from '@quimbyhq/paths'
 import { collectingReporter } from '@quimbyhq/reporter'
 import type { QuimbyState } from '@quimbyhq/types'
 import { exists, readText } from '@quimbyhq/utils'
@@ -37,6 +37,25 @@ async function writeStatus(agentId: string, content: string): Promise<void> {
   const agentDir = getAgentDir(dir, agentId)
   await mkdir(agentDir, { recursive: true })
   await writeFile(join(agentDir, 'status.md'), content)
+}
+
+// A provisioned agent clone: one commit tagged `quimby/seed`, then `commits` more on top. That is
+// exactly the shape the position line measures — work living only in this agent's clone.
+async function giveAgentRepo(agentId: string, commits: number): Promise<void> {
+  const repo = getAgentRepoDir(dir, agentId)
+  await mkdir(repo, { recursive: true })
+  await execa('git', ['init'], { cwd: repo })
+  await execa('git', ['config', 'user.email', 'test@test.com'], { cwd: repo })
+  await execa('git', ['config', 'user.name', 'Test User'], { cwd: repo })
+  await writeFile(join(repo, 'base.txt'), 'base')
+  await execa('git', ['add', '-A'], { cwd: repo })
+  await execa('git', ['commit', '-m', 'seed'], { cwd: repo })
+  await execa('git', ['tag', 'quimby/seed'], { cwd: repo })
+  for (let i = 0; i < commits; i++) {
+    await writeFile(join(repo, `work-${i}.txt`), 'work')
+    await execa('git', ['add', '-A'], { cwd: repo })
+    await execa('git', ['commit', '-m', `work ${i}`], { cwd: repo })
+  }
 }
 
 beforeEach(async () => {
@@ -80,6 +99,33 @@ describe('pollStatusCycle', () => {
     const mirrored = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
     expect(mirrored).toContain('working')
     expect(mirrored).toContain('# Status: backend')
+  })
+
+  // The one direction of base staleness an agent cannot see for itself. Its own footer reports when
+  // the base moved ahead of IT; nothing reported that a peer holds work the base does not have, so
+  // two agents fixed one defect twice and a P0 was filed against already-repaired code.
+  it('carries the source agent position — what it holds that has not reached the base', async () => {
+    await writeStatus('b1', 'landed the auth fix')
+    await giveAgentRepo('b1', 2)
+    const cache = new Map<string, StatusSnapshot>()
+
+    await pollStatusCycle(dir, stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }), cache)
+
+    const mirrored = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
+    expect(mirrored).toContain('Unmerged: 2 commit(s)')
+  })
+
+  it('omits the position when the agent repo cannot be read, rather than claiming a zero', async () => {
+    // An unreachable SSH host or unprovisioned agent measures nothing. Absence reads as "not
+    // measured"; a printed 0 would read as "this peer is holding nothing" — a claim, and wrong.
+    await writeStatus('b1', 'working')
+    const cache = new Map<string, StatusSnapshot>()
+
+    await pollStatusCycle(dir, stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }), cache)
+
+    const mirrored = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
+    expect(mirrored).toContain('working')
+    expect(mirrored).not.toContain('Unmerged')
   })
 
   it('mirrors a changed status into every other agent, no subscription needed', async () => {
