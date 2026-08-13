@@ -915,6 +915,47 @@ describe('renderAgentScript carry summary', () => {
   })
 })
 
+// A bare refusal plus a large dirty count is what drives an agent to `git checkout .` — the one
+// action the refusal exists to prevent. It cannot know which edits are the agent's, but it can name
+// the ones the incoming base also touches, where discarding is a silent revert.
+describe('renderAgentScript dirty-tree report', () => {
+  it('names the uncommitted files rather than only refusing', () => {
+    const root = makeAgentWorkspace()
+    deliverBase(root)
+    writeFileSync(join(root, 'repo', 'mine.txt'), 'my work')
+    const { stderr } = runShFail(root, ['rebase'])
+    expect(stderr).toContain('mine.txt')
+    expect(stderr).toContain('commit your work')
+  })
+
+  it('flags the files the incoming base also changes — discarding those is a silent revert', () => {
+    const root = makeAgentWorkspace()
+    // deliverBase lands `shared.txt`; editing it locally puts the agent on a collision course.
+    deliverBase(root)
+    writeFileSync(join(root, 'repo', 'shared.txt'), 'my competing edit')
+    const { stderr } = runShFail(root, ['rebase'])
+    expect(stderr).toContain('shared.txt   <- the incoming base changes this too')
+    expect(stderr).toContain('1 of these are also changed by the incoming base')
+  })
+
+  it('does not claim an overlap when none exists', () => {
+    const root = makeAgentWorkspace()
+    deliverBase(root)
+    writeFileSync(join(root, 'repo', 'untouched-by-base.txt'), 'mine alone')
+    const { stderr } = runShFail(root, ['rebase'])
+    expect(stderr).toContain('untouched-by-base.txt')
+    expect(stderr).not.toContain('also changed by the incoming base')
+  })
+
+  it('bounds the list, because a 300-file dump is as unreadable as no list', () => {
+    const root = makeAgentWorkspace()
+    deliverBase(root)
+    for (let i = 0; i < 25; i++) writeFileSync(join(root, 'repo', `f${i}.txt`), 'x')
+    const { stderr } = runShFail(root, ['rebase'])
+    expect(stderr).toContain('… and 5 more')
+  })
+})
+
 describe('renderAgentScript note body', () => {
   const posix = process.platform !== 'win32'
 
