@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { inCompletionOrder, remoteProbeTimeoutMs, withRemoteProbeTimeout } from './remoteProbe'
+import { inInputOrder, remoteProbeTimeoutMs, withRemoteProbeTimeout } from './remoteProbe'
 
 describe('remoteProbeTimeoutMs', () => {
   it('uses the default timeout when no override is set', () => {
@@ -40,14 +40,34 @@ describe('withRemoteProbeTimeout', () => {
   })
 })
 
-describe('inCompletionOrder', () => {
-  it('yields promise values in resolution order', async () => {
+describe('inInputOrder', () => {
+  it('yields in the order given, not the order they resolve', async () => {
     vi.useFakeTimers()
     const values: string[] = []
     const slow = new Promise<string>((resolve) => setTimeout(() => resolve('slow'), 50))
     const fast = new Promise<string>((resolve) => setTimeout(() => resolve('fast'), 10))
     const read = async () => {
-      for await (const value of inCompletionOrder([slow, fast])) values.push(value)
+      for await (const value of inInputOrder([slow, fast])) values.push(value)
+    }
+    const done = read()
+
+    // `fast` has already resolved, but it is second in the roster and waits its turn — otherwise
+    // the table reorders itself between runs on any fleet with remote agents.
+    await vi.advanceTimersByTimeAsync(10)
+    expect(values).toEqual([])
+    await vi.advanceTimersByTimeAsync(40)
+    await done
+    expect(values).toEqual(['slow', 'fast'])
+    vi.useRealTimers()
+  })
+
+  it('streams a settled prefix instead of waiting for the whole set', async () => {
+    vi.useFakeTimers()
+    const values: string[] = []
+    const fast = new Promise<string>((resolve) => setTimeout(() => resolve('fast'), 10))
+    const slow = new Promise<string>((resolve) => setTimeout(() => resolve('slow'), 50))
+    const read = async () => {
+      for await (const value of inInputOrder([fast, slow])) values.push(value)
     }
     const done = read()
 
@@ -55,7 +75,28 @@ describe('inCompletionOrder', () => {
     expect(values).toEqual(['fast'])
     await vi.advanceTimersByTimeAsync(40)
     await done
-    expect(values).toEqual(['fast', 'slow'])
+    vi.useRealTimers()
+  })
+
+  it('never leaves a later rejection unobserved while an earlier probe is in flight', async () => {
+    // Node terminates the process on an unhandled rejection, so an unreachable host could kill the
+    // command before its own row was reached. The rejection must surface at ITS position instead.
+    vi.useFakeTimers()
+    const slow = new Promise<string>((resolve) => setTimeout(() => resolve('slow'), 50))
+    const failed = Promise.reject(new Error('unreachable'))
+    const values: string[] = []
+    const read = async () => {
+      for await (const value of inInputOrder([slow, failed])) values.push(value)
+    }
+    const done = read()
+    // Observe the rejection BEFORE advancing: `done` rejects while the timers run, and attaching
+    // the assertion afterwards would leave that rejection unhandled for a tick — the very hazard
+    // under test, reintroduced by the test itself.
+    const rejects = expect(done).rejects.toThrow('unreachable')
+
+    await vi.advanceTimersByTimeAsync(50)
+    await rejects
+    expect(values).toEqual(['slow'])
     vi.useRealTimers()
   })
 })

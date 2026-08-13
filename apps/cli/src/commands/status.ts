@@ -22,7 +22,7 @@ import { join } from 'pathe'
 import { formatAttestation } from '../attestation'
 import { bold, cyan, dim, green, red, yellow } from '../colors'
 import { page } from '../pager'
-import { inCompletionOrder, withRemoteProbeTimeout } from '../remoteProbe'
+import { inInputOrder, withRemoteProbeTimeout } from '../remoteProbe'
 import { formatWorkSummary } from '../workSummary'
 
 const STATUS_EXCERPT_LINES = 8
@@ -137,7 +137,10 @@ async function renderOverview(
   )
 
   console.log(bold(`Agents (${names.length})`))
-  for await (const { name, snap } of inCompletionOrder(snapshots)) {
+  // Roster order, not completion order: the probes run concurrently, but a row is printed only once
+  // every row above it has been. Racing them shuffled the table between runs on any fleet with
+  // remote agents.
+  for await (const { name, snap } of inInputOrder(snapshots)) {
     const cells = [
       `  ${bold(name)}`,
       renderSession(snap.sessionState),
