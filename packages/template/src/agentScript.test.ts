@@ -134,6 +134,25 @@ function deliverBase(root: string, content = 'peer-landed'): string {
   return base
 }
 
+// Tag `quimby/seed` where the host would, so the carry summary has a baseline to measure against.
+function tagSeed(root: string, ref = 'HEAD'): void {
+  execFileSync('git', ['tag', '-f', 'quimby/seed', ref], { cwd: join(root, 'repo') })
+}
+
+function commitIn(root: string, file: string, body: string, message: string): void {
+  const repo = join(root, 'repo')
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@t',
+  }
+  writeFileSync(join(repo, file), body)
+  execFileSync('git', ['add', '.'], { cwd: repo, env })
+  execFileSync('git', ['commit', '-q', '-m', message], { cwd: repo, env })
+}
+
 function gitIn(root: string, args: readonly string[]): string {
   return execFileSync('git', [...args], { cwd: join(root, 'repo'), encoding: 'utf-8' }).trim()
 }
@@ -820,6 +839,79 @@ describe('renderAgentScript buried parcel recovery', () => {
       { cwd: root, encoding: 'utf-8' },
     )
     expect(merged).toContain('no processed parcel')
+  })
+})
+
+// A parcel is cumulative since quimby/seed, so a sender who believes it is handing over one commit
+// can hand over six — the rest being work that already landed, one of which can silently revert a
+// closed decision. The tool already knows the range; these pin that it says so.
+describe('renderAgentScript carry summary', () => {
+  it('names the commit count and range the parcel actually carries', () => {
+    const root = makeAgentWorkspace()
+    tagSeed(root)
+    commitIn(root, 'a.txt', 'a', 'first')
+    commitIn(root, 'b.txt', 'b', 'second')
+    const out = runSh(root, ['handoff', 'integration', '-m', 'land this one commit'])
+    expect(out).toMatch(/carrying 2 commit\(s\) \([0-9a-f]+\.\.[0-9a-f]+\)/)
+  })
+
+  it('counts the uncommitted half too — the parcel carries it and the sender rarely has it in mind', () => {
+    const root = makeAgentWorkspace()
+    tagSeed(root)
+    writeFileSync(join(root, 'repo', 'loose.txt'), 'wip')
+    const out = runSh(root, ['handoff', 'integration', '-m', 'note only, I thought'])
+    expect(out).toContain('carrying 0 commits + 1 uncommitted file(s)')
+  })
+
+  it('diagnoses a stale seed, which is WHY the count surprises people', () => {
+    const root = makeAgentWorkspace()
+    tagSeed(root)
+    commitIn(root, 'mine.txt', 'mine', 'my work')
+    deliverBase(root)
+    const out = runSh(root, ['handoff', 'integration', '-m', 'here'])
+    expect(out).toContain('behind quimby/base, so this carry re-includes')
+    expect(out).toContain('./agent.sh rebase first')
+  })
+
+  it('says nothing about a stale seed once the base has been applied', () => {
+    const root = makeAgentWorkspace()
+    tagSeed(root)
+    deliverBase(root)
+    runSh(root, ['rebase'])
+    const out = runSh(root, ['handoff', 'integration', '-m', 'here'])
+    expect(out).toContain('carrying 0 commits')
+    expect(out).not.toContain('behind quimby/base')
+  })
+
+  it('shows how MUCH code a delivered parcel carries, not just that it carries some', () => {
+    const root = makeAgentWorkspace()
+    const parcel = join(root, 'handoff', 'in', 'received', 'builder4-aa11')
+    mkdirSync(join(parcel, 'commits'), { recursive: true })
+    writeFileSync(join(parcel, 'README.md'), 'land this one commit\n')
+    writeFileSync(join(parcel, 'squashed.diff'), 'diff --git a/x b/x\n')
+    for (const n of ['0001.patch', '0002.patch', '0003.patch']) {
+      writeFileSync(join(parcel, 'commits', n), 'patch\n')
+    }
+    // The receiver is the last party that can catch a cumulative over-carry before it lands — but
+    // only if the number is in front of it.
+    expect(runSh(root, ['inbox'])).toContain('[diff: 3 commit(s)]')
+  })
+
+  it('falls back to a bare [diff] tag when a parcel carries no commit patches', () => {
+    const root = makeAgentWorkspace()
+    const parcel = join(root, 'handoff', 'in', 'received', 'host-bb22')
+    mkdirSync(parcel, { recursive: true })
+    writeFileSync(join(parcel, 'squashed.diff'), 'diff --git a/x b/x\n')
+    const out = runSh(root, ['inbox'])
+    expect(out).toContain('[diff]')
+    expect(out).not.toContain('commit(s)]')
+  })
+
+  it('stays silent in a repo with no seed rather than guessing a baseline', () => {
+    const root = makeAgentWorkspace()
+    const out = runSh(root, ['handoff', 'integration', '-m', 'hi'])
+    expect(out).toContain('queued parcel')
+    expect(out).not.toContain('carrying')
   })
 })
 

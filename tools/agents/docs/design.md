@@ -475,7 +475,7 @@ It is written and regenerated exactly like the agent's `CLAUDE.md`/`AGENTS.md` (
 ```
 agent.sh assignment [set -m msg|--file path|-]
 agent.sh status [set|append|done -m msg|--file path|-]
-agent.sh handoff <recipient> [-m msg] [--attach agent] [--file path] [--draft]
+agent.sh handoff <recipient> [-m msg] [--attach agent] [--file path] [--draft]   # reports the commit count + range it carries
 agent.sh delegate <recipient> -m msg [--attach agent] [--file path] [--draft]
 agent.sh escalate <recipient> [-m msg]   # bounded upward summon — wakes your director (no authority)
 agent.sh ask <recipient> -m msg          # a question; opens a reply window
@@ -486,6 +486,8 @@ agent.sh attest --command CMD --result pass|fail [--summary S]   # append a quim
 agent.sh peers [name]                 # list peer status mirrors, or read one
 agent.sh rebase                       # apply the delivered base (quimby/base); refuses on a dirty tree
 ```
+
+It also **reports what a parcel actually carries** — `carrying N commit(s) (a1b2c3..d4e5f6) + M uncommitted file(s)` — because a parcel is cumulative since `quimby/seed` and a sender who means to hand over one commit routinely hands over six, the rest being work that already landed. That failure has no other gate: a re-sent commit merges without a conflict, so nothing downstream flags it, and one can silently revert a closed decision. When the seed is behind `quimby/base` the tool names that too, since a stale baseline is _why_ the count surprises people. The receiving end sees the same arithmetic — `inbox` tags a parcel `[diff: N commit(s)]`, so the last party who can catch an over-carry before it lands has the number in front of it.
 
 Four properties define its scope:
 
