@@ -955,6 +955,20 @@ describe('renderAgentScript note body', () => {
 
 // `--file` attaches; `status set --file` uses the file AS the content. Same flag, opposite meanings
 // in one tool — and it sent real parcels out with empty notes before anyone noticed.
+// The tool cannot repair a note the shell already ate — the text is destroyed one layer above it —
+// so `help` is the one surface that can warn, and it previously presented `-m msg` first with no
+// hint that it differs from --note-file in safety.
+describe('renderAgentScript quoting warning', () => {
+  it('warns in help that -m is shell-expanded, naming the whole class', () => {
+    const root = makeAgentWorkspace()
+    const out = runSh(root, ['help'])
+    expect(out).toContain('QUOTING')
+    expect(out).toContain('--note-file')
+    // Rendered through a real sh, so the backslash survives escaping rather than eating the line.
+    expect(out).toMatch(/backticks, \$ and \\ are rewritten/)
+  })
+})
+
 describe('renderAgentScriptCmd', () => {
   it('is a batch script that mirrors the sh verbs and uses CRLF line endings', () => {
     const cmd = renderAgentScriptCmd()

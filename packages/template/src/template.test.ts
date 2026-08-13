@@ -231,6 +231,30 @@ describe('renderQuimbyContext', () => {
   })
 })
 
+describe('renderQuimbyContextQuoting', () => {
+  // Four incidents across three agents: a quoted command name eaten out of a bug report, two whole
+  // passages lost from a review, and the one word a disputed clause turned on. The shell rewrote
+  // them before agent.sh was ever invoked, so no tool-side fix exists — only this rule.
+  it('names the whole expansion class, not just backticks', () => {
+    const ctx = renderAgentClaudeMd({ agentName: 'builder', agentId: 'b1' })
+    expect(ctx).toContain('expanded by the shell before the tool sees it')
+    // `$PATH` is as destructive as a backtick and reads as harmless prose — a backtick-only rule
+    // would be followed and still lose words.
+    expect(ctx).toContain('$PATH')
+  })
+
+  it('points at --note-file as the safe form for arbitrary prose', () => {
+    const ctx = renderAgentClaudeMd({ agentName: 'builder', agentId: 'b1' })
+    expect(ctx).toContain('--note-file')
+    expect(ctx).toContain('single quotes')
+  })
+
+  it('scopes the rule to every -m, since status and assignment writes are hit the same way', () => {
+    const ctx = renderAgentClaudeMd({ agentName: 'builder', agentId: 'b1' })
+    expect(ctx).toContain('`status append -m`')
+  })
+})
+
 describe('renderQuimbyContextRebase', () => {
   it('does not tell an agent to fetch — origin is a host path it cannot reach', () => {
     // Verified from inside a real agent sandbox: `git fetch origin` fails with "does not appear to

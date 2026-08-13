@@ -11,6 +11,22 @@ You run inside your own isolated clone, with no view of the other agents or the 
 
 Quimby still stores assignment, status, mailbox, and peer mirrors as files under the agent root, but that is the protocol underneath the tool, not the normal prompt contract. Use `./agent.sh` unless you are debugging the tool itself.
 
+### Every `-m "…"` is expanded by the shell before the tool sees it
+
+A double-quoted shell argument is not literal text. The shell rewrites three characters inside it — `` ` ``, `$`, and `\` — and it does so _before_ `agent.sh` is invoked, so by the time the tool has your note, the missing words are already gone. There is no error, no truncation marker, and nothing to notice from the outside:
+
+| you typed                       | what actually arrives |
+| ------------------------------- | --------------------- |
+| ``-m "run `npm run ci` first"`` | `run  first`          |
+| `-m "the $PATH variable"`       | `the  variable`       |
+
+This has eaten quoted command names out of bug reports, whole passages out of reviews, and the single word a disputed clause turned on. **The tool cannot fix it** — the text is destroyed one layer above it. So pick the form by what you are writing:
+
+- **A short literal line** → single quotes: ``-m 'run `npm run ci` first'``. Nothing expands inside them. (An apostrophe in your text ends the quote, so this is for short lines only.)
+- **Anything longer, or any prose you did not hand-audit** → `--note-file <path>`, or `-` to read stdin. Write the file, pass the path. This is the only form that is safe for arbitrary text, and it is the right default for any note worth more than a line. `-m "$(cat note.md)"` is equally safe — substitution output is not re-scanned.
+
+The rule is the tool's, not the handoff's: it applies identically to `assignment set -m`, `status set -m`, `status append -m`, `escalate -m`, `ask -m`, and `reply -m`. Quimby's own vocabulary is full of backticked command names, so notes _about coordination_ are the ones most likely to be damaged.
+
 ## Working
 
 1. **Orient with `./agent.sh wake` first.** It prints one packet — repo health, assignment, status, unprocessed inbox, peers — derived from durable state, not from the courier line. Because it lists parcels by what's actually in your inbox (never by a name the wake-up carried), it self-heals a raced or lost announce: you see everything delivered even if the notify beat the file. A courier line still tells you the newest thing to look at; `wake` is the safe way to act on it. A bare `continue` means resume from `wake` (then `status` / `assignment`).
@@ -106,7 +122,9 @@ When the user explicitly asks you to dispatch or delegate work to a peer, that i
 
 ## Sending work
 
-Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files, `--note-file <path>` to take the body from a file).
+Send with `./agent.sh handoff <recipient> -m "your note"` — it authors the parcel and atomically publishes it in one step (add `--attach <agent>` to carry another agent's diff, `--file <path>` for extra files, `--note-file <path>` to take the body from a file). For anything longer than a line, or containing backticks or `$`, use `--note-file` — see the quoting rule above, which has silently eaten words out of real parcels.
+
+It reports what the parcel carries: `carrying N commit(s) (a1b2..c3d4) + M uncommitted file(s)`. **Check that number against what you meant to send.** A parcel is cumulative since `quimby/seed`, so if your seed is stale, everything peers already landed rides along again — six commits where you meant one, and the extras merge without a conflict, so nothing downstream catches a re-send that reverts a closed decision. When the tool says your seed is behind `quimby/base`, that is the cause; `./agent.sh rebase` first.
 
 **One parcel carries both your note and your work.** Everything in `repo/` since `quimby/seed` — committed and uncommitted — travels with it automatically. There is no second step and no separate verb for "send the code": writing the note and sending the work are the same act. If you find yourself composing a message and then looking for a way to send your commits after it, you have already sent them. To read what's been delivered to you, use `./agent.sh inbox`, `./agent.sh inbox show <parcel>`, and `./agent.sh inbox done <parcel>`.
 
