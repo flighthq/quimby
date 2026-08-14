@@ -44,15 +44,20 @@ export async function resolveWorkspace(): Promise<{
   }
 
   const state = await readYaml<QuimbyState>(statePath)
-  await ensureDurableWorkspace(repoRoot, state)
 
+  // Migrate BEFORE materializing durable storage: storage and the registry are keyed by
+  // `state.id`, so a legacy state that predates the field must have one minted first — otherwise
+  // the id is `undefined` and the storage path resolves to the storage ROOT, i.e. every workspace
+  // on the machine seen as this project's directory.
   let dirty = migrateState(state)
 
-  // One-time migration: add stable IDs if missing (existing workspaces pre-date this field).
-  if (!state.id) {
-    state.id = crypto.randomUUID()
-    dirty = true
-  }
+  // `sourceRepo` is this workspace's IDENTITY for both registry and remote-adoption matching, and
+  // it was written once at creation and never revisited — so a repository renamed on its host kept
+  // claiming an origin it no longer points at. That is not cosmetic: the stale value is copied into
+  // the registry, and a genuinely different project that later takes the old name matches it, on
+  // both surfaces at once.
+  if (await refreshSourceRepo(repoRoot, state)) dirty = true
+
   for (const agent of Object.values(state.agents)) {
     if (!agent.id) {
       agent.id = crypto.randomUUID()
@@ -65,6 +70,8 @@ export async function resolveWorkspace(): Promise<{
     }
   }
   if (dirty) await saveState(repoRoot, state)
+
+  await ensureDurableWorkspace(repoRoot, state)
 
   // Agent directories are now keyed by UUID; relocate any legacy name-keyed dirs in
   // place. Runs after IDs are guaranteed present, before any id-keyed path is used.
@@ -184,19 +191,11 @@ async function migrateAgentDirs(repoRoot: string, state: QuimbyState): Promise<v
 export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
   const statePath = getStatePath(repoRoot)
 
-  if (await exists(statePath)) {
-    const state = await readYaml<QuimbyState>(statePath)
-    await ensureDurableWorkspace(repoRoot, state)
-    return state
-  }
+  if (await exists(statePath)) return adoptExistingState(repoRoot, statePath)
 
   const sourceRepo = (await git.getRemoteUrl(repoRoot)) ?? repoRoot
   await restoreWorkspaceLink(repoRoot, { sourceRepo })
-  if (await exists(statePath)) {
-    const state = await readYaml<QuimbyState>(statePath)
-    await ensureDurableWorkspace(repoRoot, state)
-    return state
-  }
+  if (await exists(statePath)) return adoptExistingState(repoRoot, statePath)
 
   // Before minting a fresh id (which would orphan any existing remote workspace for this
   // repo), try to reconnect to one. Bound aliases only — silent, never prompts.
@@ -223,6 +222,48 @@ export async function ensureWorkspace(repoRoot: string): Promise<QuimbyState> {
   await addToGitignore(repoRoot)
 
   return state
+}
+
+/**
+ * Bring `state.sourceRepo` back in line with the repository's actual git origin, reporting whether
+ * it moved so the caller can persist it.
+ *
+ * Only a real remote URL overwrites: when `getRemoteUrl` yields nothing the stored value is left
+ * alone, because a repo with its remote removed has not become a different project — and the
+ * creation-time fallback for a remote-less repo is the repo path, which we must not clobber a
+ * genuine URL with.
+ */
+// Load an existing state, bring its identity fields up to date, and register it — in that order,
+// since durable storage is keyed by `state.id`.
+async function adoptExistingState(repoRoot: string, statePath: string): Promise<QuimbyState> {
+  const state = await readYaml<QuimbyState>(statePath)
+  const migrated = migrateState(state)
+  const refreshed = await refreshSourceRepo(repoRoot, state)
+  if (migrated || refreshed) await saveState(repoRoot, state)
+  await ensureDurableWorkspace(repoRoot, state)
+  return state
+}
+
+async function refreshSourceRepo(repoRoot: string, state: QuimbyState): Promise<boolean> {
+  const origin = await git.getRemoteUrl(repoRoot)
+  if (origin) {
+    if (origin === state.sourceRepo) return false
+    state.sourceRepo = origin
+    return true
+  }
+  // No remote. A stored URL survives — losing a remote does not make this a different project, and
+  // the creation-time fallback below would replace it with a path. But if the stored value IS that
+  // path fallback, then the path is the identity, and a renamed checkout left it pointing at a
+  // location some other project may now occupy — the same staleness, one identifier over.
+  if (isRepoUrl(state.sourceRepo) || state.sourceRepo === repoRoot) return false
+  state.sourceRepo = repoRoot
+  return true
+}
+
+// `scheme://…` or scp-style `user@host:path`. Everything else is treated as a filesystem path,
+// which is what `sourceRepo` falls back to for a repo with no remote.
+function isRepoUrl(value: string): boolean {
+  return value.includes('://') || /^[^/\\]+@[^/\\]+:/.test(value)
 }
 
 async function getCurrentBranch(repoRoot: string): Promise<string> {

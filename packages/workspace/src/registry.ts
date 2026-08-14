@@ -70,7 +70,23 @@ export function findRegistryMatches(
 ): ProjectRegistryEntry[] {
   const projects = listRegistryProjects(registry)
   if (query.id) return projects.filter((p) => p.id === query.id)
-  const byRoot = query.repoRoot ? projects.filter((p) => p.repoRoot === query.repoRoot) : []
+  // A path match still wins — but only when the origin does not CONTRADICT it. `repoRoot` is an
+  // absolute path nothing revalidates, so it goes stale the moment a checkout is renamed, and the
+  // vacated path can then be occupied by an entirely different project. That project matched the
+  // old entry and silently inherited its workspace: same durable storage, same id, therefore the
+  // same remote workspace and agent roster. Requiring the two identifiers not to disagree costs
+  // nothing when they agree (the ordinary case) and is decisive exactly when the path was recycled.
+  const byRoot = query.repoRoot
+    ? projects.filter((p) => p.repoRoot === query.repoRoot && !contradicts(p, query.sourceRepo))
+    : []
   if (byRoot.length > 0) return byRoot
   return query.sourceRepo ? projects.filter((p) => p.sourceRepo === query.sourceRepo) : []
+}
+
+// Two identifiers disagree only when BOTH are known. A missing origin on either side is absence of
+// evidence, not evidence of a different project — an entry written before origins were recorded, or
+// a query that never looked one up, must keep matching by path as it always did.
+function contradicts(entry: Readonly<ProjectRegistryEntry>, sourceRepo?: string): boolean {
+  if (!sourceRepo || !entry.sourceRepo) return false
+  return entry.sourceRepo !== sourceRepo
 }

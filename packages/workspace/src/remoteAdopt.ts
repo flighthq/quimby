@@ -3,6 +3,7 @@ import * as git from '@quimbyhq/git'
 import { remoteProjectRoot } from '@quimbyhq/paths'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentState, QuimbyConfig, QuimbyState, SSHLocation } from '@quimbyhq/types'
+import { exists } from '@quimbyhq/utils'
 import { execa } from 'execa'
 
 import {
@@ -12,6 +13,7 @@ import {
   resolvePreset,
   resolveSSHConnection,
 } from './config'
+import { findRegistryMatches, loadProjectRegistry } from './registry'
 import { saveState } from './state'
 import { ensureDurableWorkspace } from './storage'
 
@@ -68,6 +70,8 @@ export async function reconstructRemoteWorkspace(
   project: Readonly<RemoteProject>,
   opts: Readonly<{ presetName: string; fallbackAlias: string; sourceRepo: string }>,
 ): Promise<QuimbyState> {
+  await assertWorkspaceUnclaimed(repoRoot, project.id)
+
   const transport = getSSHTransport(location)
   const remoteAgents = parseRemoteAgents(
     await transport.exec(remoteAgentScanScript(remoteProjectRoot(project.id, location.base))),
@@ -177,6 +181,35 @@ export async function adoptRemoteWorkspace(
     fallbackAlias: location.alias,
     sourceRepo: opts.sourceRepo,
   })
+}
+
+/**
+ * Refuse to reconstruct a workspace that a different, still-present checkout already owns.
+ *
+ * Reconstruction ends in {@link ensureDurableWorkspace} + `saveState`, which symlinks this repo's
+ * `.quimby` at the adopted id's durable storage and then writes `state.yaml` THROUGH that link — so
+ * without this check, adopting a workspace another project holds silently overwrites that project's
+ * state with one rebuilt from this repo's branch and config.
+ *
+ * The trigger is not exotic. Adoption matches on the git origin URL alone, and a repository renamed
+ * on its host leaves two checkouts sharing one origin string: the renamed original, and whatever new
+ * project later takes the old name. Both then resolve to the same remote workspace.
+ *
+ * The claim must be LIVE to count — an entry whose `repoRoot` is gone is exactly the moved or
+ * deleted checkout that `restore` exists to recover from, and blocking there would break the
+ * recovery this whole path is for. A fresh machine has an empty registry and is never affected.
+ */
+async function assertWorkspaceUnclaimed(repoRoot: string, projectId: string): Promise<void> {
+  const [claim] = findRegistryMatches(await loadProjectRegistry(), { id: projectId })
+  if (!claim || claim.repoRoot === repoRoot) return
+  if (!(await exists(claim.repoRoot))) return
+  throw new QuimbyError(
+    `Remote workspace "${projectId}" already belongs to ${claim.repoRoot}, which still exists — ` +
+      'adopting it here would overwrite that workspace. This usually means two checkouts share one ' +
+      'git origin (a repository renamed on its host, its old name later reused). Point them at ' +
+      'different origins (`git remote set-url origin …`, then `quimby sync` so the remote copy ' +
+      'records it), or pass `quimby restore --id <id>` from the checkout that should own it.',
+  )
 }
 
 /**

@@ -1,4 +1,4 @@
-import { lstat, mkdir, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -69,6 +69,38 @@ describe('ensureDurableWorkspace', () => {
     expect(entry.storagePath).toBe(getStorageWorkspaceDir(state.id))
     expect((await lstat(getQuimbyDir(repoRoot))).isSymbolicLink()).toBe(true)
     expect(await exists(join(getStorageWorkspaceDir(state.id), 'state.yaml'))).toBe(true)
+  })
+
+  // This pair used to hit a bare `return`: the project kept running on the local directory while
+  // the storage it believed it owned sat elsewhere, diverging with nothing to say so — two
+  // state.yaml files for one id, one of them silently ignored.
+  it('completes an interrupted migration when the storage dir is an empty husk', async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDir(getQuimbyDir(repoRoot))
+    await writeFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'id: local')
+    await ensureDir(getStorageWorkspaceDir(state.id)) // an `ensureDir` from an aborted earlier run
+
+    await ensureDurableWorkspace(repoRoot, state)
+
+    expect((await lstat(getQuimbyDir(repoRoot))).isSymbolicLink()).toBe(true)
+    expect(await readFile(join(getStorageWorkspaceDir(state.id), 'state.yaml'), 'utf-8')).toBe(
+      'id: local',
+    )
+  })
+
+  it('refuses to guess when a real .quimby and its storage both hold content', async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDir(getQuimbyDir(repoRoot))
+    await writeFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'id: local')
+    await ensureDir(getStorageWorkspaceDir(state.id))
+    await writeFile(join(getStorageWorkspaceDir(state.id), 'state.yaml'), 'id: stored')
+
+    await expect(ensureDurableWorkspace(repoRoot, state)).rejects.toThrow(/both hold content/)
+    // Neither side is touched — a refusal that mutated first would be worse than the divergence.
+    expect(await readFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'utf-8')).toBe('id: local')
+    expect(await readFile(join(getStorageWorkspaceDir(state.id), 'state.yaml'), 'utf-8')).toBe(
+      'id: stored',
+    )
   })
 
   it('registers the workspace in the project registry', async () => {

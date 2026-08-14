@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import type { QuimbyConfig } from '@quimbyhq/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,6 +24,7 @@ vi.mock('./storage', () => ({ ensureDurableWorkspace }))
 vi.mock('./state', () => ({ saveState }))
 vi.mock('execa', () => ({ execa: vi.fn(async () => ({ stdout: 'main' })) }))
 
+import { registerProject, unregisterProject } from './registry'
 import { adoptRemoteWorkspace, boundHostAliases, reconstructRemoteWorkspace } from './remoteAdopt'
 
 const REMOTE_LOC = { type: 'ssh' as const, host: 'user@box', alias: 'remote' }
@@ -144,6 +149,78 @@ describe('reconstructRemoteWorkspace', () => {
         }),
       }),
     )
+  })
+
+  // Reconstruction ends in ensureDurableWorkspace + saveState, which symlinks `.quimby` at the
+  // adopted id's storage and writes state.yaml THROUGH it. Adopting a workspace another checkout
+  // owns therefore overwrites that checkout's state — and the trigger is ordinary: a repository
+  // renamed on its host leaves the original and whatever later takes the old name sharing an origin.
+  it('refuses to adopt a workspace a different, still-present checkout owns', async () => {
+    const owner = mkdtempSync(join(tmpdir(), 'qa-owner-'))
+    await registerProject({
+      id: 'claimed-id',
+      repoRoot: owner,
+      sourceRepo: 'git@x:repo.git',
+      createdAt: '2024-01-01T00:00:00.000Z',
+    })
+
+    await expect(
+      reconstructRemoteWorkspace(
+        '/some/other/checkout',
+        REMOTE_LOC,
+        config,
+        { id: 'claimed-id', sourceRepo: 'git@x:repo.git' },
+        { presetName: 'remote', fallbackAlias: 'remote', sourceRepo: 'git@x:repo.git' },
+      ),
+    ).rejects.toThrow(owner)
+
+    // Nothing was written on the way out — the refusal has to precede the overwrite, not follow it.
+    expect(saveState).not.toHaveBeenCalled()
+    expect(ensureDurableWorkspace).not.toHaveBeenCalled()
+    await unregisterProject('claimed-id')
+  })
+
+  it('allows adoption when the claiming checkout is gone — that is the case restore exists for', async () => {
+    await registerProject({
+      id: 'orphaned-id',
+      repoRoot: '/checkout/that/was/deleted',
+      sourceRepo: 'git@x:repo.git',
+      createdAt: '2024-01-01T00:00:00.000Z',
+    })
+    exec.mockResolvedValueOnce('AGENT\treview-id\treview\tseed-review\n')
+
+    await reconstructRemoteWorkspace(
+      '/repo',
+      REMOTE_LOC,
+      config,
+      { id: 'orphaned-id', sourceRepo: 'git@x:repo.git' },
+      { presetName: 'remote', fallbackAlias: 'remote', sourceRepo: 'git@x:repo.git' },
+    )
+
+    expect(saveState).toHaveBeenCalled()
+    await unregisterProject('orphaned-id')
+  })
+
+  it('allows re-adoption by the checkout that already owns it', async () => {
+    const owner = mkdtempSync(join(tmpdir(), 'qa-owner-'))
+    await registerProject({
+      id: 'own-id',
+      repoRoot: owner,
+      sourceRepo: 'git@x:repo.git',
+      createdAt: '2024-01-01T00:00:00.000Z',
+    })
+    exec.mockResolvedValueOnce('AGENT\treview-id\treview\tseed-review\n')
+
+    await reconstructRemoteWorkspace(
+      owner,
+      REMOTE_LOC,
+      config,
+      { id: 'own-id', sourceRepo: 'git@x:repo.git' },
+      { presetName: 'remote', fallbackAlias: 'remote', sourceRepo: 'git@x:repo.git' },
+    )
+
+    expect(saveState).toHaveBeenCalled()
+    await unregisterProject('own-id')
   })
 
   it('throws when the remote workspace has no agents', async () => {

@@ -18,6 +18,15 @@ export async function saveState(repoRoot: string, state: QuimbyState): Promise<v
  */
 export function migrateState(state: QuimbyState): boolean {
   let dirty = false
+
+  // Durable storage is KEYED by this id, so it has to exist before anything is materialized or
+  // registered. Minting it here rather than at each call site is what guarantees that: a caller
+  // that materialized first was silently operating on `undefined`, which resolves to the storage
+  // ROOT — every workspace on the machine, read as one directory.
+  if (!state.id) {
+    state.id = crypto.randomUUID()
+    dirty = true
+  }
   const loose = state as QuimbyState & {
     workers?: QuimbyState['agents']
     subscriptions?: Record<string, string[]>

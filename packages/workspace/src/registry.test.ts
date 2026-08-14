@@ -66,13 +66,39 @@ describe('findRegistryMatches', () => {
     expect(matches.map((m) => m.id)).toEqual(['b'])
   })
 
-  it('prefers repoRoot matches over sourceRepo', () => {
+  it('prefers a repoRoot match when the origin agrees', () => {
+    const registry = makeRegistry('a', 'b')
+    const matches = findRegistryMatches(registry, {
+      repoRoot: '/repos/a',
+      sourceRepo: '/src/a',
+    })
+    expect(matches.map((m) => m.id)).toEqual(['a'])
+  })
+
+  it('still prefers a repoRoot match when no origin is known to corroborate it', () => {
+    // Absence of evidence, not evidence of a different project: an entry written before origins
+    // were recorded, or a query that never looked one up, must match by path as it always did.
+    const registry = makeRegistry('a', 'b')
+    expect(findRegistryMatches(registry, { repoRoot: '/repos/a' }).map((m) => m.id)).toEqual(['a'])
+  })
+
+  // `repoRoot` is an absolute path nothing revalidates: rename a checkout and the vacated path can
+  // be taken by an entirely different project, which then inherited the old workspace — same
+  // storage, same id, same remote agents. A contradicting origin is what makes that case decidable.
+  it('rejects a repoRoot match whose origin contradicts it — the recycled-path case', () => {
     const registry = makeRegistry('a', 'b')
     const matches = findRegistryMatches(registry, {
       repoRoot: '/repos/a',
       sourceRepo: '/src/b',
     })
-    expect(matches.map((m) => m.id)).toEqual(['a'])
+    expect(matches.map((m) => m.id)).toEqual(['b'])
+  })
+
+  it('matches nothing when the recycled path is the only candidate', () => {
+    const registry = makeRegistry('a')
+    expect(
+      findRegistryMatches(registry, { repoRoot: '/repos/a', sourceRepo: '/src/elsewhere' }),
+    ).toEqual([])
   })
 
   it('falls back to sourceRepo when no repoRoot match', () => {

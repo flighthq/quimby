@@ -211,6 +211,13 @@ The project's UUID (its `state.yaml` id) namespaces the remote workspace at `~/.
 
 `quimby restore` remains the **explicit** escape hatch for the cases auto-adopt won't guess (a different alias, cross-machine, `--id` disambiguation).
 
+Both identifiers adoption relies on — the registry's `repoRoot` path and the workspace's `sourceRepo` origin — can go stale, and a **renamed repository** makes them stale together. Four rules keep a rename from turning into an adoption:
+
+- **`sourceRepo` is refreshed from the git origin on every resolve.** It used to be written once at creation, so a repository renamed on its host kept identifying as a name it no longer answered to — and that stale value is copied into the registry, which is what matching reads. (A repo with no remote stores its own path instead; that is re-pointed when the checkout moves, since there the path _is_ the identity. A stored URL is never replaced by a path — losing a remote does not make a project a different one.)
+- **A registry path match must not be contradicted by the origin.** `repoRoot` is an absolute path nothing revalidates, so a renamed checkout leaves its old path free for a different project to occupy — which then matched the old entry and inherited its workspace whole. When both identifiers are known and they disagree, the path was recycled.
+- **Adoption never overwrites a workspace another live checkout owns.** Reconstruction symlinks `.quimby` at the adopted id's storage and writes `state.yaml` through it, so adopting a workspace someone else holds silently replaces their state. If the registry maps that id to a different `repoRoot` that still exists, quimby stops and names it. A claim whose directory is _gone_ does not block — that is the moved-or-deleted checkout `restore` exists to recover.
+- **A real `.quimby/` meeting existing storage for the same id is resolved or reported, never ignored.** An empty storage directory is a husk from an interrupted migration, so the local directory moves in and the link completes; when both hold content there are two `state.yaml` files for one id and quimby will not guess which is authoritative.
+
 Because provisioning is now idempotent on git origin, a duplicate remote workspace can no longer appear by accident. To clean up ones left by the old always-mint behavior, `quimby storage prune-remote --host <alias>` lists (and with `--force` removes) remote workspaces for this repo that are **not** the active one — it never touches another repo's lanes or the workspace you are on, and refuses entirely when there is no local workspace to protect.
 
 ```

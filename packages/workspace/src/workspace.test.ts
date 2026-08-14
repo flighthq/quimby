@@ -13,6 +13,10 @@ import { ensureWorkspace, resolveWorkspace } from './workspace'
 
 let dir: string
 let originalCwd: string
+// Durable storage is machine-wide and keyed by workspace id, so a literal id shared across tests
+// makes each one inherit the previous test's storage — a collision the code now (correctly)
+// refuses rather than silently running unlinked.
+let wsId: string
 
 async function setupGitRepo(repoDir: string) {
   await mkdir(repoDir, { recursive: true })
@@ -25,6 +29,7 @@ async function setupGitRepo(repoDir: string) {
 }
 
 beforeEach(async () => {
+  wsId = crypto.randomUUID()
   dir = join(tmpdir(), `quimby-ws-${crypto.randomUUID()}`)
   originalCwd = process.cwd()
   await setupGitRepo(dir)
@@ -39,7 +44,7 @@ describe('ensureWorkspace', () => {
   it('backfills a missing agent syncRef from the workspace sourceRef', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
-      id: 'ws-id',
+      id: wsId,
       sourceRepo: dir,
       sourceRef: 'main',
       snapshot: 'abc123',
@@ -156,10 +161,76 @@ describe('resolveWorkspace', () => {
     expect(await exists(getStatePath(dir))).toBe(true)
   })
 
+  // `sourceRepo` is this workspace's identity for registry AND remote-adoption matching, and it was
+  // written once at creation. A repository renamed on its host therefore kept claiming an origin it
+  // no longer pointed at — and a genuinely different project that later took the old name matched
+  // it on both surfaces at once.
+  it('refreshes a stale sourceRepo from the git origin, and persists it', async () => {
+    const created = await ensureWorkspace(dir)
+    await execa('git', ['remote', 'add', 'origin', 'https://example.test/renamed.git'], {
+      cwd: dir,
+    })
+
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
+
+    expect(state.id).toBe(created.id)
+    expect(state.sourceRepo).toBe('https://example.test/renamed.git')
+    expect((await loadState(dir)).sourceRepo).toBe('https://example.test/renamed.git')
+  })
+
+  it('carries the refreshed origin into the registry, which is what adoption matches on', async () => {
+    const created = await ensureWorkspace(dir)
+    await execa('git', ['remote', 'add', 'origin', 'https://example.test/renamed.git'], {
+      cwd: dir,
+    })
+
+    process.chdir(dir)
+    await resolveWorkspace()
+
+    const registry = await loadProjectRegistry()
+    expect(registry.projects?.[created.id]?.sourceRepo).toBe('https://example.test/renamed.git')
+  })
+
+  it('leaves sourceRepo alone when the repo has no remote — that is not a different project', async () => {
+    // The creation-time fallback for a remote-less repo is the repo PATH, and overwriting a real
+    // URL with it (or clobbering it on every resolve) would be the same staleness in reverse.
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      id: wsId,
+      sourceRepo: 'https://example.test/original.git',
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {},
+    })
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
+    expect(state.sourceRepo).toBe('https://example.test/original.git')
+  })
+
+  it('re-points a path-based sourceRepo at the moved checkout, since there the path IS the identity', async () => {
+    // A remote-less project stores its own repoRoot as `sourceRepo`. Rename the checkout and that
+    // value still names a location another project can now occupy — the same staleness, one
+    // identifier over, and the one the registry falls back to when the path match is rejected.
+    await ensureDir(join(dir, '.quimby'))
+    await writeYaml(getStatePath(dir), {
+      id: wsId,
+      sourceRepo: '/somewhere/it/used/to/live',
+      sourceRef: 'main',
+      snapshot: 'abc123',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      agents: {},
+    })
+    process.chdir(dir)
+    const { state } = await resolveWorkspace()
+    expect(state.sourceRepo).toBe(dir)
+  })
+
   it('migrates legacy schema keys (workers, defaults.agent) and preserves advisory checks', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
-      id: 'ws-id',
+      id: wsId,
       sourceRepo: dir,
       sourceRef: 'main',
       snapshot: 'abc123',
@@ -193,7 +264,7 @@ describe('resolveWorkspace', () => {
   it('migrates a legacy inbox/outbox mailbox into the handoff/ tree, idempotently', async () => {
     await ensureDir(join(dir, '.quimby'))
     await writeYaml(getStatePath(dir), {
-      id: 'ws-id',
+      id: wsId,
       sourceRepo: dir,
       sourceRef: 'main',
       snapshot: 'abc123',

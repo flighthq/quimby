@@ -164,7 +164,24 @@ async function materializeWorkspaceStorage(repoRoot: string, projectId: string):
       await linkQuimbyDir(repoRoot, storageDir)
       return
     }
-    return
+    // A real `.quimby/` AND storage already holding this id. This used to `return` silently, which
+    // left the project running on the local directory while the storage it believes it owns sat
+    // elsewhere, diverging with nothing to say so — two `state.yaml` files for one id, one of them
+    // ignored. Which of the two is authoritative is decidable only when one of them is empty.
+    if (await isEmptyDir(storageDir)) {
+      // Storage is a husk (an `ensureDir` from an aborted earlier run). The local directory is the
+      // real workspace, so complete the migration that was interrupted.
+      await rm(storageDir, { recursive: true, force: true })
+      await rename(quimbyDir, storageDir)
+      await linkQuimbyDir(repoRoot, storageDir)
+      return
+    }
+    throw new QuimbyError(
+      `Two quimby workspaces claim id "${projectId}": ${quimbyDir} (a real directory) and ` +
+        `${storageDir} (durable storage), and both hold content. Quimby will not guess which is ` +
+        'authoritative. Inspect both, then either remove the one you do not want or move the local ' +
+        'directory aside and re-run to link the stored one.',
+    )
   }
 
   await ensureDir(storageDir)
@@ -179,4 +196,12 @@ async function linkQuimbyDir(repoRoot: string, storageDir: string): Promise<void
     throw new QuimbyError(`Cannot restore quimby storage: ${quimbyDir} already exists`)
   }
   await symlink(resolve(storageDir), quimbyDir, 'dir')
+}
+
+async function isEmptyDir(dir: string): Promise<boolean> {
+  try {
+    return (await readdir(dir)).length === 0
+  } catch {
+    return false
+  }
 }
