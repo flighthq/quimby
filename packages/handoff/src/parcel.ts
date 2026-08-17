@@ -93,3 +93,17 @@ export async function readHandoff(
     : ''
   return { meta, squashedDiff, note }
 }
+
+/**
+ * Parcel filenames the assembler owns. An attachment must never take one of these names — it would
+ * overwrite the note, the diff, or the manifest that identifies the parcel.
+ *
+ * Lives here, with the rest of parcel shape, because two independent senders reach it: the host's
+ * `quimby handoff --file` and an agent's `agent.sh handoff --file`. One rule, one place.
+ */
+export const RESERVED_PARCEL_FILES: ReadonlySet<string> = new Set([
+  'README.md',
+  'squashed.diff',
+  'uncommitted.diff',
+  'meta.yaml',
+])

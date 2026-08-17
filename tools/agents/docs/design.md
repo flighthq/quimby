@@ -494,6 +494,8 @@ agent.sh peers [name]                 # list peer status mirrors, or read one
 agent.sh rebase                       # apply the delivered base (quimby/base); refuses on a dirty tree
 ```
 
+`inbox` and `inbox show` **name a parcel's attached files** — the listing tags `[+N file(s)]` and the full view prints each path, along with the fact that they sit outside `repo/`. Without that an attachment was invisible unless the sender happened to mention it in prose, which for a parcel whose entire purpose is the attachment is the difference between the feature working and not.
+
 It also **reports what a parcel actually carries** — `carrying N commit(s) (a1b2c3..d4e5f6) + M uncommitted file(s)` — because a parcel is cumulative since `quimby/seed` and a sender who means to hand over one commit routinely hands over six, the rest being work that already landed. That failure has no other gate: a re-sent commit merges without a conflict, so nothing downstream flags it, and one can silently revert a closed decision. When the seed is behind `quimby/base` the tool names that too, since a stale baseline is _why_ the count surprises people. The receiving end sees the same arithmetic — `inbox` tags a parcel `[diff: N commit(s)]`, so the last party who can catch an over-carry before it lands has the number in front of it.
 
 Four properties define its scope:
@@ -537,6 +539,8 @@ The server writes `.quimby/server.json` (pid, port, startedAt) on startup and re
 ## Handoff Lifecycle
 
 A handoff is assembled on demand and carried; it is not deposited in any archive. The lifecycle is non-destructive — nothing an agent authored is lost to a failed delivery.
+
+**Attachments (`--file`).** A host → agent handoff can carry arbitrary host files (`quimby handoff <agent> --file <path>`, repeatable). This is the courier's answer to an agent that cannot fetch something itself — a sandbox with no network route to it — and the placement is what makes it safe: an attachment lands in the recipient's **inbox**, outside `repo/`, so git never sees it, no diff can carry it back, and it cannot be committed by accident. `--no-code` sends only the note and the attachments, since handing over a file rarely means "and also everything uncommitted in my checkout". It is host → agent only: the files come from the host's filesystem, so there is nothing coherent to attach them to when the courier is carrying one agent's work to another. Every problem is a **hard** error before anything is carried — a missing path, a directory (parcels are flat), a duplicate basename, or a name a parcel already owns — which is the opposite of the agent-authored draft path, where a bad attachment is skipped and reported: an agent's draft was written earlier and unattended, so refusing the whole parcel would strand the note with it, while a host `--file` was typed by someone standing right there. Attachments are part of the parcel's content hash, so re-sending the same set dedupes and changing one mints a new parcel.
 
 **Direct carry (`quimby handoff`).** Quimby:
 

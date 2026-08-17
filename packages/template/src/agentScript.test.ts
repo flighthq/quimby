@@ -999,6 +999,51 @@ describe('renderAgentScript note body', () => {
 // The tool cannot repair a note the shell already ate — the text is destroyed one layer above it —
 // so `help` is the one surface that can warn, and it previously presented `-m msg` first with no
 // hint that it differs from --note-file in safety.
+// An attachment is the whole reason some parcels exist — an operator hand-carrying a file the agent
+// could not download. A parcel view that showed only the note and diffstat left that file invisible
+// unless the sender happened to mention it in prose.
+describe('renderAgentScript parcel attachments', () => {
+  it('names the attached files, and where they are, when showing a parcel', () => {
+    const root = makeAgentWorkspace()
+    const parcel = join(root, 'handoff', 'in', 'received', 'host-cc33')
+    mkdirSync(parcel, { recursive: true })
+    writeFileSync(join(parcel, 'README.md'), 'the dataset you could not fetch\n')
+    writeFileSync(join(parcel, 'dataset.bin'), 'payload')
+    writeFileSync(join(parcel, 'notes.csv'), 'a,b\n')
+
+    const out = runSh(root, ['inbox', 'show', 'host-cc33'])
+    expect(out).toContain('── files (delivered INTO YOUR INBOX, not into repo/) ──')
+    expect(out).toContain('dataset.bin')
+    expect(out).toContain('notes.csv')
+    // The boundary property is the point, so it is stated where the files are listed.
+    expect(out).toContain('nothing carries them back')
+  })
+
+  it('never lists the note, diff or manifest as attachments', () => {
+    const root = makeAgentWorkspace()
+    const parcel = join(root, 'handoff', 'in', 'received', 'host-dd44')
+    mkdirSync(join(parcel, 'commits'), { recursive: true })
+    writeFileSync(join(parcel, 'README.md'), 'note\n')
+    writeFileSync(join(parcel, 'squashed.diff'), 'diff --git a/x b/x\n')
+    writeFileSync(join(parcel, 'meta.yaml'), 'from: host\n')
+    writeFileSync(join(parcel, 'commits', '0001.patch'), 'patch\n')
+
+    const out = runSh(root, ['inbox', 'show', 'host-dd44'])
+    expect(out).not.toContain('── files')
+  })
+
+  it('tags the attachment count in the inbox listing, so triage sees it without opening', () => {
+    const root = makeAgentWorkspace()
+    const parcel = join(root, 'handoff', 'in', 'received', 'host-ee55')
+    mkdirSync(parcel, { recursive: true })
+    writeFileSync(join(parcel, 'README.md'), 'files attached\n')
+    writeFileSync(join(parcel, 'one.txt'), '1')
+    writeFileSync(join(parcel, 'two.txt'), '2')
+
+    expect(runSh(root, ['inbox'])).toContain('[+2 file(s)]')
+  })
+})
+
 describe('renderAgentScript quoting warning', () => {
   it('warns in help that -m is shell-expanded, naming the whole class', () => {
     const root = makeAgentWorkspace()

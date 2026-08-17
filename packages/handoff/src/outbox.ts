@@ -20,6 +20,8 @@ import { isSSH } from '@quimbyhq/types'
 import { cp, ensureDir, exists } from '@quimbyhq/utils'
 import { join } from 'pathe'
 
+import { RESERVED_PARCEL_FILES } from './parcel'
+
 /**
  * Move an SSH sender's delivered parcel from the *remote* `out/queued/` into `out/sent/`,
  * mirroring {@link markHandoffSent} on the host side. Without this the remote queued parcel
@@ -199,15 +201,6 @@ export async function readOutboxRecipients(repoRoot: string, fromId: string): Pr
     .map((e) => e.name)
     .sort()
 }
-
-// Parcel filenames the assembler owns; a sender's `--file` attachment must never overwrite them.
-// `README.md` is the note (assembled from the draft's frontmatter-stripped body separately).
-const RESERVED_PARCEL_FILES = new Set([
-  'README.md',
-  'squashed.diff',
-  'uncommitted.diff',
-  'meta.yaml',
-])
 
 function parseDraft(content: string): OutboxDraft {
   if (!content.startsWith('---')) return { note: content }

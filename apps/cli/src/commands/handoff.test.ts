@@ -1,3 +1,4 @@
+import { resolve } from 'pathe'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const handoffWork = vi.hoisted(() => vi.fn())
@@ -32,6 +33,64 @@ afterEach(() => {
 })
 
 describe('runHandoffCommand', () => {
+  it('passes --file through as absolute paths, one or many', async () => {
+    // citty yields a bare string for one `--file` and an array for several; resolving against cwd
+    // keeps a relative path meaning what the operator typed, not what the repo root is.
+    handoffWork.mockResolvedValueOnce({
+      from: 'host',
+      to: 'review',
+      parcelName: 'p',
+      nudgeText: null,
+    })
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', file: 'notes.csv', rebase: false } } as never)
+    expect(handoffWork.mock.calls[0][0].files).toEqual([resolve('notes.csv')])
+
+    handoffWork.mockResolvedValueOnce({
+      from: 'host',
+      to: 'review',
+      parcelName: 'p',
+      nudgeText: null,
+    })
+    await cmd.run!({
+      args: { from: 'review', file: ['a.bin', '/abs/b.bin'], rebase: false },
+    } as never)
+    expect(handoffWork.mock.calls[1][0].files).toEqual([resolve('a.bin'), '/abs/b.bin'])
+  })
+
+  it('sends no files when none are attached', async () => {
+    handoffWork.mockResolvedValueOnce({
+      from: 'host',
+      to: 'review',
+      parcelName: 'p',
+      nudgeText: null,
+    })
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', rebase: false } } as never)
+    expect(handoffWork.mock.calls[0][0].files).toEqual([])
+  })
+
+  it('maps --no-code to a note-only carry, so an attachment does not drag host work along', async () => {
+    handoffWork.mockResolvedValueOnce({
+      from: 'host',
+      to: 'review',
+      parcelName: 'p',
+      nudgeText: null,
+    })
+    const { default: cmd } = await import('./handoff')
+    await cmd.run!({ args: { from: 'review', code: false, file: 'x.bin', rebase: false } } as never)
+    expect(handoffWork.mock.calls[0][0].noteOnly).toBe(true)
+
+    handoffWork.mockResolvedValueOnce({
+      from: 'host',
+      to: 'review',
+      parcelName: 'p',
+      nudgeText: null,
+    })
+    await cmd.run!({ args: { from: 'review', code: true, rebase: false } } as never)
+    expect(handoffWork.mock.calls[1][0].noteOnly).toBe(false)
+  })
+
   it('is a function', async () => {
     const { default: cmd } = await import('./handoff')
     expect(typeof cmd.run).toBe('function')

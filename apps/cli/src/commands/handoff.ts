@@ -4,6 +4,7 @@ import { nudgeAgentSession } from '@quimbyhq/session'
 import { logger } from '@quimbyhq/utils'
 import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
+import { resolve } from 'pathe'
 
 import { attestationResolver, formatAttestation } from '../attestation'
 import { resolveNudgeFocusOptions } from '../focus'
@@ -34,6 +35,17 @@ export default defineCommand({
       type: 'string',
       description: "Carry a different agent's diff than the source",
     },
+    code: {
+      type: 'boolean',
+      description:
+        "Carry the host's working-tree diff. --no-code sends only the note and any --file attachments",
+      default: true,
+    },
+    file: {
+      type: 'string',
+      description:
+        "Attach a host file to the parcel (repeatable). Lands in the recipient's inbox, outside its repo/ — so it can never be committed or ride a diff back. Host → agent only",
+    },
     rebase: {
       type: 'boolean',
       description: 'Rebase the code source onto host HEAD before packaging',
@@ -62,6 +74,8 @@ export async function runHandoffCommand({
     to?: string
     message?: string
     attach?: string
+    code?: boolean
+    file?: string | string[]
     rebase: boolean
     nudge?: boolean
     clear: boolean
@@ -89,7 +103,14 @@ export async function runHandoffCommand({
       to: args.to,
       message: args.message,
       userDirected: Boolean(args.message),
+      // Handing over a file rarely means "and also everything uncommitted in my checkout". The
+      // diff stays the default (a handoff is a code channel first), but it has to be refusable, or
+      // `--file` drags unrelated host work into an agent as a side effect of an attachment.
+      noteOnly: args.code === false,
       attach: args.attach,
+      // citty yields a bare string for one `--file` and an array for several; resolving against
+      // cwd keeps a relative path meaning what the user typed rather than what the repo root is.
+      files: toArray(args.file).map((path) => resolve(path)),
       nudge: args.nudge,
       beforeStage: args.rebase
         ? (name) => rebaseAgentOntoBase(repoRoot, name, consolaReporter).then(() => undefined)
@@ -109,4 +130,9 @@ export async function runHandoffCommand({
       reporter: consolaReporter,
     })
   }
+}
+
+function toArray(value: string | string[] | undefined): string[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
 }

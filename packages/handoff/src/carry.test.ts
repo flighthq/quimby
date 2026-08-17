@@ -37,6 +37,21 @@ beforeEach(() => {
 })
 
 describe('handoffWork', () => {
+  it('refuses attachments on an agent → agent carry, naming the form that works', async () => {
+    // The files come from the HOST filesystem, so there is nothing coherent to attach them to when
+    // the courier is carrying one agent's work to another.
+    await expect(
+      handoffWork({
+        state: stateWith('builder', 'review'),
+        repoRoot: '/r',
+        from: 'builder',
+        to: 'review',
+        message: 'here',
+        files: ['/tmp/whatever.txt'],
+      }),
+    ).rejects.toThrow(/quimby handoff review --file/)
+  })
+
   it('throws when the recipient is unknown', async () => {
     await expect(
       handoffWork({ state: stateWith('builder'), repoRoot: '/r', from: 'ghost' }),

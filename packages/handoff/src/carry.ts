@@ -18,6 +18,12 @@ export interface HandoffWorkOptions {
   userDirected?: boolean
   noteOnly?: boolean
   attach?: string
+  /**
+   * Host files to attach to the parcel. Host → agent only: the files come from the host's
+   * filesystem, so there is nothing coherent to attach them to when the courier is carrying one
+   * agent's work to another.
+   */
+  files?: readonly string[]
   /** Force the nudge on/off; when omitted the note's presence decides (data-only → no nudge). */
   nudge?: boolean
   beforeStage?: (codeSourceName: string) => Promise<void>
@@ -61,6 +67,13 @@ export async function handoffWork(
     throw new QuimbyError(`Agent "${recipient}" not found`)
   }
 
+  if (opts.files?.length && !fromHost) {
+    throw new QuimbyError(
+      'Attachments come from your host, so they can only ride a host → agent handoff. Use ' +
+        `\`quimby handoff ${recipient} --file …\` (no source agent).`,
+    )
+  }
+
   const shouldNudge = opts.nudge ?? Boolean(opts.message)
   const requestedUserDirected = opts.userDirected ?? Boolean(opts.message)
 
@@ -74,6 +87,7 @@ export async function handoffWork(
       base: recip.seedCommit,
       note: opts.message,
       noteOnly: opts.noteOnly,
+      files: opts.files,
     })
     parcelName = meta.name
     sender = HOST_SENDER

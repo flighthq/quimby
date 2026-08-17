@@ -1,4 +1,4 @@
-import { readdir, rm } from 'node:fs/promises'
+import { readdir, readFile, rm } from 'node:fs/promises'
 
 import { HandoffError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
@@ -12,8 +12,8 @@ import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentLocation, HandoffMeta, SSHLocation } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
-import { ensureDir, writeText, writeYaml } from '@quimbyhq/utils'
-import { join } from 'pathe'
+import { cp, ensureDir, exists, writeText, writeYaml } from '@quimbyhq/utils'
+import { basename, join } from 'pathe'
 
 import {
   assembleParcel,
@@ -22,6 +22,7 @@ import {
   parcelName,
   type RepoAssembleOps,
 } from './assembleParcel'
+import { RESERVED_PARCEL_FILES } from './parcel'
 
 /** Reserved sender name for a host → agent handoff (the host is not an agent). */
 export const HOST_SENDER = 'host'
@@ -65,8 +66,11 @@ export async function assembleHostHandoff(opts: {
   note?: string
   name?: string
   noteOnly?: boolean
+  /** Host files to carry alongside the note/diff — see {@link resolveAttachments}. */
+  files?: readonly string[]
 }): Promise<HandoffMeta> {
   const { repoRoot, to } = opts
+  const attachments = await resolveAttachments(opts.files ?? [])
 
   // The recipient's seed should be a host commit; if it isn't reachable (the host
   // history was rewritten), fall back to HEAD so we carry just the uncommitted work.
@@ -84,15 +88,25 @@ export async function assembleHostHandoff(opts: {
         exclude: CAPTURE_EXCLUDE,
       })
   const hasCode = squashedDiff.trim().length > 0
-  if (!hasCode && !opts.note) {
-    throw new HandoffError(`Nothing to hand off from host — no changes vs "${to}" and no note`)
+  if (!hasCode && !opts.note && attachments.length === 0) {
+    throw new HandoffError(
+      `Nothing to hand off from host — no changes vs "${to}", no note, and no --file`,
+    )
   }
 
   const name =
     opts.name ??
     parcelName(
       HOST_SENDER,
-      contentDigest([squashedDiff, opts.note ?? '', opts.note ? 'user-directed' : 'ordinary']),
+      // Attachments are part of the parcel's CONTENT, so they belong in its identity: two sends
+      // differing only by attachment must be two parcels, and re-sending the same set must dedupe
+      // to one, exactly as a re-sent diff does.
+      contentDigest([
+        squashedDiff,
+        opts.note ?? '',
+        opts.note ? 'user-directed' : 'ordinary',
+        ...attachments.map((a) => `${a.name}\u0000${a.content}`),
+      ]),
     )
   const dir = getStagingHandoffDir(repoRoot, name)
   await rm(dir, { recursive: true, force: true })
@@ -100,6 +114,7 @@ export async function assembleHostHandoff(opts: {
 
   if (hasCode) await writeText(join(dir, 'squashed.diff'), squashedDiff)
   if (opts.note) await writeText(join(dir, 'README.md'), opts.note)
+  for (const attachment of attachments) await cp(attachment.path, join(dir, attachment.name))
 
   const firstLine = (opts.note ?? '').split('\n').find(Boolean) ?? 'Work from host'
   const meta: HandoffMeta = {
@@ -115,6 +130,51 @@ export async function assembleHostHandoff(opts: {
   }
   await writeYaml(join(dir, 'meta.yaml'), meta)
   return meta
+}
+
+/**
+ * Validate `--file` attachments and read them for the content digest.
+ *
+ * Every problem here is a HARD error, unlike the agent-authored draft path, which skips a bad
+ * attachment and reports it. The difference is who can still act: an agent's draft was written
+ * earlier and unattended, so refusing the whole parcel would strand the note with it — but a host
+ * `--file` was typed on the command line by someone standing right there, and failing before
+ * anything is carried is both cheaper and clearer than delivering a parcel that quietly lacks the
+ * one thing it was sent for.
+ */
+async function resolveAttachments(
+  files: readonly string[],
+): Promise<{ name: string; path: string; content: string }[]> {
+  const seen = new Set<string>()
+  const resolved: { name: string; path: string; content: string }[] = []
+  for (const path of files) {
+    const name = basename(path)
+    if (RESERVED_PARCEL_FILES.has(name)) {
+      throw new HandoffError(
+        `Cannot attach "${path}": a parcel already uses the name "${name}" for its own ` +
+          `${name === 'README.md' ? 'note' : name === 'meta.yaml' ? 'manifest' : 'diff'}. ` +
+          'Rename the file and re-send.',
+      )
+    }
+    if (seen.has(name)) {
+      throw new HandoffError(
+        `Cannot attach two files named "${name}" — a parcel is flat, so the second would ` +
+          'overwrite the first. Rename one and re-send.',
+      )
+    }
+    if (!(await exists(path))) throw new HandoffError(`Cannot attach "${path}": no such file`)
+    let content: string
+    try {
+      content = await readFile(path, 'base64')
+    } catch {
+      // A directory reads as EISDIR. Parcels are flat by design, so this is a real refusal rather
+      // than something to silently flatten or archive.
+      throw new HandoffError(`Cannot attach "${path}": a parcel carries files, not directories`)
+    }
+    seen.add(name)
+    resolved.push({ name, path, content })
+  }
+  return resolved
 }
 
 /**

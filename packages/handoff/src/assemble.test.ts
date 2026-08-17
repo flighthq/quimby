@@ -190,6 +190,138 @@ describe('assembleHostHandoff', () => {
     expect(await exists(join(parcel, 'README.md'))).toBe(true)
   })
 
+  // The point of `--file`: an agent blocked from the network gets files from its operator, and they
+  // land in the inbox — outside `repo/` — so nothing can commit them or carry them back in a diff.
+  it('carries host files into the parcel', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    const payload = join(dir, 'dataset.bin')
+    await writeFile(payload, 'binary-ish payload')
+
+    const meta = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      note: 'the dataset you could not fetch',
+      noteOnly: true,
+      files: [payload],
+    })
+
+    const parcel = getStagingHandoffDir(dir, meta.name)
+    expect(await readFile(join(parcel, 'dataset.bin'), 'utf-8')).toBe('binary-ish payload')
+  })
+
+  it('stages a files-only parcel — an attachment is content, so it is something to hand off', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    const payload = join(dir, 'creds.json')
+    await writeFile(payload, '{}')
+    const meta = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      noteOnly: true,
+      files: [payload],
+    })
+    expect(await exists(join(getStagingHandoffDir(dir, meta.name), 'creds.json'))).toBe(true)
+  })
+
+  // Identity is content-derived, so attachments have to be IN the content: otherwise two sends
+  // differing only by attachment collide on one name, and the second silently overwrites the first.
+  it('gives parcels with different attachments different names, and dedupes identical ones', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    const a = join(dir, 'a.txt')
+    const b = join(dir, 'b.txt')
+    await writeFile(a, 'alpha')
+    await writeFile(b, 'beta')
+
+    const first = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      note: 'n',
+      noteOnly: true,
+      files: [a],
+    })
+    const second = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      note: 'n',
+      noteOnly: true,
+      files: [b],
+    })
+    const again = await assembleHostHandoff({
+      repoRoot: dir,
+      to: 'review',
+      base,
+      note: 'n',
+      noteOnly: true,
+      files: [a],
+    })
+
+    expect(first.name).not.toBe(second.name)
+    expect(again.name).toBe(first.name)
+  })
+
+  // Every one of these is a HARD error rather than a skip: the operator typed the path and is
+  // standing right there, so refusing before anything is carried beats delivering a parcel that
+  // quietly lacks the one thing it was sent for.
+  it('refuses an attachment that would overwrite a parcel file quimby owns', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    await expect(
+      assembleHostHandoff({
+        repoRoot: dir,
+        to: 'review',
+        base,
+        note: 'n',
+        files: [join(dir, 'README.md')],
+      }),
+    ).rejects.toThrow(/already uses the name "README.md" for its own note/)
+  })
+
+  it('refuses a missing attachment', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    await expect(
+      assembleHostHandoff({
+        repoRoot: dir,
+        to: 'review',
+        base,
+        note: 'n',
+        files: [join(dir, 'nope.txt')],
+      }),
+    ).rejects.toThrow(/no such file/)
+  })
+
+  it('refuses a directory — a parcel is flat', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    await mkdir(join(dir, 'a-folder'), { recursive: true })
+    await expect(
+      assembleHostHandoff({
+        repoRoot: dir,
+        to: 'review',
+        base,
+        note: 'n',
+        files: [join(dir, 'a-folder')],
+      }),
+    ).rejects.toThrow(/files, not directories/)
+  })
+
+  it('refuses two attachments with the same basename, which would silently overwrite', async () => {
+    const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
+    await mkdir(join(dir, 'one'), { recursive: true })
+    await mkdir(join(dir, 'two'), { recursive: true })
+    await writeFile(join(dir, 'one', 'same.txt'), '1')
+    await writeFile(join(dir, 'two', 'same.txt'), '2')
+    await expect(
+      assembleHostHandoff({
+        repoRoot: dir,
+        to: 'review',
+        base,
+        note: 'n',
+        files: [join(dir, 'one', 'same.txt'), join(dir, 'two', 'same.txt')],
+      }),
+    ).rejects.toThrow(/two files named "same.txt"/)
+  })
+
   it('can stage a note-only delegated task without carrying unrelated host changes', async () => {
     const base = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim()
     await writeFile(join(dir, 'README.md'), '# unrelated host change')
