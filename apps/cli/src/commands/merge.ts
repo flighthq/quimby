@@ -307,11 +307,19 @@ export async function runMergeCommand({
 
     await discardHandoff(repoRoot, name)
 
-    logger.success(
-      result.alreadyApplied
-        ? `Merged "${name}" was already present; finishing cleanup`
-        : `Merged "${name}"`,
-    )
+    // Say what actually crossed. A merge that lands nothing is a legitimate outcome — `--commits`
+    // against an agent holding only uncommitted work carries nothing by design — but reporting it
+    // as a landing (and then congratulating the agent for it) reads as work having shipped when
+    // none did.
+    if (result.alreadyApplied) {
+      logger.success(`Merged "${name}" was already present; finishing cleanup`)
+    } else if (result.landedCommits === 0 && !result.leftUncommitted) {
+      logger.info(`Nothing landed from "${name}" — it has no committed work since its seed`)
+    } else if (result.landedCommits > 0) {
+      logger.success(`Merged "${name}" (${result.landedCommits} commit(s))`)
+    } else {
+      logger.success(`Merged "${name}"`)
+    }
 
     // Loose landing on the HOST with nothing committed to advance past (explicit --patch, or the
     // no-TTY squashed degrade): an incomplete landing — no quip, no seed advance. Say what to
@@ -358,7 +366,9 @@ export async function runMergeCommand({
       }
     }
 
-    logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
+    // Only for a real landing. It used to fire on any non-`--patch` merge, including one that
+    // carried nothing at all, so "Well done" arrived for work that never crossed.
+    if (result.landedCommits > 0) logger.log(colors.dim(getQuimbySuccessQuip(args.agent)))
   } catch (err) {
     if (err instanceof ConflictError) {
       // The pre-sync fallback attempts the boundary merge on the *chance* the net change is clean.

@@ -334,6 +334,56 @@ describe('runMergeCommand', () => {
     expect(subjects.filter((subject) => subject === 'add feature')).toHaveLength(1)
   })
 
+  // Reported from a live merge: `--commits` against an agent holding only uncommitted work carried
+  // nothing, yet printed a landing and then congratulated the agent for it. The quip is the part
+  // that reads as "work shipped", so it has to key on work actually crossing.
+  it('does not congratulate an agent whose merge landed nothing', async () => {
+    const { host, agentId } = await setupHostAndAgent()
+    // Undo the agent's commit so it holds ONLY uncommitted work — `--commits` never synthesizes a
+    // commit from that, so nothing can cross.
+    const agentRepo = getAgentRepoDir(host, agentId)
+    await git(agentRepo, 'reset', '--hard', 'quimby/seed')
+    await writeFile(join(agentRepo, 'wip.txt'), 'work in progress\n')
+
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const logSpy = vi.spyOn(logger, 'log').mockImplementation(() => {})
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => {})
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host, commits: true }))
+    const quips = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    const info = infoSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    logSpy.mockRestore()
+    infoSpy.mockRestore()
+
+    expect(quips).not.toContain('Well done')
+    expect(info).toContain('Nothing landed')
+    // And the host really is untouched by it.
+    expect(await exists(join(host, 'wip.txt'))).toBe(false)
+  })
+
+  it('congratulates a merge that actually landed commits, and says how many', async () => {
+    const { host } = await setupHostAndAgent()
+    vi.mocked(resolveWorkspace).mockResolvedValueOnce({
+      state: await loadState(host),
+      repoRoot: host,
+    })
+    const logSpy = vi.spyOn(logger, 'log').mockImplementation(() => {})
+    const successSpy = vi.spyOn(logger, 'success').mockImplementation(() => {})
+    const { default: cmd } = await import('./merge')
+    await cmd.run!(mergeArgs({ target: host, commits: true }))
+    const quips = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    const success = successSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    logSpy.mockRestore()
+    successSpy.mockRestore()
+
+    expect(quips).toContain('alice')
+    expect(success).toContain('1 commit(s)')
+    expect(await exists(join(host, 'feature.txt'))).toBe(true)
+  })
+
   it('--preview reports the commits + check and crosses nothing', async () => {
     const { host } = await setupHostAndAgent()
     vi.mocked(resolveWorkspace).mockResolvedValueOnce({

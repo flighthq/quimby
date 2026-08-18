@@ -207,6 +207,91 @@ describe('applyHandoff', () => {
     }
   })
 
+  // The reported case: an agent holding only uncommitted work. `--commits` replays nothing (by
+  // design — it never synthesizes a commit), the temp branch equals the seed, and the merge is a
+  // no-op. `alreadyApplied` does not catch it, because that check early-returns FALSE on zero
+  // commits — so the merge reported success, advanced the seed, and congratulated the agent for
+  // work that never crossed.
+  it('reports landedCommits 0 when the agent has only uncommitted work (commits mode)', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'wip.txt'), 'work in progress\n')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const before = await execa('git', ['rev-parse', 'HEAD'], { cwd: targetDir })
+      const result = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(result.landedCommits).toBe(0)
+      expect(result.alreadyApplied).toBe(false)
+      expect(result.unpulledRemainderFiles).toBe(1)
+      const after = await execa('git', ['rev-parse', 'HEAD'], { cwd: targetDir })
+      expect(after.stdout).toBe(before.stdout)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('counts the commits a real landing added', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'one.txt'), '1\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'first')
+    await writeFile(join(agentRepoDir, 'two.txt'), '2\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'second')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const result = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(result.landedCommits).toBe(2)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports landedCommits 0 on a re-gather that was already applied', async () => {
+    const sourceDir = await setupSourceRepo()
+    const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)
+    await writeFile(join(agentRepoDir, 'feature.txt'), 'new feature\n')
+    await addAll(agentRepoDir)
+    await commit(agentRepoDir, 'add feature')
+    const meta = await assembleHandoff({ repoRoot: dir, from: 'alice', codeSourceId: 'alice' })
+    const targetDir = await setupTargetRepo(sourceDir)
+    try {
+      const first = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(first.landedCommits).toBe(1)
+      const again = await applyHandoff({
+        repoRoot: dir,
+        name: meta.name,
+        targetRepoPath: targetDir,
+        mode: 'commits',
+      })
+      expect(again.alreadyApplied).toBe(true)
+      expect(again.landedCommits).toBe(0)
+    } finally {
+      await rm(targetDir, { recursive: true, force: true })
+      await rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('commits the remainder when a message is given (commits mode)', async () => {
     const sourceDir = await setupSourceRepo()
     const agentRepoDir = await setupAgentRepo(dir, 'alice', sourceDir)

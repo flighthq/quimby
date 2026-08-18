@@ -35,6 +35,17 @@ export interface ApplyResult {
    * modes that would grab it (`--patch`/`--squashed`, or `--commits -m`). Zero otherwise.
    */
   unpulledRemainderFiles: number
+  /**
+   * How many commits the merge actually added to the target — 0 when nothing crossed the boundary.
+   *
+   * `alreadyApplied` does NOT answer this: it detects a re-gather of commits the target already
+   * has, and it is deliberately false when the parcel carries no commits at all. So `commits` mode
+   * against an agent that has only uncommitted work replays nothing, merges a temp branch equal to
+   * the seed, and reports success with `alreadyApplied: false` — a landing that landed nothing.
+   * Measured from the merge target's SHA rather than inferred, so `--patch` (which commits nothing
+   * by design) and a `-m` remainder sweep are both counted honestly.
+   */
+  landedCommits: number
 }
 
 /**
@@ -179,6 +190,8 @@ export async function applyHandoff(opts: {
     // Step 2: Switch back to the original branch (or the landing branch).
     const mergeTarget = landingBranch ?? previousRef
     await git.checkout(targetRepoPath, mergeTarget)
+    // Where the target stood before anything crossed, so the caller can be told what actually did.
+    const beforeMerge = await git.revParse(targetRepoPath, 'HEAD')
 
     if (
       mode !== 'patch' &&
@@ -193,6 +206,7 @@ export async function applyHandoff(opts: {
         leftUncommitted: false,
         alreadyApplied: true,
         unpulledRemainderFiles,
+        landedCommits: 0,
       }
     }
 
@@ -243,6 +257,12 @@ export async function applyHandoff(opts: {
       }
     }
 
+    const afterMerge = await git.revParse(targetRepoPath, 'HEAD')
+    const landedCommits =
+      beforeMerge === afterMerge
+        ? 0
+        : await git.countCommits(targetRepoPath, `${beforeMerge}..${afterMerge}`)
+
     // Step 4: Clean up the temp branch.
     await git.deleteBranch(targetRepoPath, tempBranch).catch(() => {})
 
@@ -258,6 +278,7 @@ export async function applyHandoff(opts: {
       leftUncommitted,
       alreadyApplied: false,
       unpulledRemainderFiles,
+      landedCommits,
     }
   } catch (err) {
     if (err instanceof ConflictError) throw err
