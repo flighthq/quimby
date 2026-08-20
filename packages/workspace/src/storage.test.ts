@@ -318,12 +318,56 @@ describe('restoreWorkspaceLink', () => {
     await expect(restoreWorkspaceLink(repoRoot, { id })).rejects.toThrow(/missing/)
   })
 
-  it('throws when the repo already has a non-symlink .quimby in the way', async () => {
+  // Deleting `.quimby` deletes only the symlink — and a RUNNING `quimby serve` recreates the
+  // directory within one poll cycle, because reconciling status mirrors does `mkdir -p` on
+  // `.quimby/agents/<id>/status`. So the workspace was intact, the recovery was one command away,
+  // and that command refused because of a directory the server had just recreated from nothing.
+  it('heals a debris .quimby recreated where the symlink was', async () => {
     const state = makeState(`ws-${crypto.randomUUID()}`)
     await ensureDurableWorkspace(repoRoot, state)
-    // Replace the symlink with a real directory to block relinking.
+    await writeFile(join(getStorageWorkspaceDir(state.id), 'state.yaml'), 'id: stored')
+    await rm(getQuimbyDir(repoRoot), { recursive: true, force: true })
+    // What the server leaves behind: mirror scaffolding, no state.yaml.
+    await ensureDir(join(getQuimbyDir(repoRoot), 'agents', 'a1', 'status'))
+    await writeFile(join(getQuimbyDir(repoRoot), 'server.json'), '{}')
+
+    const entry = await restoreWorkspaceLink(repoRoot, { id: state.id })
+
+    expect(entry?.id).toBe(state.id)
+    expect((await lstat(getQuimbyDir(repoRoot))).isSymbolicLink()).toBe(true)
+    expect(await readFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'utf-8')).toBe('id: stored')
+  })
+
+  it('carries a stray local.yaml into storage rather than deleting it', async () => {
+    // The one user-authored file that legitimately lives there without a state.yaml — a host-alias
+    // binding written by `quimby host`. Losing a private binding to a cleanup step is its own bug.
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
     await rm(getQuimbyDir(repoRoot), { recursive: true, force: true })
     await ensureDir(getQuimbyDir(repoRoot))
-    await expect(restoreWorkspaceLink(repoRoot, { id: state.id })).rejects.toThrow(/already exists/)
+    await writeFile(
+      join(getQuimbyDir(repoRoot), 'local.yaml'),
+      'hosts:\n  remote:\n    host: box\n',
+    )
+
+    await restoreWorkspaceLink(repoRoot, { id: state.id })
+
+    expect(await readFile(join(getStorageWorkspaceDir(state.id), 'local.yaml'), 'utf-8')).toContain(
+      'host: box',
+    )
+  })
+
+  it('still refuses when the stray directory holds its own state.yaml', async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
+    await rm(getQuimbyDir(repoRoot), { recursive: true, force: true })
+    await ensureDir(getQuimbyDir(repoRoot))
+    await writeFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'id: local')
+
+    await expect(restoreWorkspaceLink(repoRoot, { id: state.id })).rejects.toThrow(
+      /will not guess which is authoritative/,
+    )
+    // Refusing must not mutate: the local state.yaml is still there to compare.
+    expect(await readFile(join(getQuimbyDir(repoRoot), 'state.yaml'), 'utf-8')).toBe('id: local')
   })
 })

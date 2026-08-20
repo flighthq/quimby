@@ -3,7 +3,7 @@ import { lstat, readdir, rename, rm, symlink } from 'node:fs/promises'
 import { QuimbyError } from '@quimbyhq/errors'
 import { getQuimbyDir, getStorageRoot, getStorageWorkspaceDir } from '@quimbyhq/paths'
 import type { QuimbyState } from '@quimbyhq/types'
-import { ensureDir, exists, readYaml } from '@quimbyhq/utils'
+import { cp, ensureDir, exists, readYaml } from '@quimbyhq/utils'
 import { dirname, join, resolve } from 'pathe'
 
 import type { ProjectRegistryEntry } from './registry'
@@ -193,9 +193,43 @@ async function linkQuimbyDir(repoRoot: string, storageDir: string): Promise<void
   if (await exists(quimbyDir)) {
     const stat = await lstat(quimbyDir)
     if (stat.isSymbolicLink()) return
-    throw new QuimbyError(`Cannot restore quimby storage: ${quimbyDir} already exists`)
+    await clearDebrisQuimbyDir(quimbyDir, storageDir)
   }
   await symlink(resolve(storageDir), quimbyDir, 'dir')
+}
+
+/**
+ * Remove a real `.quimby/` that is standing where the storage symlink belongs — but only when it is
+ * demonstrably **debris** rather than a workspace.
+ *
+ * `state.yaml` is the discriminator, and it is a sharp one: without it there is no workspace here,
+ * whatever else the directory holds. That case is not exotic. Deleting `.quimby` deletes only the
+ * symlink (the durable storage it points at is untouched), and a **running `quimby serve` recreates
+ * the directory within one poll cycle** — `reconcileAgentStatusMirror` does `mkdir -p` on
+ * `.quimby/agents/<id>/status` for every agent, every cycle. So the workspace was intact, the
+ * recovery path was one command away, and that command refused because of a directory the server
+ * had just recreated out of thin air. `quimby restore` refused for the same reason, leaving no
+ * in-tool way back.
+ *
+ * `local.yaml` is carried across rather than deleted: it is the one user-authored file that
+ * legitimately lives here without a `state.yaml` (a host-alias binding written by `quimby host`),
+ * and losing a private binding to a cleanup step would be its own small betrayal. Everything else
+ * at this level — `server.json`, `tmux.conf`, `staging/`, mirror placeholders — is regenerated.
+ */
+async function clearDebrisQuimbyDir(quimbyDir: string, storageDir: string): Promise<void> {
+  if (await exists(join(quimbyDir, 'state.yaml'))) {
+    throw new QuimbyError(
+      `Cannot restore quimby storage: ${quimbyDir} is a real directory holding its own state.yaml, ` +
+        `and ${storageDir} holds the registered workspace. Quimby will not guess which is ` +
+        'authoritative. Compare them, then move aside the one you do not want and re-run.',
+    )
+  }
+  const strayConfig = join(quimbyDir, 'local.yaml')
+  if ((await exists(strayConfig)) && !(await exists(join(storageDir, 'local.yaml')))) {
+    await ensureDir(storageDir)
+    await cp(strayConfig, join(storageDir, 'local.yaml'))
+  }
+  await rm(quimbyDir, { recursive: true, force: true })
 }
 
 async function isEmptyDir(dir: string): Promise<boolean> {
