@@ -695,6 +695,31 @@ async function currentQuimbyTmuxSessionName(): Promise<string | null> {
   )
 }
 
+/**
+ * Why a panel layout cannot be built from in here, and how to get out.
+ *
+ * A panel dashboard tears down and rebuilds its whole view group on every run, so it cannot rebuild
+ * the session you are typing in — refusing is right. But the refusal named neither where you were
+ * nor the way out, and the usual way to hit it is the least obvious: typing `quimby run` in the
+ * dashboard's OWN host pane after a config change, which is the natural place to be standing and
+ * does not announce itself as being "inside" anything.
+ *
+ * The detach is worth spelling out because it does more than detach: each pane runs
+ * `tmux attach …; <teardown>`, so leaving one collapses the whole group by design. That makes
+ * "detach, then re-run" the complete instruction rather than the first half of one.
+ */
+function insideProjectSessionMessage(session: string, state: Readonly<QuimbyState>): string {
+  const agent = Object.entries(state.agents).find(([, a]) => session === tmuxSessionName(a.id))?.[0]
+  const where = agent
+    ? `You are attached to "${agent}" (${session})`
+    : `You are inside this project's dashboard (${session})`
+  return (
+    `${where}, and a panel layout builds its own dashboard — it cannot rebuild the session you are ` +
+    'typing in. Detach with `Ctrl-b d` (that closes the dashboard; your agents keep running), then ' +
+    'run the layout from a plain terminal.'
+  )
+}
+
 function isProjectTmuxSession(session: string, state: Readonly<QuimbyState>): boolean {
   if (
     session === dashboardSessionName(state.id) ||
@@ -1180,9 +1205,7 @@ async function runPanelDashboard(expr: string): Promise<void> {
 
   const currentSession = await currentQuimbyTmuxSessionName()
   if (currentSession && isProjectTmuxSession(currentSession, state)) {
-    throw new QuimbyError(
-      'Run a panel layout from outside this project’s quimby session — it builds its own dashboard.',
-    )
+    throw new QuimbyError(insideProjectSessionMessage(currentSession, state))
   }
 
   const config = await loadQuimbyConfig(repoRoot)

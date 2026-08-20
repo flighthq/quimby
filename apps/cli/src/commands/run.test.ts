@@ -352,14 +352,30 @@ describe('runRunCommand', () => {
     expect(h.calls.some((c) => c.includes('set-hook') && c.includes('window-resized'))).toBe(true)
   })
 
-  it('still rejects a panel layout from inside this project’s quimby tmux', async () => {
+  // Refusing is right — a panel dashboard rebuilds its whole view group, so it cannot rebuild the
+  // session you are typing in. But the usual way to hit this is the least obvious one: running
+  // `quimby run` from the dashboard's own host pane, which does not announce itself as "inside"
+  // anything. So the refusal has to say where you are and how to leave.
+  it('rejects a panel layout from inside this project’s dashboard, naming the way out', async () => {
     process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
     h.currentSession = 'qb-dash-proj-id'
     const { default: cmd } = await import('./run')
 
-    await expect(cmd.run!({ args: { layout: 'loop' } } as never)).rejects.toThrow(
-      'outside this project',
-    )
+    const err = await cmd.run!({ args: { layout: 'loop' } } as never).catch((e: Error) => e)
+    const message = String((err as Error).message)
+    expect(message).toContain('qb-dash-proj-id')
+    // The detach is the whole instruction, not half of one: leaving a pane collapses the group.
+    expect(message).toContain('Ctrl-b d')
+    expect(message).toContain('your agents keep running')
+  })
+
+  it('names the agent when the refusal comes from inside its own session', async () => {
+    process.env.TMUX = '/tmp/tmux-1000/quimby,42,0'
+    h.currentSession = tmuxSessionName('id-a')
+    const { default: cmd } = await import('./run')
+
+    const err = await cmd.run!({ args: { layout: 'loop' } } as never).catch((e: Error) => e)
+    expect(String((err as Error).message)).toContain('attached to "a"')
   })
 
   it('allows a preset tab layout from inside another project’s quimby tmux', async () => {
