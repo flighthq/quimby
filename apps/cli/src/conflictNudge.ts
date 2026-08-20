@@ -1,4 +1,5 @@
 import { confirm, isCancel } from '@clack/prompts'
+import type { SyncDeferReason } from '@quimbyhq/agent'
 import { hasAgentSession, nudgeAgentSession } from '@quimbyhq/session'
 import {
   remoteTrackingRef,
@@ -65,14 +66,13 @@ export async function offerConflictNudge(opts: Readonly<ConflictNudgeOptions>): 
  * no TTY — waking an agent is the user's call.
  */
 export async function offerApplyBaseNudge(
-  opts: Readonly<Omit<ConflictNudgeOptions, 'syncRef'> & { behind?: number }>,
+  opts: Readonly<Omit<ConflictNudgeOptions, 'syncRef'> & { deferred?: SyncDeferReason }>,
 ): Promise<boolean> {
   const { agent, displayName } = opts
-  const behind = opts.behind === undefined ? '' : ` (${opts.behind} commit(s) behind)`
   return offerNudge({
     agent,
     displayName,
-    question: `Nudge "${displayName}" to apply the delivered base${behind}?`,
+    question: `Nudge "${displayName}" to apply the delivered base${deferralNote(opts.deferred, displayName)}?`,
     courier: renderApplyBaseRequest(),
     fallback: applyBaseNudgeCommand(displayName),
     notRunning:
@@ -80,6 +80,30 @@ export async function offerApplyBaseNudge(
       `(\`./agent.sh rebase\`), or \`quimby sync ${displayName} -f\` forces it, discarding its work.`,
     whenNonInteractive: opts.whenNonInteractive,
   })
+}
+
+/**
+ * Why the base was left unapplied, in the offer itself.
+ *
+ * This used to print `(N commit(s) behind)` from the sync outcome's `commitsReplayed` — which is
+ * the agent's OWN commits since its seed, the thing that TRIGGERED the deferral, not a measure of
+ * how far behind the base it is. Two different quantities pointing opposite directions, and the
+ * dirty-tree deferral (where that count is zero) rendered as `(0 commit(s) behind)`: a number that
+ * was neither true nor the reason, attached to a prompt asking you to fix it.
+ *
+ * The dirty case earns its extra clause, because the obvious action does not work there:
+ * `./agent.sh rebase` refuses on a dirty tree by design, so a nudge alone can only tell the agent
+ * to commit first. `--apply` is the host-side way through.
+ */
+function deferralNote(deferred: SyncDeferReason | undefined, displayName: string): string {
+  if (deferred === 'dirty') {
+    return (
+      ` (its tree is dirty, so \`./agent.sh rebase\` will refuse until it commits — ` +
+      `\`quimby sync ${displayName} --apply\` applies it from here instead)`
+    )
+  }
+  if (deferred === 'commits') return ' (it has commits of its own to replay)'
+  return ''
 }
 
 /**
@@ -98,13 +122,21 @@ export async function offerApplyBaseNudge(
  */
 export async function offerApplyBaseNudgeAll(
   opts: Readonly<{
-    agents: ReadonlyArray<{ agent: Readonly<AgentState>; displayName: string; behind?: number }>
+    agents: ReadonlyArray<{
+      agent: Readonly<AgentState>
+      displayName: string
+      deferred?: SyncDeferReason
+    }>
     whenNonInteractive: 'nudge' | 'print'
   }>,
 ): Promise<number> {
   // Only agents with a live session can be typed into. A stopped one applies the base on its next
   // run, so it is reported rather than counted as something the prompt could act on.
-  const live: { agent: Readonly<AgentState>; displayName: string; behind?: number }[] = []
+  const live: {
+    agent: Readonly<AgentState>
+    displayName: string
+    deferred?: SyncDeferReason
+  }[] = []
   const stopped: string[] = []
   for (const entry of opts.agents) {
     if (await hasAgentSession(entry.agent)) live.push(entry)

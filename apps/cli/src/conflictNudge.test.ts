@@ -69,6 +69,41 @@ describe('offerApplyBaseNudge', () => {
     )
   })
 
+  // It used to print `(N commit(s) behind)` from the sync outcome's `commitsReplayed` — the agent's
+  // OWN commits since its seed, which is what TRIGGERED the deferral, not a distance from the base.
+  // The dirty deferral has that count at zero, so the prompt read `(0 commit(s) behind)`: a number
+  // that was neither true nor the reason.
+  it('names a dirty tree as the reason, and the flag that gets past it', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+    await offerApplyBaseNudge({
+      agent,
+      displayName: 'builder',
+      deferred: 'dirty',
+      whenNonInteractive: 'print',
+    })
+    const asked = String(confirm.mock.calls[0][0].message)
+    expect(asked).toContain('its tree is dirty')
+    // The obvious action cannot work here — the tool refuses on a dirty tree — so the offer has to
+    // name the one that can.
+    expect(asked).toContain('quimby sync builder --apply')
+    expect(asked).not.toContain('behind')
+  })
+
+  it('names the agent’s own commits as the reason when that is what deferred it', async () => {
+    setTTY(true)
+    confirm.mockResolvedValue(true)
+    await offerApplyBaseNudge({
+      agent,
+      displayName: 'builder',
+      deferred: 'commits',
+      whenNonInteractive: 'print',
+    })
+    const asked = String(confirm.mock.calls[0][0].message)
+    expect(asked).toContain('commits of its own')
+    expect(asked).not.toContain('behind')
+  })
+
   it('only prints when there is no TTY — waking an agent stays the user’s call', async () => {
     setTTY(false)
     expect(

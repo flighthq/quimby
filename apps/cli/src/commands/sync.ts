@@ -97,7 +97,7 @@ export async function runSyncCommand({
         await offerApplyBaseNudge({
           agent,
           displayName: deferred[0].name,
-          behind: deferred[0].commitsReplayed,
+          deferred: deferred[0].deferred,
           whenNonInteractive: 'print',
         })
       }
@@ -105,7 +105,7 @@ export async function runSyncCommand({
       await offerApplyBaseNudgeAll({
         agents: deferred.flatMap((o) => {
           const agent = state.agents[o.name]
-          return agent ? [{ agent, displayName: o.name, behind: o.commitsReplayed }] : []
+          return agent ? [{ agent, displayName: o.name, deferred: o.deferred }] : []
         }),
         whenNonInteractive: 'print',
       })
