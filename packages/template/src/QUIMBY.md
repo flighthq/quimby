@@ -7,7 +7,7 @@ You run inside your own isolated clone, with no view of the other agents or the 
 ## Workspace
 
 - `repo/` — the code you work in; commit as you go.
-- `./agent.sh` — your Quimby coordination tool. Use it for wake (orient), assignment, status, inbox, peers, handoff, escalate, ask, reply, delegate, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs (except `wake`, which is POSIX-only).
+- `./agent.sh` — your Quimby coordination tool. It resolves its own location, so it works from anywhere — `../../agent.sh` from deep inside `repo/`, or its absolute path from any directory. Use it for wake (orient), assignment, status, inbox, peers, handoff, escalate, ask, reply, delegate, publish, and attest. Run `./agent.sh help` for the command surface. A Windows `./agent.cmd` twin has the same user-facing verbs (except `wake`, which is POSIX-only).
 
 Quimby still stores assignment, status, mailbox, and peer mirrors as files under the agent root, but that is the protocol underneath the tool, not the normal prompt contract. Use `./agent.sh` unless you are debugging the tool itself.
 

@@ -718,11 +718,33 @@ describe('renderAgentScript', () => {
     ).toContain('fix the null case')
   })
 
-  it.runIf(posix)('refuses to run outside an agent workspace', () => {
+  // The tool lives AT the agent root, so it resolves from its own location rather than the caller's.
+  // Asking the cwd meant it worked from the root and from repo/ and nowhere else — an agent that had
+  // cd'd into a nested package or /tmp was told it was "not inside an agent workspace" for a
+  // workspace it was very much inside.
+  it.runIf(posix)('works from any directory, resolving from its own location', () => {
     const root = makeAgentWorkspace()
     const elsewhere = mkdtempSync(join(tmpdir(), 'qa-out-'))
     dirs.push(elsewhere)
-    expect(() => runSh(root, ['inbox'], elsewhere)).toThrow()
+    expect(runSh(root, ['inbox'], elsewhere)).toContain('(inbox empty)')
+  })
+
+  it.runIf(posix)('resolves from its own location even from a nested subdirectory', () => {
+    const root = makeAgentWorkspace()
+    mkdirSync(join(root, 'repo', 'packages', 'deep'), { recursive: true })
+    expect(runSh(root, ['inbox'], join(root, 'repo', 'packages', 'deep'))).toContain(
+      '(inbox empty)',
+    )
+  })
+
+  it.runIf(posix)('still refuses when the script itself is not in an agent workspace', () => {
+    // The upward walk remains the fallback, so a copy of the tool dropped somewhere unrelated must
+    // still fail rather than silently adopting whatever workspace the caller happens to stand in.
+    const stray = mkdtempSync(join(tmpdir(), 'qa-stray-'))
+    const elsewhere = mkdtempSync(join(tmpdir(), 'qa-out-'))
+    dirs.push(stray, elsewhere)
+    writeFileSync(join(stray, 'agent.sh'), renderAgentScript(), { mode: 0o755 })
+    expect(() => runSh(stray, ['inbox'], elsewhere)).toThrow()
   })
 })
 
