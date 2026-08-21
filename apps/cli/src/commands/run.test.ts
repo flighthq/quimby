@@ -522,6 +522,49 @@ describe('runRunCommand', () => {
     expect(h.calls.some((c) => c.includes('link-window') && c.includes(`${tmuxSessionName('id-a')}:a`))).toBe(false) // prettier-ignore
   })
 
+  // The reported wedge: a dashboard launches an SSH agent on the NEW command but never records the
+  // fingerprint, so every later run sees drift and replaces the agent tab with a restart prompt —
+  // "existing session changed" for a session that has been running the new config all along.
+  it('records the fingerprint when a dashboard creates an SSH agent session', async () => {
+    process.env.QUIMBY_REMOTE_PROBE_TIMEOUT_MS = '1'
+    const { default: cmd } = await import('./run')
+    state.value.agents.a = {
+      id: 'id-a',
+      name: 'a',
+      location: { type: 'ssh', host: 'user@box' },
+      defaults: { runtime: 'local', entrypoint: 'codex' },
+      role: 'builder',
+    } as never
+    // The probe times out to "stopped", so this run CREATES the remote session and its command
+    // is knowable.
+    await cmd.run!({ args: { agent: 'a', _: ['a', 'b'] } } as never)
+    expect(state.value.agents.a.launchedWith).toBeTruthy()
+  })
+
+  // `new-session -A` attaches when the remote session already exists, and that one is still running
+  // whatever it was born with — recording here would claim a command that is not running.
+  it('does not record when the dashboard only attaches to a live SSH session', async () => {
+    const original = transport.exec.getMockImplementation()!
+    transport.exec.mockImplementation(async (cmd: string) =>
+      cmd.includes('has-session') ? '' : '0',
+    )
+    try {
+      const { default: cmd } = await import('./run')
+      state.value.agents.a = {
+        id: 'id-a',
+        name: 'a',
+        location: { type: 'ssh', host: 'user@box' },
+        defaults: { runtime: 'local', entrypoint: 'codex' },
+        role: 'builder',
+        launchedWith: 'sentinel-unchanged',
+      } as never
+      await cmd.run!({ args: { agent: 'a', _: ['a', 'b'] } } as never)
+      expect(state.value.agents.a.launchedWith).toBe('sentinel-unchanged')
+    } finally {
+      transport.exec.mockImplementation(original)
+    }
+  })
+
   it('does not hang dashboard construction when an SSH stale-launch probe stalls', async () => {
     process.env.QUIMBY_REMOTE_PROBE_TIMEOUT_MS = '1'
     const { default: cmd } = await import('./run')

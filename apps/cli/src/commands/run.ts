@@ -545,16 +545,26 @@ function dashboardLaunchDriftPromptCommand(name: string, drift: LaunchDrift): st
   return ['bash', '-l', '-c', script]
 }
 
-async function runningLaunchDrift(
+/**
+ * Whether the agent's session is live, and whether it drifted — from ONE probe.
+ *
+ * The caller needs both, and for an SSH agent the probe is a network round trip, so returning the
+ * pair beats asking twice. `running` is also what tells a tab-builder whether it is CREATING the
+ * agent's session or merely ATTACHING to one that already exists: the SSH window runs
+ * `new-session -A`, so only the first case may record a launch fingerprint. Recording on an attach
+ * would claim a command the remote session is not actually running.
+ */
+async function probeLaunchState(
   agent: Readonly<AgentState>,
   config: Readonly<QuimbyConfig>,
-): Promise<LaunchDrift | null> {
-  if (process.env.QUIMBY_ALLOW_STALE_LAUNCH) return null
+): Promise<{ running: boolean; drift: LaunchDrift | null }> {
   const stateProbe = getAgentSessionState(agent)
-  const state = isSSH(agent.location)
+  const sessionState = isSSH(agent.location)
     ? (await withRemoteProbeTimeout(stateProbe, 'stopped' as const)).value
     : await stateProbe
-  return state === 'stopped' ? null : launchDrift(agent, config)
+  const running = sessionState !== 'stopped'
+  if (!running || process.env.QUIMBY_ALLOW_STALE_LAUNCH) return { running, drift: null }
+  return { running, drift: launchDrift(agent, config) }
 }
 
 async function runDashboard(names: string[], includeHost: boolean): Promise<void> {
@@ -581,9 +591,12 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
     tabs.push({ name: HOST_TAB_NAME, kind: 'window', cwd: repoRoot, cmd: ['bash', '-l'] })
   }
   let enrolled = false
+  // SSH agents whose session this dashboard is CREATING (not attaching to). Recorded after the
+  // windows are actually built, so a failed launch never leaves a fingerprint claiming success.
+  const freshSSH: string[] = []
   for (const name of names) {
     const agent = state.agents[name]
-    const drift = await runningLaunchDrift(agent, config)
+    const { running, drift } = await probeLaunchState(agent, config)
     if (drift) {
       tabs.push({
         name,
@@ -596,6 +609,7 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
     }
     if (isSSH(agent.location)) {
       const w = await buildSSHWindow(name, agent, state, repoRoot)
+      if (!running) freshSSH.push(name)
       tabs.push({ name: w.name, kind: 'window', cwd: w.cwd, cmd: w.cmd, env: w.env })
     } else {
       const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
@@ -662,6 +676,9 @@ async function runDashboard(names: string[], includeHost: boolean): Promise<void
   await execa('tmux', [...TMUX, 'kill-window', '-t', `${session}:${DASH_PLACEHOLDER}`]).catch(
     () => {},
   )
+  for (const name of freshSSH) {
+    await recordLaunchFingerprint(repoRoot, state, name, config)
+  }
 
   await styleDashboard(TMUX, session, tabs)
 
@@ -839,7 +856,7 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
       // tab lands on a running agent (SSH tabs are ssh-attach windows, revived on reconnect).
       if (!isSSH(agent.location)) await reviveIfDead(TMUX, tmuxSessionName(agent.id))
     } else {
-      const drift = await runningLaunchDrift(agent, config)
+      const { running, drift } = await probeLaunchState(agent, config)
       if (drift) {
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
         await stylePromptTab(TMUX, `${session}:${name}`)
@@ -847,6 +864,9 @@ async function attachWithinCurrentSession(names: string[]): Promise<void> {
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
+        // Only a CREATE may record. `new-session -A` attaches when the remote session already
+        // exists, and that one is still running whatever it was born with.
+        if (!running) await recordLaunchFingerprint(repoRoot, state, name, config)
         await styleAgentTab(TMUX, `${session}:${name}`)
       } else {
         const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
@@ -1508,7 +1528,7 @@ async function buildViewSession(
       await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', HOST_TAB_NAME, '-c', repoRoot, 'bash', '-l']) // prettier-ignore
     } else {
       const agent = state.agents[name]
-      const drift = await runningLaunchDrift(agent, config)
+      const { running, drift } = await probeLaunchState(agent, config)
       if (drift) {
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', name, '-c', repoRoot, ...dashboardLaunchDriftPromptCommand(name, drift)]) // prettier-ignore
         promptNames.add(name)
@@ -1516,6 +1536,7 @@ async function buildViewSession(
         const w = await buildSSHWindow(name, agent, state, repoRoot)
         const envArgs = (w.env ?? []).flatMap(([k, v]) => ['-e', `${k}=${v}`])
         await execa('tmux', [...TMUX, 'new-window', '-a', '-t', `${session}:`, '-n', w.name, '-c', w.cwd, ...envArgs, ...w.cmd]) // prettier-ignore
+        if (!running) await recordLaunchFingerprint(repoRoot, state, name, config)
       } else {
         const srcSession = await ensureLocalAgentSession({ state, repoRoot, agent, config }, TMUX)
         if (!agent.tmux) {
