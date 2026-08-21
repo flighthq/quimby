@@ -1,5 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import { agentTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { getAgentSessionState } from '@quimbyhq/session'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
@@ -17,10 +17,10 @@ export async function killAgentTmuxSession(agent: Readonly<AgentState>): Promise
   const session = tmuxSessionName(agent.id)
   if (isSSH(agent.location)) {
     await getSSHTransport(agent.location).exec(
-      `tmux -L ${quimbyTmuxSocket} kill-session -t ${sq(session)}`,
+      `tmux -L ${agentTmuxSocket(agent)} kill-session -t ${sq(session)}`,
     )
   } else {
-    await execa('tmux', ['-L', quimbyTmuxSocket, 'kill-session', '-t', session])
+    await execa('tmux', ['-L', agentTmuxSocket(agent), 'kill-session', '-t', session])
   }
 }
 

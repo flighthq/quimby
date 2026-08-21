@@ -1,5 +1,5 @@
 import { QuimbyError } from '@quimbyhq/errors'
-import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import { agentTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { getAgentSessionState } from '@quimbyhq/session'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import { isSSH } from '@quimbyhq/types'
@@ -75,10 +75,12 @@ export async function runRestartCommand({
     if ((await getAgentSessionState(agent)) !== 'stopped') {
       if (isSSH(agent.location)) {
         await getSSHTransport(agent.location)
-          .exec(`tmux -L ${quimbyTmuxSocket} kill-session -t ${sq(session)}`)
+          .exec(`tmux -L ${agentTmuxSocket(agent)} kill-session -t ${sq(session)}`)
           .catch(() => {})
       } else {
-        await execa('tmux', ['-L', quimbyTmuxSocket, 'kill-session', '-t', session]).catch(() => {})
+        await execa('tmux', ['-L', agentTmuxSocket(agent), 'kill-session', '-t', session]).catch(
+          () => {},
+        )
       }
       logger.info(`Killed "${name}" session; relaunching with current config…`)
     }

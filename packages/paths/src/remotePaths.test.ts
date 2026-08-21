@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  agentTmuxSocket,
   dashboardSessionName,
   dashboardViewPrefix,
   dashboardViewSessionName,
+  projectTmuxSocket,
+  quimbyTmuxSocket,
   remoteAgentDir,
   remoteAgentHandoffDir,
   remoteAgentHandoffInOpenedLedgerPath,
@@ -19,6 +22,21 @@ import {
   remoteTmuxConfigPath,
   tmuxSessionName,
 } from './remotePaths'
+
+// A tmux session cannot be moved between servers — its panes are children of that server and own
+// its ptys — so splitting workspaces onto their own sockets has to be per-agent and lazy: existing
+// sessions keep answering on the socket they were born on while new ones land on the project's.
+describe('agentTmuxSocket', () => {
+  it('uses the socket an agent recorded at session-create time', () => {
+    expect(agentTmuxSocket({ tmuxSocket: 'quimby-abc12345' })).toBe('quimby-abc12345')
+  })
+
+  it('falls back to the shared socket for an agent that never recorded one', () => {
+    // Never invent a project socket here: an unrecorded agent is running on the shared server, and
+    // guessing would address a session that does not exist.
+    expect(agentTmuxSocket({})).toBe(quimbyTmuxSocket)
+  })
+})
 
 describe('dashboardSessionName', () => {
   it('uses the full project id to avoid cross-project prefix collisions', () => {
@@ -38,6 +56,13 @@ describe('dashboardViewSessionName', () => {
   it('appends the pane index to the full project-scoped view prefix', () => {
     const projectId = '111cde39-eb54-4541-9209-ed94966c0427'
     expect(dashboardViewSessionName(projectId, 2)).toBe(`qbv-${projectId}-2`)
+  })
+})
+
+describe('projectTmuxSocket', () => {
+  it('gives each project its own server, keyed by project id', () => {
+    expect(projectTmuxSocket('2c420eb8-d7ee-4bd7-b7cf-f42daa028177')).toBe('quimby-2c420eb8')
+    expect(projectTmuxSocket('aaaaaaaa-1111')).not.toBe(projectTmuxSocket('bbbbbbbb-2222'))
   })
 })
 

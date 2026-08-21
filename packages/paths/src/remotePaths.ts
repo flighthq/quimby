@@ -110,6 +110,33 @@ export function remoteAgentStatusMirrorDir(
 export const quimbyTmuxSocket = process.env.QUIMBY_TMUX_SOCKET ?? 'quimby'
 
 /**
+ * The socket a workspace's *new* sessions are created on — one tmux server per project.
+ *
+ * Every quimby session used to share one server, which made a whole class of cross-workspace
+ * interference structural rather than accidental: agent names repeat across projects by design
+ * (`builder`, `review`), tmux resolves session and window targets by prefix and fnmatch when an
+ * exact match misses, `link-window` shares window *options* between every session holding a
+ * window, and a `client-detached` hook can fire against a session the detaching client was never
+ * attached to. Each of those is a separate bug; one server per project is what stops the class.
+ *
+ * An explicit `QUIMBY_TMUX_SOCKET` still wins, so the integration harness keeps its isolated
+ * server and anyone pinning a socket keeps it.
+ */
+export function projectTmuxSocket(projectId: string): string {
+  if (process.env.QUIMBY_TMUX_SOCKET) return process.env.QUIMBY_TMUX_SOCKET
+  return `quimby-${projectId.slice(0, 8)}`
+}
+
+/**
+ * The socket to talk to an agent's *existing* session on — its recorded one, else the legacy
+ * shared socket. Never invent one here: an agent with no record is running on the shared server,
+ * and guessing the project socket would silently address a session that does not exist.
+ */
+export function agentTmuxSocket(agent: Readonly<{ tmuxSocket?: string }>): string {
+  return agent.tmuxSocket ?? quimbyTmuxSocket
+}
+
+/**
  * Dashboard session name for multi-agent `quimby run`. Keyed by the full
  * project id so different projects on the same socket don't collide with each
  * other or with per-agent sessions (`qb-<agentId>`).

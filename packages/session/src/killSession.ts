@@ -1,4 +1,4 @@
-import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import { agentTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -16,10 +16,10 @@ export async function killAgentSession(agent: Readonly<AgentState>): Promise<voi
   try {
     if (isSSH(agent.location)) {
       await getSSHTransport(agent.location).exec(
-        `tmux -L ${quimbyTmuxSocket} kill-session -t ${sq(session)}`,
+        `tmux -L ${agentTmuxSocket(agent)} kill-session -t ${sq(session)}`,
       )
     } else {
-      await execa('tmux', ['-L', quimbyTmuxSocket, 'kill-session', '-t', session])
+      await execa('tmux', ['-L', agentTmuxSocket(agent), 'kill-session', '-t', session])
     }
   } catch {
     // No live session (already stopped) — nothing to tear down.

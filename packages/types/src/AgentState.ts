@@ -48,6 +48,17 @@ export interface AgentState {
    */
   launchedWith?: string
   /**
+   * The tmux server socket this agent's live session was created on.
+   *
+   * Recorded at session-create time and resolved at every later use, so the socket an agent runs
+   * on can change for *new* sessions without disturbing the ones already running — a tmux session
+   * cannot be moved between servers (its panes are children of that server and own its ptys), so
+   * migration has to be per-agent and lazy. Absent means the legacy shared socket, which is what
+   * every agent created before per-workspace sockets is on. Cleared when the session is killed, so
+   * the next start lands on whatever the workspace resolves to now.
+   */
+  tmuxSocket?: string
+  /**
    * Run the agent inside a named tmux session. SSH agents always use tmux for
    * persistence; this opts a local agent into the same behavior.
    */

@@ -1,4 +1,4 @@
-import { quimbyTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
+import { agentTmuxSocket, tmuxSessionName } from '@quimbyhq/paths'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { AgentSessionState, AgentState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
@@ -6,8 +6,8 @@ import { execa } from 'execa'
 
 // Every quimby tmux command targets the dedicated `-L quimby` server, or it would look
 // at the user's default server and never find the agent sessions.
-const TMUX = ['-L', quimbyTmuxSocket]
-const TMUX_CMD = `tmux ${TMUX.join(' ')}`
+
+const tmuxCmd = (agent: Readonly<AgentState>) => `tmux -L ${agentTmuxSocket(agent)}`
 
 /**
  * Report an agent's live tmux session state: `attached` (a client is in `quimby run`),
@@ -31,14 +31,15 @@ export async function getAgentSessionState(
     if (isSSH(agent.location)) {
       attached = (
         await getSSHTransport(agent.location).exec(
-          `${TMUX_CMD} has-session -t ${sq(session)} && ${TMUX_CMD} display-message -p -t ${sq(session)} '#{session_attached}'`,
+          `${tmuxCmd(agent)} has-session -t ${sq(session)} && ${tmuxCmd(agent)} display-message -p -t ${sq(session)} '#{session_attached}'`,
         )
       ).trim()
     } else {
-      await execa('tmux', [...TMUX, 'has-session', '-t', session])
+      await execa('tmux', ['-L', agentTmuxSocket(agent), 'has-session', '-t', session])
       attached = (
         await execa('tmux', [
-          ...TMUX,
+          '-L',
+          agentTmuxSocket(agent),
           'display-message',
           '-p',
           '-t',
