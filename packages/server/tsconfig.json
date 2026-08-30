@@ -9,6 +9,9 @@
       "path": "../agent"
     },
     {
+      "path": "../errors"
+    },
+    {
       "path": "../git"
     },
     {
@@ -28,6 +31,9 @@
     },
     {
       "path": "../status"
+    },
+    {
+      "path": "../template"
     },
     {
       "path": "../transport"

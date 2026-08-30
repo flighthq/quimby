@@ -2,6 +2,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
 import { getLocalConfigPath, getProjectConfigPath, getUserConfigDir } from '@quimbyhq/paths'
+import type { QuimbyConfig } from '@quimbyhq/types'
 import { writeYaml } from '@quimbyhq/utils'
 import { join } from 'pathe'
 import { describe, expect, it } from 'vitest'
@@ -21,6 +22,7 @@ import {
   resolveConfiguredAgent,
   resolveFocusPolicy,
   resolveHostAlias,
+  resolveIntegratePolicy,
   resolveLayoutExpr,
   resolveNudgePolicy,
   resolvePreset,
@@ -285,6 +287,17 @@ describe('loadQuimbyConfig', () => {
 })
 
 describe('mergeConfigs', () => {
+  it('merges integrate per key, so a later layer cannot drop `from`', () => {
+    const merged = mergeConfigs(
+      { integrate: { from: 'integration' } },
+      // A layer that names only `branch` is the case the per-key merge exists for: whole-object
+      // override would drop the `from` the tracked config declared, silently disabling integration.
+      { integrate: { branch: 'quimby/landed' } as QuimbyConfig['integrate'] },
+    )
+
+    expect(merged.integrate).toEqual({ from: 'integration', branch: 'quimby/landed' })
+  })
+
   it('carries every top-level scalar, including ones added after this was written', () => {
     // The regression: merge copied top-level keys by a hand-maintained list, so a key nobody
     // remembered to add was dropped in silence — a config saying `whenFocused: nudge` loaded as
@@ -551,6 +564,30 @@ describe('resolveHostAlias', () => {
 
   it('throws for an unknown alias', () => {
     expect(() => resolveHostAlias(config, 'missing')).toThrow('Host alias "missing" not found')
+  })
+})
+
+describe('resolveIntegratePolicy', () => {
+  it('returns null when the workspace declares none', () => {
+    expect(resolveIntegratePolicy({})).toBeNull()
+    expect(resolveIntegratePolicy(undefined)).toBeNull()
+  })
+
+  it('resolves the agent to pull from, with an optional landing branch', () => {
+    expect(resolveIntegratePolicy({ integrate: { from: 'integration' } })).toEqual({
+      from: 'integration',
+    })
+    expect(
+      resolveIntegratePolicy({ integrate: { from: 'integration', branch: 'quimby/landed' } }),
+    ).toEqual({ from: 'integration', branch: 'quimby/landed' })
+  })
+
+  it('names a malformed entry rather than silently not integrating', () => {
+    const warnings: string[] = []
+    expect(
+      resolveIntegratePolicy({ integrate: { from: '  ' } }, (m) => warnings.push(m)),
+    ).toBeNull()
+    expect(warnings[0]).toContain('`from:`')
   })
 })
 

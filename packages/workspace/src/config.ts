@@ -6,6 +6,7 @@ import type {
   ConfiguredAgent,
   FocusPolicy,
   HostAliasConfig,
+  IntegrateConfig,
   NudgePolicy,
   PresetConfig,
   QuimbyConfig,
@@ -388,6 +389,29 @@ export function getWakeBundleMs(config: Readonly<QuimbyConfig> | undefined): num
   return parsed !== null && parsed >= 0 ? parsed : DEFAULT_WAKE_BUNDLE_MS
 }
 
+/**
+ * The opt-in auto-integration policy, or `null` when the workspace declares none (the default).
+ *
+ * Returns null rather than throwing on a malformed entry: this is read by a running server, and a
+ * config typo must not take the courier down. It is named rather than ignored, because a silently
+ * dropped `integrate:` is indistinguishable from a server that simply never merges — the same
+ * failure `whenFocused`/`focusGrace` shipped with.
+ */
+export function resolveIntegratePolicy(
+  config: Readonly<QuimbyConfig> | undefined,
+  warn?: (message: string) => void,
+): { from: string; branch?: string } | null {
+  const integrate = config?.integrate
+  if (!integrate) return null
+  const from = typeof integrate.from === 'string' ? integrate.from.trim() : ''
+  if (!from) {
+    warn?.('integrate: needs a `from:` naming the agent to pull from — ignored.')
+    return null
+  }
+  const branch = typeof integrate.branch === 'string' ? integrate.branch.trim() : ''
+  return branch ? { from, branch } : { from }
+}
+
 export function resolveNudgePolicy(
   config: Readonly<QuimbyConfig>,
   agent?: Readonly<{ nudge?: string }>,
@@ -442,6 +466,11 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
     // Per-key so a project can set a ceiling while user config keeps the reap threshold.
     if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
+    // Per-key for the same reason as `pool`: a whole-object override would let a layer that only
+    // names `branch` drop the `from` a tracked config declared, silently turning integration off.
+    if (config.integrate) {
+      out.integrate = { ...(out.integrate ?? {}), ...defined(config.integrate) } as IntegrateConfig
+    }
     // Everything else is a scalar that simply overrides, carried STRUCTURALLY rather than by a
     // hand-maintained list. The list was the bug: each new top-level key needed a line here, and a
     // forgotten one was dropped in total silence — `whenFocused`/`focusGrace` shipped that way, so
@@ -629,4 +658,5 @@ const STRUCTURED_CONFIG_KEYS = [
   'hosts',
   'services',
   'pool',
+  'integrate',
 ]

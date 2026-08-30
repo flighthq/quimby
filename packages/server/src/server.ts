@@ -13,6 +13,7 @@ import {
   loadQuimbyConfig,
   loadState,
   resolveFocusPolicy,
+  resolveIntegratePolicy,
   resolveNudgePolicy,
 } from '@quimbyhq/workspace'
 import { join } from 'pathe'
@@ -23,6 +24,7 @@ import {
   createOutboxDispatchTracker,
   createWakeBundler,
 } from './autodispatch'
+import { autoIntegrateWork, createIntegrateTracker } from './autointegrate'
 import { autoReapIdleSessions } from './autoreap'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
@@ -63,6 +65,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   const reminderTracker = createInboxReminderTracker()
   // Host tips per watched syncRef, held across cycles so a move is a change rather than a re-read.
   const baseTips = createBaseTipTracker()
+  // The integrator tree already carried, so one tree crosses the boundary at most once.
+  const integrateTracker = createIntegrateTracker()
   // Held across cycles so a burst of deliveries becomes one wake per recipient.
   const wakeBundler = createWakeBundler()
   let state = await loadState(repoRoot)
@@ -71,6 +75,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   // next `quimby serve` rather than mid-run. Unset (the default) means the server never reaps.
   const serverConfig = await loadQuimbyConfig(repoRoot).catch(() => undefined)
   const idleTimeoutMs = getPoolIdleTimeoutMs(serverConfig)
+  // Standing policy, read once like the rest: opt-in, and the only thing here that writes the
+  // user's real repository, so it is never inferred — a workspace has to declare `integrate:`.
+  const integratePolicy = resolveIntegratePolicy(serverConfig, (message) => reporter.warn(message))
   // Likewise standing policy: when an auto-dispatch nudge may type into a live session (§7).
   const nudgePolicy = resolveNudgePolicy(serverConfig ?? {})
   // …and what a nudge does when it lands on the pane the human is working in (§7). Separate gate:
@@ -145,6 +152,14 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           } catch (err) {
             reporter.warn(`[${name}] roster reconcile failed: ${err}`)
           }
+        }
+        // Integration runs BEFORE the base watcher on purpose: a landing moves the host tip, so
+        // delivering afterwards carries the integrator's work out to the whole fleet in the SAME
+        // cycle rather than one later. It also has to be in this cycle at all — a separate process
+        // would be running git in the agents' clones while `autoDeliverMovedBase` syncs the same
+        // clones, and the merge is precisely what triggers that sync.
+        if (integratePolicy) {
+          await autoIntegrateWork(repoRoot, state, integratePolicy, integrateTracker, reporter)
         }
         // Before the parcel pass: the floor an agent builds on should land as early in the cycle
         // as it can, and a parcel carried onto a stale base is the wait this removes.
@@ -222,6 +237,13 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
       `Focus policy: ${focusPolicy} (${FOCUS_POLICY_BLURB[focusPolicy]}; grace ` +
         `${getFocusGraceSeconds(serverConfig)}s after your last keystroke, per-agent ` +
         '`whenFocused` overrides it).',
+    )
+  }
+  if (integratePolicy) {
+    reporter.info(
+      `Integrating "${integratePolicy.from}" into ` +
+        `${integratePolicy.branch ?? 'its tracked branch'} when it commits (commits mode) — ` +
+        'this writes your repository. Read at startup; restart the server after editing it.',
     )
   }
   if (idleTimeoutMs) {

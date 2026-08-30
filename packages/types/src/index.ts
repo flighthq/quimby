@@ -20,6 +20,7 @@ export type {
   CheckConfig,
   ConfiguredAgent,
   HostAliasConfig,
+  IntegrateConfig,
   LayoutConfig,
   OllamaRuntimeConfig,
   PresetConfig,

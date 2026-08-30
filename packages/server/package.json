@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@quimbyhq/agent": "*",
+    "@quimbyhq/errors": "*",
     "@quimbyhq/git": "*",
     "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
@@ -27,6 +28,7 @@
     "@quimbyhq/reporter": "*",
     "@quimbyhq/session": "*",
     "@quimbyhq/status": "*",
+    "@quimbyhq/template": "*",
     "@quimbyhq/transport": "*",
     "@quimbyhq/types": "*",
     "@quimbyhq/utils": "*",

@@ -159,6 +159,15 @@ export interface QuimbyConfig {
    * `quimby merge <agent> --<mode> --default [--global]`, mirroring the git config model.
    */
   mergeMode?: 'squashed' | 'commits' | 'patch' | 'auto'
+  /**
+   * Opt-in automated integration: pull one agent's committed work across the boundary whenever it
+   * commits, so a fleet that funnels through an integrator does not wait on a human to run
+   * `quimby merge`. Unset (the default) means the server never merges.
+   *
+   * This is the one server behavior that WRITES the user's real repository, which is why it is a
+   * config key rather than a flag or a default — it has to be stated deliberately, in the file.
+   */
+  integrate?: IntegrateConfig
   /** Machine-wide agent-pool limits. Agents compete for one machine, so both keys count
    * sessions across *every* quimby project on the tmux socket, not just this workspace. */
   pool?: PoolConfig
@@ -201,6 +210,17 @@ export interface QuimbyConfig {
    * inbox immediately, and only the interruption waits.
    */
   wakeBundle?: string | number
+}
+
+export interface IntegrateConfig {
+  /** The agent whose committed work is pulled across the boundary. */
+  from: string
+  /**
+   * Land on this branch instead of the branch the agent tracks. A landing branch is off the
+   * agent's `syncRef`, so the seed post-advance stands down exactly as it does for `merge -b` —
+   * the work is parked for review rather than folded into the fleet's base.
+   */
+  branch?: string
 }
 
 export interface PoolConfig {
