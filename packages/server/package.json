@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@quimbyhq/agent": "*",
+    "@quimbyhq/git": "*",
     "@quimbyhq/handoff": "*",
     "@quimbyhq/paths": "*",
     "@quimbyhq/pool": "*",

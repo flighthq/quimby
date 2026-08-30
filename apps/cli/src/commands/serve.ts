@@ -40,6 +40,12 @@ export default defineCommand({
         'Auto-carry settled outbox drafts to their recipients (on by default; --no-dispatch to skip)',
       default: true,
     },
+    sync: {
+      type: 'boolean',
+      description:
+        "Deliver the base to every agent when the host repo's tip moves (on by default; --no-sync to skip)",
+      default: true,
+    },
     stop: {
       type: 'boolean',
       description: 'Stop the running quimby server for this workspace, then exit',
@@ -58,6 +64,7 @@ export async function runServeCommand({
     interactive?: boolean
     tty?: boolean
     dispatch?: boolean
+    sync?: boolean
     stop?: boolean
   }
 }) {
@@ -86,12 +93,14 @@ export async function runServeCommand({
   const port = args.port ? parseInt(args.port, 10) : undefined
   const pollInterval = args.poll ? parseInt(args.poll, 10) * 1000 : undefined
   const autoDispatch = args.dispatch !== false
+  const autoSync = args.sync !== false
 
   const handle = await startServer({
     repoRoot,
     port,
     pollInterval,
     autoDispatch,
+    autoSync,
     reporter: timestampedServeReporter,
   })
 

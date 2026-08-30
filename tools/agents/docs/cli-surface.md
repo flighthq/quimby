@@ -47,7 +47,7 @@ quimby remove <agent> [--force]                      Remove agent (destructive �
 quimby storage list-remote --host <alias>             List every Quimby workspace on a remote host: id, origin, agent count, size, and whether this machine claims it (active / claimed / unclaimed here). The remote twin of `storage list`; unlike `prune-remote` it filters nothing, so it also shows other repos' lanes and half-provisioned ones that carry no `.quimby/agents` (which the adopt/prune scan skips entirely)
 quimby storage remove-remote <id> --host <alias> --force   Remove one remote workspace by id — the remote twin of `storage remove`. Refuses the workspace the current repo is using, since it holds that project's agent repos, mailboxes and assignments
 quimby storage prune [--stale] [-f]                  Remove unregistered durable workspace dirs; `--stale` additionally offers REGISTERED ones whose project directory is gone — the residue that actually accumulates, since anything that ran the real CLI registered itself and so reads as "registered, present" forever. Previews without `-f`, and removing a registered entry unregisters it too
-quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch); -it stacks a live shell on top; --stop stops the running server and exits; auto-reaps this project's idle agent sessions when `pool.idleTimeout` is configured (never touches attached sessions)
+quimby serve [-p <port>] [--poll <secs>] [-it] [--no-dispatch] [--no-sync] [--stop]   Start the server (mirrors every agent's status to every other agent + outbox auto-dispatch + base delivery when the host tip moves); -it stacks a live shell on top; --stop stops the running server and exits; --no-sync disables the base watcher, which otherwise delivers the base to every agent whenever a watched syncRef moves in the host repo (never rewriting an agent — an agent with work in flight applies it itself); auto-reaps this project's idle agent sessions when `pool.idleTimeout` is configured (never touches attached sessions)
 ```
 
 ## Planned (not yet implemented)
@@ -130,6 +130,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--poll` (serve)
 - `-i` / `--interactive`, `-t` / `--tty` (serve — stack a live shell on top; `-it` reads like `docker run -it`)
 - `--dispatch` / `--no-dispatch` (serve — auto-carry settled outbox drafts, on by default)
+- `--sync` / `--no-sync` (serve — deliver the base to every agent when a watched `syncRef` moves in the host repo, on by default. The deferring sync only: it moves `quimby/base` and fast-forwards a clean, commit-free agent, never rewriting one that has work in flight)
 - `--stop` (serve — stop the running server for this workspace: reads `server.json`, signals the pid, removes the pidfile; a clean message when none is running)
 - `--idle` (sessions, sessions prune — a duration `30s`/`45m`/`2h`/`1d`, or a bare number of minutes; on `sessions` it flags what a sweep would take, on `prune` it selects idle agent sessions to close)
 - `--orphans` (sessions prune — close agent sessions no workspace claims, at any idle age)

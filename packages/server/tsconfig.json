@@ -9,6 +9,9 @@
       "path": "../agent"
     },
     {
+      "path": "../git"
+    },
+    {
       "path": "../handoff"
     },
     {

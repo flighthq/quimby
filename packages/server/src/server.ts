@@ -17,6 +17,7 @@ import {
 } from '@quimbyhq/workspace'
 import { join } from 'pathe'
 
+import { autoDeliverMovedBase, createBaseTipTracker, getWatchedSyncRefs } from './autobase'
 import {
   autoDispatchOutboxes,
   createOutboxDispatchTracker,
@@ -33,6 +34,11 @@ export interface ServerOptions {
   port?: number
   pollInterval?: number
   autoDispatch?: boolean
+  /**
+   * Deliver the base to every agent when the host repo's tip moves (on by default). Never rewrites
+   * an agent — see `autoDeliverMovedBase`.
+   */
+  autoSync?: boolean
   /** Where the server narrates lifecycle + poll activity; the CLI passes a consola-backed one. */
   reporter?: Reporter
 }
@@ -49,12 +55,14 @@ export interface QuimbyServerHandle {
 }
 
 export async function startServer(opts: ServerOptions): Promise<QuimbyServerHandle> {
-  const { repoRoot, pollInterval = 5000, autoDispatch = true } = opts
+  const { repoRoot, pollInterval = 5000, autoDispatch = true, autoSync = true } = opts
   const reporter = opts.reporter ?? silentReporter
 
   const statusCache = new Map<string, StatusSnapshot>()
   const outboxTracker = createOutboxDispatchTracker()
   const reminderTracker = createInboxReminderTracker()
+  // Host tips per watched syncRef, held across cycles so a move is a change rather than a re-read.
+  const baseTips = createBaseTipTracker()
   // Held across cycles so a burst of deliveries becomes one wake per recipient.
   const wakeBundler = createWakeBundler()
   let state = await loadState(repoRoot)
@@ -138,6 +146,9 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
             reporter.warn(`[${name}] roster reconcile failed: ${err}`)
           }
         }
+        // Before the parcel pass: the floor an agent builds on should land as early in the cycle
+        // as it can, and a parcel carried onto a stale base is the wait this removes.
+        if (autoSync) await autoDeliverMovedBase(repoRoot, state, baseTips, reporter)
         if (autoDispatch) {
           const nudged = await autoDispatchOutboxes(
             repoRoot,
@@ -191,6 +202,11 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   reporter.info(`Polling every ${pollInterval / 1000}s`)
   reporter.info(`Watching ${Object.keys(state.agents).length} agent(s)`)
   reporter.info('Mirroring status to every agent')
+  if (autoSync) {
+    reporter.info(
+      `Delivering the base when it moves (watching ${getWatchedSyncRefs(state).join(', ')})`,
+    )
+  }
   if (autoDispatch) {
     reporter.info('Auto-dispatching outboxes on change')
     // Name the resolved policy: "delivered, nobody woken" is otherwise indistinguishable from a
