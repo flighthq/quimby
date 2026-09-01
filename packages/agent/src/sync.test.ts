@@ -8,6 +8,7 @@ import {
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
 } from '@quimbyhq/paths'
+import { silentReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentState } from '@quimbyhq/types'
@@ -408,6 +409,45 @@ describe('pruneAgentMailboxCaches', () => {
 })
 
 describe('syncAgent', () => {
+  it('refreshes the scaffold even when the sync itself fails, so a skipped agent is not frozen', async () => {
+    await registerLocalAgentClone('builder', 'builder-id')
+    await registerLocalAgentClone('integration', 'integration-id')
+    await advanceHost('feature')
+    // `builder`'s baked roster predates `integration` — the state a `quimby add` always leaves,
+    // since it rewrites only the NEW agent's scaffold.
+    const shPath = join(getAgentDir(dir, 'builder-id'), 'agent.sh')
+    await writeFile(shPath, "QA_ROSTER='review'\n")
+    // Wedge its repo so runSyncAlgorithm throws: under `--all` this is a `skipped` agent, and the
+    // refresh used to sit downstream of the throw, so it never ran for exactly the agents most
+    // likely to be stale.
+    await mkdir(join(getAgentRepoDir(dir, 'builder-id'), '.git', 'rebase-merge'), {
+      recursive: true,
+    })
+
+    await expect(syncAgent(dir, 'builder')).rejects.toThrow()
+
+    expect(await readFile(shPath, 'utf-8')).toContain('integration')
+  })
+
+  it('warns rather than silently swallowing a scaffold refresh that failed', async () => {
+    await registerLocalAgentClone('review', 'review-id')
+    await advanceHost('feature')
+    // A directory where the tool file belongs makes the write fail — standing in for the real
+    // causes (a read-only mount, a stale guest dentry). The sync must still succeed…
+    const shPath = join(getAgentDir(dir, 'review-id'), 'agent.sh')
+    await rm(shPath, { force: true })
+    await mkdir(shPath, { recursive: true })
+    const warnings: string[] = []
+
+    const result = await syncAgent(dir, 'review', {
+      reporter: { ...silentReporter, warn: (m: string) => warnings.push(m) },
+    })
+
+    // …but say so, or "sync said it worked" is not evidence the agent's agent.sh was rewritten.
+    expect(result.newSeed).toBeTruthy()
+    expect(warnings.join('\n')).toContain('could not refresh its scaffold')
+  })
+
   it('refreshes the coordination edges from quimby.yaml, so a graph edit needs no rebuild', async () => {
     await registerLocalAgentClone('review', 'review-id')
     await writeFile(

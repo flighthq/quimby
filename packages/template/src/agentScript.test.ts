@@ -250,6 +250,42 @@ describe('renderAgentScript', () => {
     expect(existsSync(join(root, 'handoff', 'out', 'queued', 'review'))).toBe(false)
   })
 
+  it('accepts a peer absent from the baked roster but present as a live status mirror', () => {
+    // The baked roster is a SNAPSHOT: `quimby add` rewrites only the new agent's scaffold, so every
+    // existing agent's copy predates the add until its next launch or `quimby sync`. `peers` reads
+    // the live mirror, so consulting only the snapshot is what let `peers` list an agent that
+    // handoff then refused as "not an agent".
+    const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
+    writeFileSync(join(root, 'status', 'integration.md'), 'idle\n')
+
+    const out = runSh(root, ['handoff', 'integration', '-m', 'take a look'])
+
+    expect(out).toContain("queued parcel for 'integration'")
+    expect(existsSync(join(root, 'handoff', 'out', 'queued', 'integration'))).toBe(true)
+  })
+
+  it('still refuses a name in neither source, listing the union it actually accepts', () => {
+    const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
+    writeFileSync(join(root, 'status', 'integration.md'), 'idle\n')
+
+    const { status, stderr } = runShFail(root, ['handoff', 'ghost', '-m', 'x'])
+
+    expect(status).toBe(1)
+    expect(stderr).toContain('"ghost" is not an agent')
+    // What it lists has to match what it accepts, or the message sends you at a wrong fix.
+    expect(stderr).toContain('builder-2 manager integration')
+    expect(existsSync(join(root, 'handoff', 'out', 'queued', 'ghost'))).toBe(false)
+  })
+
+  it('accepts an --attach naming a live-mirror peer absent from the baked roster', () => {
+    const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
+    writeFileSync(join(root, 'status', 'integration.md'), 'idle\n')
+
+    const out = runSh(root, ['handoff', 'manager', '-m', 'ship it', '--attach', 'integration'])
+
+    expect(out).toContain("queued parcel for 'manager'")
+  })
+
   it('refuses an --attach naming no agent (a bad attach retries host-side forever)', () => {
     const root = makeAgentWorkspace({ roster: ['builder-2', 'manager'] })
     const { status, stderr } = runShFail(root, [

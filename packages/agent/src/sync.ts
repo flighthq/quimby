@@ -22,7 +22,7 @@ import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentCoordinationEdges, AgentState } from '@quimbyhq/types'
+import type { AgentCoordinationEdges, AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
 import {
   loadQuimbyConfig,
@@ -180,7 +180,7 @@ export async function rebaseAgentOntoBase(
   // deliberately, and is harvesting this agent's work right now, so rebasing it onto the target
   // (rather than deferring) is what keeps base-drift conflicts on the agent instead of in their
   // repo. A routine `quimby sync` / `assign` sync delivers and defers.
-  const result = await syncAgent(repoRoot, name, { apply: true })
+  const result = await syncAgent(repoRoot, name, { apply: true, reporter })
   if (result.rebased) {
     reporter.success(
       `Rebased ${result.commitsReplayed} commit(s) onto ${result.newSeed.slice(0, 8)}`,
@@ -223,6 +223,11 @@ export async function syncAgent(
      * Omitted (a single-agent sync) means always push, so one-agent behaviour is unchanged.
      */
     syncedProjects?: Set<string>
+    /**
+     * Where a best-effort step narrates a failure it will not throw for (the scaffold refresh).
+     * Silent by default so existing callers are unchanged; `syncAgents` passes the command's.
+     */
+    reporter?: Reporter
   },
 ): Promise<{
   newSeed: string
@@ -237,6 +242,7 @@ export async function syncAgent(
   /** Whether the sync brought the agent's coordination edges back in line with current config. */
   edgesUpdated: boolean
 }> {
+  const reporter = opts?.reporter ?? silentReporter
   const state = await loadState(repoRoot)
 
   if (!Object.hasOwn(state.agents, name)) {
@@ -269,41 +275,82 @@ export async function syncAgent(
     ops = localSyncOps(getAgentRepoDir(repoRoot, agent.id))
   }
 
-  const result = await runSyncAlgorithm(ops, {
-    hostHead,
-    seedCommit: agent.seedCommit,
-    force: opts?.force,
-    apply: opts?.apply,
-    name,
-  })
+  let result
+  try {
+    result = await runSyncAlgorithm(ops, {
+      hostHead,
+      seedCommit: agent.seedCommit,
+      force: opts?.force,
+      apply: opts?.apply,
+      name,
+    })
+  } catch (err) {
+    // Reconcile config onto the agent even though the advance failed. The scaffold refresh is not
+    // downstream of moving the base — it only ever depended on the algorithm having run because it
+    // was written after it. An agent whose sync fails is precisely the one most likely to be stale
+    // (a wedged repo is skipped by `--all` and simply never revisited), so freezing its roster and
+    // docs because the base could not move compounds one problem with a second, invisible one.
+    // This mirrors the rule the base delivery already follows: deliver, THEN report the error.
+    await reconcileAgentFromConfig(repoRoot, state, name, reporter)
+    throw err
+  }
 
   state.agents[name].seedCommit = result.newSeed
-  // Re-resolve the coordination edges from current config in the same write. The `directs` graph
-  // is otherwise snapshotted at creation, so editing it in `quimby.yaml` would only reach an agent
-  // through a rebuild; refreshing it here makes `sync` the non-destructive path for a graph edit,
-  // exactly as it already is for the scaffold. Best-effort: unreadable config never fails a sync.
-  const edges = await resolveConfiguredEdgesFor(repoRoot, state.agents[name])
-  const edgesUpdated = applyAgentCoordinationEdges(state.agents[name], edges)
-  // `role` drifts the same way and is worse when it does: a stale role drops the agent out of its
-  // `@role` layout slot and resolves its launch config through the wrong profile — both silently.
-  const configuredRole = await resolveConfiguredRoleFor(repoRoot, name)
-  const roleUpdated = Boolean(configuredRole) && state.agents[name].role !== configuredRole
-  if (roleUpdated) state.agents[name].role = configuredRole
-  await saveState(repoRoot, state)
-
-  // Re-render the Quimby-tier scaffold onto the agent's on-disk dir as part of the sync, so
-  // upgrading quimby reaches an in-flight agent without a rebuild or a session kill. Best-effort:
-  // a write failure never fails the sync.
-  await refreshAgentScaffold(repoRoot, state.id, agent, {
-    ...resolveAgentGraph(state, name),
-    instructions: await resolveInstructionsFor(repoRoot, agent),
-  }).catch(() => {})
+  const reconciled = await reconcileAgentFromConfig(repoRoot, state, name, reporter)
 
   // GC the delivery/processing caches now that the agent has advanced — folded into sync per
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
   await pruneAgentMailboxCaches(repoRoot, agent, state.id).catch(() => {})
 
-  return { ...result, edgesUpdated: edgesUpdated || roleUpdated }
+  return { ...result, edgesUpdated: reconciled }
+}
+
+/**
+ * Re-resolve what config declares about an agent onto its state, then re-render its Quimby-tier
+ * scaffold. Returns whether anything config-declared actually changed.
+ *
+ * Run on BOTH the success and failure paths of the sync algorithm, because neither half depends on
+ * the base having moved: the edges/role are a config-to-state reconciliation, and the scaffold is
+ * how a quimby upgrade — and, critically, a roster that gained an agent since this one was last
+ * rendered — reaches an in-flight agent without a rebuild or a session kill.
+ *
+ * The scaffold write stays best-effort (it must never fail a sync) but is no longer SILENT. A bare
+ * swallow here meant a failed refresh left `sync` printing its success line regardless, so "sync
+ * said it worked" was not evidence the agent's `agent.sh` had been rewritten — which is exactly the
+ * position someone is in when a stale roster refuses a recipient that `peers` lists.
+ */
+async function reconcileAgentFromConfig(
+  repoRoot: string,
+  state: QuimbyState,
+  name: string,
+  reporter: Reporter,
+): Promise<boolean> {
+  const agent = state.agents[name]
+  // The `directs` graph is otherwise snapshotted at creation, so editing it in `quimby.yaml` would
+  // only reach an agent through a rebuild; refreshing it here makes `sync` the non-destructive path
+  // for a graph edit. Best-effort: unreadable config never fails a sync.
+  const edges = await resolveConfiguredEdgesFor(repoRoot, agent)
+  const edgesUpdated = applyAgentCoordinationEdges(agent, edges)
+  // `role` drifts the same way and is worse when it does: a stale role drops the agent out of its
+  // `@role` layout slot and resolves its launch config through the wrong profile — both silently.
+  const configuredRole = await resolveConfiguredRoleFor(repoRoot, name)
+  const roleUpdated = Boolean(configuredRole) && agent.role !== configuredRole
+  if (roleUpdated) agent.role = configuredRole
+  await saveState(repoRoot, state)
+
+  try {
+    await refreshAgentScaffold(repoRoot, state.id, agent, {
+      ...resolveAgentGraph(state, name),
+      instructions: await resolveInstructionsFor(repoRoot, agent),
+    })
+  } catch (err) {
+    reporter.warn(
+      `${name}: could not refresh its scaffold (agent.sh / instructions) — ` +
+        `${err instanceof Error ? err.message : err}. Its peer roster and docs stay as they were, ` +
+        `so a recently-added agent may be refused as "not an agent" until this succeeds.`,
+    )
+  }
+  return edgesUpdated || roleUpdated
 }
 
 /**

@@ -126,6 +126,7 @@ export async function syncAgents(
         apply: opts.apply,
         base,
         syncedProjects,
+        reporter,
       })
       const seedShort = result.newSeed.slice(0, 8)
       // The graph edit reached the agent — say so, since it takes effect on the next dispatch

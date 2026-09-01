@@ -102,6 +102,9 @@ describe('syncAgents', () => {
       apply: false,
       base: undefined,
       syncedProjects: expect.any(Set),
+      // Threaded through so a best-effort step (the scaffold refresh) can narrate a failure it
+      // deliberately will not throw for.
+      reporter: expect.anything(),
     })
   })
 
@@ -152,6 +155,7 @@ describe('syncAgents', () => {
       apply: false,
       base: 'feature/x',
       syncedProjects: expect.any(Set),
+      reporter: expect.anything(),
     })
   })
 
