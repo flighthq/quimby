@@ -1014,6 +1014,55 @@ describe('renderAgentScript dirty-tree report', () => {
   })
 })
 
+describe('renderAgentScript disabled peer', () => {
+  // The host stamps `Disabled:` on a shelved peer's mirror. Without reading it, a disabled peer is
+  // indistinguishable from a live one: `peers` lists it, `handoff` accepts it, and the sender waits
+  // on a reply from an agent that is not running.
+  it('tags a disabled peer in the roster listing', () => {
+    const root = makeAgentWorkspace({ roster: ['builder'], directs: ['builder'] })
+    writeFileSync(
+      join(root, 'status', 'builder.md'),
+      '# Status: builder\n\nUpdated: now\nDisabled: this agent is disabled — it has no live session\n\nshelved\n',
+    )
+
+    const out = runSh(root, ['peers'])
+    expect(out).toContain('builder')
+    expect(out).toContain('DISABLED')
+    // The edge tag is kept alongside it: which edge you have and whether the peer is listening are
+    // different facts, and the second changes what to do about the first.
+    expect(out).toContain('you direct')
+  })
+
+  it('leaves a live peer untagged', () => {
+    const root = makeAgentWorkspace({ roster: ['builder'] })
+    writeFileSync(join(root, 'status', 'builder.md'), '# Status: builder\n\nUpdated: now\n\nok\n')
+    expect(runSh(root, ['peers'])).not.toContain('DISABLED')
+  })
+
+  // A warning, not a refusal: delivery is durable and the agent reads its inbox on re-enable, so
+  // refusing would strand work the sender has no other way to hand over.
+  it('warns but still queues a parcel addressed to a disabled peer', () => {
+    const root = makeAgentWorkspace({ roster: ['builder'] })
+    writeFileSync(
+      join(root, 'status', 'builder.md'),
+      '# Status: builder\n\nUpdated: now\nDisabled: this agent is disabled\n\nshelved\n',
+    )
+
+    const out = execFileSync(
+      'sh',
+      ['-c', `"${join(root, 'agent.sh')}" handoff builder -m hi 2>&1`],
+      {
+        cwd: root,
+        encoding: 'utf-8',
+      },
+    )
+
+    expect(out).toContain('is DISABLED')
+    expect(out).toContain('reads nothing until re-enabled')
+    expect(existsSync(join(root, 'handoff', 'out', 'queued', 'builder', 'README.md'))).toBe(true)
+  })
+})
+
 describe('renderAgentScript note body', () => {
   const posix = process.platform !== 'win32'
 

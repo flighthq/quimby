@@ -15,6 +15,13 @@ import { join } from 'pathe'
 export interface StatusSnapshot {
   content: string
   mtime: number
+  /**
+   * Whether the source agent was disabled when this was mirrored. Cached alongside the content
+   * because `quimby disable` does not touch `status.md`: without it the flip changes nothing the
+   * change-detection looks at, so peers would keep the pre-disable mirror — with no `Disabled:`
+   * line — until that agent's status happened to change again, which for a disabled agent is never.
+   */
+  disabled: boolean
 }
 
 /**
@@ -36,6 +43,7 @@ export async function readChangedStatus(
 ): Promise<string | null> {
   const agent = state.agents[name]
   const previous = cache.get(name)
+  const disabled = agent.enabled === false
   let content: string
 
   if (isSSH(agent.location)) {
@@ -47,18 +55,18 @@ export async function readChangedStatus(
     } catch {
       return null
     }
-    if (previous && previous.content === content) return null
-    cache.set(name, { content, mtime: 0 })
+    if (previous && previous.content === content && previous.disabled === disabled) return null
+    cache.set(name, { content, mtime: 0, disabled })
   } else {
     const statusPath = join(getAgentDir(repoRoot, agent.id), 'status.md')
     if (!(await exists(statusPath))) return null
 
     const mtime = await getFileMtime(statusPath)
     if (mtime === null) return null
-    if (previous && previous.mtime === mtime) return null
+    if (previous && previous.mtime === mtime && previous.disabled === disabled) return null
 
     content = (await readText(statusPath)).trim()
-    cache.set(name, { content, mtime })
+    cache.set(name, { content, mtime, disabled })
   }
 
   // Where this agent stands vs the base — the half of base staleness a PEER cannot see for itself.
@@ -68,11 +76,15 @@ export async function readChangedStatus(
   // position is as fresh as the snapshot carrying it — which is the mirror's contract already, and
   // why the line sits beside `Updated:` rather than pretending to be live.
   const summary = await getAgentWorkSummary(repoRoot, state.id, agent).catch(() => null)
+  // The position is measured for a disabled agent too: "I shelved it — is it still holding work I
+  // never merged?" is exactly the question its peers (and the operator reading a mirror) need
+  // answered, and disabling changes nothing about what its clone contains.
   return formatStatusSnapshot(
     name,
     content,
     new Date().toISOString(),
     summary ? { commits: summary.commits, files: summary.files } : undefined,
+    disabled,
   )
 }
 

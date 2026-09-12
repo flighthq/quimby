@@ -61,6 +61,20 @@ describe('runStartCommand', () => {
     await expect(cmd.run!({ args: { agent: 'ghost' } } as never)).rejects.toThrow('not found')
   })
 
+  // Disable frees the session slot; a launch that ignored the flag handed it straight back, and
+  // `quimby list` then reported the agent as shelved while it was running and answering parcels.
+  it('refuses a disabled agent rather than handing its session slot back', async () => {
+    resolved = workspace({
+      builder: { id: 'b1', name: 'builder', location: { type: 'local' }, enabled: false },
+    })
+    prepareLocalTmuxLaunch.mockClear()
+    const { default: cmd } = await import('./start')
+    await expect(cmd.run!({ args: { agent: 'builder' } } as never)).rejects.toThrow(
+      /quimby enable builder/,
+    )
+    expect(prepareLocalTmuxLaunch).not.toHaveBeenCalled()
+  })
+
   it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {
     const { default: cmd } = await import('./start')
     expect((cmd.args as Record<string, { alias?: string }>).cmd.alias).toBeUndefined()

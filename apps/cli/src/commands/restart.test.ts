@@ -24,6 +24,8 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   })),
 }))
 
+import { logger } from '@quimbyhq/utils'
+
 import { runRestartCommand } from './restart'
 
 describe('runRestartCommand', () => {
@@ -35,6 +37,39 @@ describe('runRestartCommand', () => {
     await runRestartCommand({ args: { agent: 'builder' } })
     expect(execaCalls.some((a) => a.includes('kill-session'))).toBe(true)
     expect(runStartCommand).toHaveBeenCalledWith({ args: { agent: 'builder' } })
+  })
+
+  // Checked before the kill: a named disabled agent must not lose its session to a restart that
+  // then refuses to bring it back.
+  it('refuses a named disabled agent without killing its session first', async () => {
+    stateAgents = {
+      builder: { id: 'b1', name: 'builder', location: { type: 'local' }, enabled: false },
+    }
+    getAgentSessionState.mockResolvedValue('running')
+    execaCalls.length = 0
+    runStartCommand.mockClear()
+    await expect(runRestartCommand({ args: { agent: 'builder' } })).rejects.toThrow(
+      /quimby enable builder/,
+    )
+    expect(execaCalls.some((a) => a.includes('kill-session'))).toBe(false)
+    expect(runStartCommand).not.toHaveBeenCalled()
+  })
+
+  // Not relaunched, but named: a sweep that silently passes over a running agent is
+  // indistinguishable from one that missed it.
+  it('--all skips a disabled agent that still holds a session, and says so', async () => {
+    stateAgents = {
+      builder: { id: 'b1', name: 'builder', location: { type: 'local' }, enabled: false },
+    }
+    getAgentSessionState.mockResolvedValue('running')
+    runStartCommand.mockClear()
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+    await runRestartCommand({ args: { all: true } })
+
+    expect(runStartCommand).not.toHaveBeenCalled()
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/disabled but still holds a session/)
+    warn.mockRestore()
   })
 
   it('errors for an unknown agent', async () => {

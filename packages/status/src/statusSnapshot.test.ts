@@ -46,6 +46,40 @@ describe('formatStatusSnapshot', () => {
     )
   })
 
+  // A peer's last mirror was indistinguishable from a live one, so agents kept addressing a shelved
+  // agent and waiting on a reply it could never send.
+  it('marks a disabled agent, so a peer knows nothing it sends will be read yet', () => {
+    const out = formatStatusSnapshot(
+      'builder',
+      'shelved',
+      '2026-07-02T00:00:00.000Z',
+      undefined,
+      true,
+    )
+    expect(out).toContain('Disabled: this agent is disabled')
+    expect(out).toContain('sits unread until someone re-enables it')
+  })
+
+  it('says nothing about disabled for an ordinary agent', () => {
+    expect(formatStatusSnapshot('builder', 'body', '2026-07-02T00:00:00.000Z')).not.toContain(
+      'Disabled',
+    )
+  })
+
+  // Disabling changes nothing about what the agent's clone holds, and "I shelved it — is it still
+  // sitting on work I never merged?" is exactly what a reader needs answered.
+  it('keeps the unmerged position on a disabled agent rather than replacing it', () => {
+    const out = formatStatusSnapshot(
+      'builder',
+      'shelved',
+      '2026-07-02T00:00:00.000Z',
+      { commits: 3, files: 9 },
+      true,
+    )
+    expect(out).toContain('Unmerged: 3 commit(s), 9 file(s)')
+    expect(out).toContain('Disabled:')
+  })
+
   it('keeps the position beside Updated, so it is read as a snapshot rather than as live', () => {
     const out = formatStatusSnapshot('builder', 'body', '2026-07-02T00:00:00.000Z', {
       commits: 1,

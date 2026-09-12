@@ -23,6 +23,7 @@ import { loadQuimbyConfig, resolveWorkspace, saveState } from '@quimbyhq/workspa
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { assertAgentEnabled } from '../enabled'
 import { ensureAgentConnections } from '../hostAlias'
 import { recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
 import { warnIfPoolAtCapacity } from '../poolWarning'
@@ -102,6 +103,10 @@ export async function runStartCommand({
   if (!agent) {
     throw new QuimbyError(`Agent "${args.agent}" not found`)
   }
+  // Disable means "give up the session slot until I say otherwise", so a launch that ignored it
+  // would hand the slot straight back — and `quimby list` would then report the agent as shelved
+  // while it was running, because the flag is the only thing that row used to consult.
+  assertAgentEnabled(agent, args.agent)
 
   const config = await loadQuimbyConfig(repoRoot)
   const launchOpts = {

@@ -25,10 +25,12 @@ import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
 
 let dir: string
 
-function stateWith(agents: Record<string, { id: string; location?: unknown }>): QuimbyState {
+function stateWith(
+  agents: Record<string, { id: string; location?: unknown; enabled?: boolean }>,
+): QuimbyState {
   const built: Record<string, unknown> = {}
   for (const [name, a] of Object.entries(agents)) {
-    built[name] = { id: a.id, name, location: a.location ?? { type: 'local' } }
+    built[name] = { id: a.id, name, location: a.location ?? { type: 'local' }, enabled: a.enabled }
   }
   return { id: 'proj', sourceRef: 'main', agents: built } as unknown as QuimbyState
 }
@@ -128,9 +130,66 @@ describe('pollStatusCycle', () => {
     expect(mirrored).not.toContain('Unmerged')
   })
 
+  // `quimby disable` frees the session and keeps the work, but it does not touch status.md — so
+  // peers went on seeing a mirror that looked live and kept addressing an agent reading nothing.
+  it('marks a disabled agent on the mirror it sends its peers', async () => {
+    await writeStatus('b1', 'shelved mid-refactor')
+    const cache = new Map<string, StatusSnapshot>()
+
+    await pollStatusCycle(
+      dir,
+      stateWith({ backend: { id: 'b1', enabled: false }, reviewer: { id: 'r1' } }),
+      cache,
+    )
+
+    const mirrored = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
+    expect(mirrored).toContain('Disabled: this agent is disabled')
+  })
+
+  // The flip is the only event here, and it changes neither the content nor the mtime — so without
+  // the cached flag nothing would re-mirror, and for a disabled agent "next time its status
+  // changes" is never.
+  it('re-mirrors on a disable, whose only change is the flag', async () => {
+    await writeStatus('b1', 'working')
+    const cache = new Map<string, StatusSnapshot>()
+    const live = stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } })
+
+    await pollStatusCycle(dir, live, cache)
+    const before = await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))
+    expect(before).not.toContain('Disabled')
+
+    await pollStatusCycle(
+      dir,
+      stateWith({ backend: { id: 'b1', enabled: false }, reviewer: { id: 'r1' } }),
+      cache,
+    )
+
+    expect(await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).toContain(
+      'Disabled:',
+    )
+  })
+
+  it('re-mirrors on a re-enable too, so the marker is cleared without waiting for a status edit', async () => {
+    await writeStatus('b1', 'working')
+    const cache = new Map<string, StatusSnapshot>()
+
+    await pollStatusCycle(
+      dir,
+      stateWith({ backend: { id: 'b1', enabled: false }, reviewer: { id: 'r1' } }),
+      cache,
+    )
+    await pollStatusCycle(dir, stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }), cache)
+
+    expect(await readText(join(getAgentStatusMirrorDir(dir, 'r1'), 'backend.md'))).not.toContain(
+      'Disabled',
+    )
+  })
+
   it('mirrors a changed status into every other agent, no subscription needed', async () => {
     await writeStatus('b1', 'changed')
-    const cache = new Map<string, StatusSnapshot>([['backend', { content: 'old', mtime: 1 }]])
+    const cache = new Map<string, StatusSnapshot>([
+      ['backend', { content: 'old', mtime: 1, disabled: false }],
+    ])
 
     await pollStatusCycle(
       dir,
@@ -151,7 +210,9 @@ describe('pollStatusCycle', () => {
   it('skips when the mtime is unchanged', async () => {
     await writeStatus('b1', 'same')
     const mtime = (await getFileMtime(join(getAgentDir(dir, 'b1'), 'status.md')))!
-    const cache = new Map<string, StatusSnapshot>([['backend', { content: 'same', mtime }]])
+    const cache = new Map<string, StatusSnapshot>([
+      ['backend', { content: 'same', mtime, disabled: false }],
+    ])
 
     await pollStatusCycle(dir, stateWith({ backend: { id: 'b1' }, reviewer: { id: 'r1' } }), cache)
 
@@ -246,7 +307,7 @@ describe('pollStatusCycle', () => {
     readFile.mockResolvedValue('remote-status')
     await mkdir(getAgentStatusMirrorDir(dir, 'r1'), { recursive: true })
     const cache = new Map<string, StatusSnapshot>([
-      ['backend', { content: 'old-remote', mtime: 0 }],
+      ['backend', { content: 'old-remote', mtime: 0, disabled: false }],
     ])
     const state = stateWith({
       backend: { id: 'b1', location: { type: 'ssh', host: 'box', base: '~' } },

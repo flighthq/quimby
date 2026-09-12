@@ -72,6 +72,7 @@ import { defineCommand } from 'citty'
 import { execa } from 'execa'
 import { join } from 'pathe'
 
+import { assertAgentEnabled } from '../enabled'
 import { ensureAgentConnections } from '../hostAlias'
 import { launchDrift, recordLaunchFingerprint, warnIfLaunchDrifted } from '../launchDrift'
 import { warnIfPoolAtCapacity } from '../poolWarning'
@@ -235,6 +236,10 @@ export async function runRunCommand({
   if (!agent) {
     throw new QuimbyError(`Agent "${agentName}" not found`)
   }
+  // A layout PRUNES a disabled leaf (that is the point — disable one without editing the expr), but
+  // an explicitly named single agent is refused instead of silently pruned to nothing: naming it is
+  // unambiguous, so the honest answer is why it will not open, not an empty dashboard.
+  assertAgentEnabled(agent, agentName)
 
   // Bind any unbound SSH host alias (prompt + persist) before we touch the wire.
   await ensureAgentConnections(repoRoot, state, [agentName])

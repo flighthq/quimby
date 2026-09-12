@@ -8,6 +8,7 @@ import { resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 import { execa } from 'execa'
 
+import { assertAgentEnabled } from '../enabled'
 import { ensureAgentConnections } from '../hostAlias'
 import { runStartCommand } from './start'
 
@@ -47,6 +48,9 @@ export async function runRestartCommand({
   }
   for (const name of explicit) {
     if (!state.agents[name]) throw new QuimbyError(`Agent "${name}" not found`)
+    // Checked before anything is killed: a named disabled agent must not lose its session to a
+    // restart that then refuses to relaunch it.
+    assertAgentEnabled(state.agents[name], name)
   }
 
   // --all targets only running agents (refresh the live fleet); a named agent is (re)launched
@@ -55,11 +59,27 @@ export async function runRestartCommand({
     ? (
         await Promise.all(
           Object.keys(state.agents).map(async (name) =>
-            (await getAgentSessionState(state.agents[name])) !== 'stopped' ? name : null,
+            (await getAgentSessionState(state.agents[name])) !== 'stopped' &&
+            state.agents[name].enabled !== false
+              ? name
+              : null,
           ),
         )
       ).filter((n): n is string => n !== null)
     : explicit
+
+  // A disabled agent holding a live session is not restarted — but it is named, because a sweep
+  // that silently passes over a running agent is indistinguishable from one that missed it.
+  if (args.all) {
+    for (const [name, agent] of Object.entries(state.agents)) {
+      if (agent.enabled !== false) continue
+      if ((await getAgentSessionState(agent)) === 'stopped') continue
+      logger.warn(
+        `Skipped "${name}" — it is disabled but still holds a session. ` +
+          `\`quimby stop ${name}\` to free it, or \`quimby enable ${name}\` to bring it back.`,
+      )
+    }
+  }
 
   if (names.length === 0) {
     logger.info('No running agents to restart.')

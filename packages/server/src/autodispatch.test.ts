@@ -144,6 +144,50 @@ describe('autoDispatchOutboxes', () => {
     )
   })
 
+  // A disabled agent holds no session, so the wake could only ever miss — and it missed silently,
+  // which is indistinguishable from a courier that is broken.
+  it('delivers to a disabled recipient but wakes nothing, and says so', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'fix the null case')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+    state.agents.review.directs = ['builder']
+    state.agents.builder.enabled = false
+
+    await autoDispatchOutboxes(dir, state, tracker, silentReporter, 'directed', { wakeBundle: 0 })
+    const { reporter, events } = collectingReporter()
+    await autoDispatchOutboxes(dir, state, tracker, reporter, 'directed', { wakeBundle: 0 })
+
+    // The parcel still lands — delivery is durable, and it is read on re-enable.
+    const inbox = join(getAgentDir(dir, 'builder'), 'handoff', 'in', 'received')
+    expect((await readdir(inbox)).length).toBe(1)
+    expect(nudgeAgentSession).not.toHaveBeenCalled()
+    expect(
+      events.some((e) => e.level === 'warn' && /is disabled — parcel delivered/.test(e.message)),
+    ).toBe(true)
+  })
+
+  // Its outbox holds work it authored before being shelved, so dropping it would strand finished
+  // work — but carried with no explanation it reads as a shelved agent answering parcels.
+  it('still carries a disabled sender queued work, naming it as such', async () => {
+    await setupAgentRepo('review')
+    await setupAgentRepo('builder')
+    await stageDraft('review', 'builder', 'here is what I finished')
+    const tracker = createOutboxDispatchTracker()
+    const state = stateWith('review', 'builder')
+    state.agents.review.enabled = false
+
+    await autoDispatchOutboxes(dir, state, tracker)
+    const { reporter, events } = collectingReporter()
+    await autoDispatchOutboxes(dir, state, tracker, reporter)
+
+    expect(await exists(getAgentHandoffOutQueuedRecipientDir(dir, 'review', 'builder'))).toBe(false)
+    expect(
+      events.some((e) => /\(disabled — carrying work it queued before\)/.test(e.message)),
+    ).toBe(true)
+  })
+
   it('coalesces a cycle’s interrupting parcels into one nudge per recipient (§7a)', async () => {
     await setupAgentRepo('review')
     await setupAgentRepo('integration')

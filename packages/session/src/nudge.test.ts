@@ -163,6 +163,27 @@ describe('nudgeAgentSession', () => {
     ).resolves.toBe('no-session')
   })
 
+  // The stopped-agent advice is `quimby start`, which REFUSES a disabled agent — so pointing a
+  // disabled agent's operator at it ends in a second refusal. Stopped means "launch it"; disabled
+  // means "you shelved this deliberately", and only one of them is fixed by starting.
+  it('names enable, not start, when the agent is disabled', async () => {
+    const { reporter, events } = collectingReporter()
+
+    await expect(
+      nudgeAgentSession({
+        agent: { ...localWithTmux, enabled: false } as AgentState,
+        displayName: 'reviewer',
+        text: 'continue',
+        reporter,
+      }),
+    ).resolves.toBe('no-session')
+
+    const warning = events.find((e) => e.level === 'warn')?.message ?? ''
+    expect(warning).toContain('is disabled')
+    expect(warning).toContain('quimby enable reviewer')
+    expect(warning).not.toContain('quimby start')
+  })
+
   it('types the literal text then Enter and reports success for a running local tmux agent', async () => {
     // Every tmux call succeeds — has-session finds the session, send-keys go through.
     execa.mockResolvedValue({})

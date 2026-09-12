@@ -10,7 +10,7 @@ import { logger } from '@quimbyhq/utils'
 import { loadQuimbyConfig, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { bold, cyan, dim, green, yellow } from '../colors'
+import { bold, cyan, dim, green, red, yellow } from '../colors'
 import { withRemoteProbeTimeout } from '../remoteProbe'
 
 export default defineCommand({
@@ -104,11 +104,19 @@ export async function runListCommand() {
       // running = detached (headless, `quimby start`); attached = a client is in
       // `quimby run`; stopped = no session. A local non-tmux agent reads as stopped
       // (it has no session to probe even while a foreground `run` is live).
-      // A disabled agent (`quimby disable`) is retained on disk but excluded from launches, so
-      // its label takes precedence over the (necessarily stopped) session probe.
+      //
+      // A disabled agent (`quimby disable`) is retained on disk but excluded from launches — and the
+      // probe is still REPORTED for it rather than overridden by the label. This row used to print
+      // `⊘ disabled` unconditionally, on the assumption that a disabled agent is necessarily
+      // stopped; nothing enforced that, so a disabled agent with a live session (a launch predating
+      // the refusal in run/start/restart, or one started by hand on the shared socket) read as
+      // shelved while it was in fact running and answering parcels. A contradiction between the
+      // flag and the socket is the one thing here worth shouting about, so it is named, not hidden.
       const stateStr =
         agent.enabled === false
-          ? yellow('⊘ disabled')
+          ? sessionStateValue === 'stopped'
+            ? yellow('⊘ disabled')
+            : red(`⊘ disabled but ${sessionStateValue} — \`quimby stop ${name}\``)
           : sessionStateValue === 'attached'
             ? cyan('● attached')
             : sessionStateValue === 'running'

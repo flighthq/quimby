@@ -34,15 +34,25 @@ export function formatStatusPlaceholder(fromName: string): string {
  * `position` is optional because it is not always knowable — an unreachable SSH host or an
  * unprovisioned repo yields nothing, and a snapshot with no position line is better than one
  * asserting a zero it did not measure. Omitting it is silence; `0` is a claim.
+ *
+ * `disabled` rides the same header for the same reason the position does: whether a peer is
+ * disabled is a host-only fact, and without it a disabled agent's last mirror is indistinguishable
+ * from a live one — so peers keep addressing an agent that will not read them until it is
+ * re-enabled. It is the mirror, not the baked roster, that carries this: the roster is a snapshot
+ * from the last render, while `quimby disable` takes effect immediately and the mirror is
+ * reconciled every poll cycle.
  */
 export function formatStatusSnapshot(
   fromName: string,
   content: string,
   at: string,
   position?: Readonly<StatusPosition>,
+  disabled = false,
 ): string {
-  const header = position ? `Updated: ${at}\n${formatPosition(position)}` : `Updated: ${at}`
-  return `# Status: ${fromName}\n\n${header}\n\n${content}\n`
+  const lines = [`Updated: ${at}`]
+  if (position) lines.push(formatPosition(position))
+  if (disabled) lines.push(DISABLED_LINE)
+  return `# Status: ${fromName}\n\n${lines.join('\n')}\n\n${content}\n`
 }
 
 // Stated in the reader's terms — "can I see this work?" — not the writer's. `none` is printed
@@ -57,3 +67,10 @@ function formatPosition(position: Readonly<StatusPosition>): string {
     'only, not yet on your base'
   )
 }
+
+// Stated as what it costs the READER — an agent deciding whether to address this peer — because
+// that is the only decision this line informs. The work is still delivered (a parcel is durable and
+// is read on re-enable), so the caution is about expectation, not about refusing to send.
+const DISABLED_LINE =
+  'Disabled: this agent is disabled — it has no live session, so anything you send it sits ' +
+  'unread until someone re-enables it'

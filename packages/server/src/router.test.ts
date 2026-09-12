@@ -36,7 +36,9 @@ describe('routeRequest', () => {
   })
 
   it('GET /api/agents attaches the cached status', () => {
-    const cache = new Map<string, StatusSnapshot>([['backend', { content: 'working', mtime: 1 }]])
+    const cache = new Map<string, StatusSnapshot>([
+      ['backend', { content: 'working', mtime: 1, disabled: false }],
+    ])
     const r = req({ path: '/api/agents', statusCache: cache })
     expect((r.body as Record<string, { currentStatus: string }>).backend.currentStatus).toBe(
       'working',

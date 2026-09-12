@@ -134,6 +134,8 @@ Either way, the user runs `quimby dispatch {{agentName}}` (and the server auto-d
 
 You can address **any** agent listed by `./agent.sh peers` — the recipient does **not** need to be running. Delivery lands in its inbox and it's picked up whenever it next runs; a stopped recipient just isn't woken immediately. So never decline to send because a peer "isn't running" — queue it anyway.
 
+A peer marked **DISABLED** is the one case worth reading before you send. It is shelved on purpose: its work and mailbox are kept, but it holds no session, so your parcel is delivered and then sits unread until the user re-enables it. Sending is still right — that is how the work reaches it — but do not wait on an answer, and say in your status that you are blocked on a disabled peer rather than treating the silence as an agent ignoring you.
+
 ### Which channel: interrupt only when it earns it
 
 Every message is either **passive** (lands in the inbox, read on the recipient's own turn — costs it nothing until it looks) or **active** (wakes the recipient now). Default to passive; reserve the interrupt for when the recipient genuinely needs to act before its next turn. The verb you pick is the intent; the host decides whether the interrupt is honored:

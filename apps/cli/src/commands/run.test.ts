@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
         defaults: object
         launchedWith?: string
         role?: string
+        enabled?: boolean
       }
     >,
   },
@@ -196,6 +197,21 @@ describe('runRunCommand', () => {
   it('throws when agent does not exist', async () => {
     const { default: cmd } = await import('./run')
     await expect(cmd.run!({ args: { agent: 'nonexistent' } } as never)).rejects.toThrow('not found')
+  })
+
+  // A layout PRUNES a disabled leaf, which is the point of disable. An explicitly named agent is
+  // refused instead: naming it is unambiguous, so the honest answer is why it will not open.
+  it('refuses an explicitly named disabled agent rather than opening nothing', async () => {
+    const { default: cmd } = await import('./run')
+    state.value.agents.a.enabled = false
+    try {
+      await expect(cmd.run!({ args: { agent: 'a', _: ['a'] } } as never)).rejects.toThrow(
+        /quimby enable a/,
+      )
+      expect(h.calls.some((c) => c.includes('new-session'))).toBe(false)
+    } finally {
+      delete state.value.agents.a.enabled
+    }
   })
 
   it('does not alias --cmd to -c, keeping -c reserved for --clear', async () => {

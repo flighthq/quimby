@@ -90,7 +90,14 @@ export async function autoDispatchOutboxes(
 
     if (stable.length === 0) continue
 
-    reporter.info(`[auto-dispatch] "${sender}" → ${stable.join(', ')}`)
+    // A DISABLED sender is still dispatched, and the line says so. Its outbox holds work it
+    // authored before it was shelved, and dropping that on the floor would strand finished work —
+    // but carried silently it reads as a shelved agent answering parcels, which is exactly how a
+    // disabled agent comes to look alive.
+    const senderDisabled = senderAgent.enabled === false
+    reporter.info(
+      `[auto-dispatch] "${sender}"${senderDisabled ? ' (disabled — carrying work it queued before)' : ''} → ${stable.join(', ')}`,
+    )
     // Embed the code source's attestation in the carried parcel — the hands-off channel is exactly
     // where the recipient most needs it; without this the server-carried parcel would lose it.
     const results = await dispatchOutbox({
@@ -127,7 +134,15 @@ export async function autoDispatchOutboxes(
           else reporter.info(notice)
         }
         const recip = state.agents[result.recipient]
-        if (recip && result.interrupts && result.parcelName) {
+        // A disabled recipient has no session to wake, so accruing a nudge for it would spend the
+        // bundle window on a wake that can only miss — and the miss would be silent. The parcel
+        // still lands: it is read when the agent is re-enabled.
+        if (recip?.enabled === false && result.interrupts) {
+          reporter.warn(
+            `  "${result.recipient}" is disabled — parcel delivered, nothing woken. ` +
+              `It reads this when you \`quimby enable ${result.recipient}\`.`,
+          )
+        } else if (recip && result.interrupts && result.parcelName) {
           const kind = result.escalation
             ? 'escalation'
             : result.userDirected

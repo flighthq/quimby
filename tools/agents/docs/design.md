@@ -683,6 +683,15 @@ Two `pool:` config keys, both counting sessions **across every project** (that i
 - **`pool.maxLive: N`** — an advisory ceiling. When a `run`/`start` launch would push the live agent count to or past `N`, quimby prints a warning naming the idlest sessions and the prune command, then launches anyway. It is a budget you set for yourself, deliberately **warn-only** — refusing a launch mid-workflow would be worse than the pressure it prevents.
 - **`pool.idleTimeout: <30s|45m|2h|1d>`** — opt-in auto-reap. A running `quimby serve` closes **this project's** idle agent sessions past the threshold on its poll cycle (the automatic twin of `sessions prune --idle`, scoped to the server's own project so two servers never fight over the pool). Unset (the default) means the server never reaps — auto-reaping ends a live context, so it is never on without asking.
 
+### A disabled agent, everywhere else
+
+`quimby disable` frees the session and keeps the work, and that flag is honored by every surface rather than only by the layout planner:
+
+- **Launches refuse it.** A layout _prunes_ a disabled leaf (disable one without editing the `expr`), but `quimby run <agent>`, `start`, and `restart` name an agent directly and refuse, pointing at `quimby enable`. Without that the session slot `disable` just freed comes back on the next command.
+- **`list` and `status` report the session probe, never replace it with the flag.** A disabled agent reads `⊘ disabled`; one that somehow still holds a session reads `⊘ disabled but running`, because the flag and the socket disagreeing is the one state here worth naming. `restart --all` skips such an agent and says so.
+- **Parcels still land; nothing is woken.** Delivery is durable — a disabled agent reads its inbox when re-enabled — so a parcel addressed to it is delivered and the skipped wake is reported. Its own queued outbox is still carried too (that work was authored before it was shelved), with the dispatch line naming the sender as disabled, which is what makes a shelved agent appearing to answer a parcel legible instead of mysterious.
+- **Peers are told, on the mirror.** The poller stamps a `Disabled:` line on the status mirror of a disabled agent — the same channel and the same reasoning as `Unmerged:`, and the only live one, since the roster baked into `agent.sh` is a snapshot from the last render. `agent.sh peers` tags such a peer, and a `handoff` addressed to it warns (never refuses) that it is delivered but unread until re-enabled.
+
 ## Automated Integration (opt-in)
 
 A fleet that funnels its work through one integration agent otherwise waits on a human to run `quimby merge` before anything reaches the shared base. `integrate:` closes that loop:

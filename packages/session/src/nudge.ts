@@ -319,9 +319,16 @@ export async function nudgeAgentSession(opts: {
     return 'sent'
   }
 
+  // A DISABLED agent gets different advice, because the advice it used to get cannot work:
+  // `quimby start` refuses a disabled agent, so pointing at it sends the operator down a path that
+  // ends in a second refusal. The distinction is also the useful one — stopped means "launch it",
+  // disabled means "you shelved this on purpose".
   reporter.warn(
-    `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
-      `(it'll see it on its next run; bring it up headless with \`quimby start ${displayName}\`).`,
+    agent.enabled === false
+      ? `"${displayName}" is disabled — not nudged. Its work and mailbox are on disk; it reads ` +
+          `this when you \`quimby enable ${displayName}\`.`
+      : `"${displayName}" isn't running in tmux session "${session}" — not nudged ` +
+          `(it'll see it on its next run; bring it up headless with \`quimby start ${displayName}\`).`,
   )
   return 'no-session'
 }

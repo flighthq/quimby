@@ -143,7 +143,7 @@ async function renderOverview(
   for await (const { name, snap } of inInputOrder(snapshots)) {
     const cells = [
       `  ${bold(name)}`,
-      renderSession(snap.sessionState),
+      renderSession(snap.sessionState, state.agents[name].enabled === false),
       countCell('received', snap.inbox.length),
       countCell('queued', snap.outbox.length),
       dim(formatWorkSummary(snap.summary)),
@@ -183,7 +183,7 @@ async function renderDeepDive(
   const behind = snap.behind > 0 ? yellow(` · ${snap.behind} behind ${snap.syncRef}`) : ''
   const remoteTimedOut = snap.remoteTimedOut ? yellow(' · remote timeout') : ''
 
-  console.log(`${bold(name)}  ${renderSession(snap.sessionState)}`)
+  console.log(`${bold(name)}  ${renderSession(snap.sessionState, agent.enabled === false)}`)
   console.log(row('assignment', assignment ? firstLine(assignment) : dim('(none)')))
   console.log(row('base', `seed ${seed} · tracks ${snap.syncRef}${behind}${remoteTimedOut}`))
   console.log(row('work', formatWorkSummary(snap.summary)))
@@ -276,7 +276,13 @@ async function readAgentFile(
   }
 }
 
-function renderSession(s: AgentSessionState): string {
+// `disabled` outranks the probe as a LABEL but never replaces it: a disabled agent that still holds
+// a session is the one state worth shouting about, since the flag and the socket then disagree and
+// every other surface would report it as shelved. (`quimby list` renders the same pair.)
+function renderSession(s: AgentSessionState, disabled = false): string {
+  if (disabled) {
+    return s === 'stopped' ? yellow('⊘ disabled') : red(`⊘ disabled but ${s}`)
+  }
   if (s === 'attached') return cyan('● attached')
   if (s === 'running') return green('● running')
   return dim('○ stopped')
