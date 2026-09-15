@@ -92,7 +92,7 @@ async function buildLocalWindow(
   const { runtime, entrypoint, env: profileEnv } = resolveRuntimeSelection({ agent, config })
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, name, state.id, agent.id)
-  const rawSpec = adapter.runSpec(ctx, entrypoint)
+  const rawSpec = adapter.runSpec(ctx, entrypoint, profileEnv)
   const spec = { ...rawSpec, env: { ...profileEnv, ...(rawSpec.env ?? {}) } }
 
   const baseCmd = [spec.command, ...spec.args].map(sq).join(' ')

@@ -36,21 +36,20 @@ export const sbx: RuntimeAdapter = {
     await requireRuntimeCli('sbx', 'sbx')
   },
 
-  runSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
-    return {
-      command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx, entrypoint), entrypoint],
-      cwd: ctx.agentDir,
-    }
+  runSpec(
+    ctx: RuntimeContext,
+    entrypoint: string,
+    env?: Readonly<Record<string, string>>,
+  ): RunSpec {
+    return { command: 'sbx', args: sbxRunArgs(ctx, entrypoint, env), cwd: ctx.agentDir }
   },
 
-  execSpec(ctx: RuntimeContext, entrypoint: string): RunSpec {
-    const parsed = parseCommand(entrypoint)
-    return {
-      command: 'sbx',
-      args: ['run', '--name', sandboxName(ctx, entrypoint), parsed.command, '--', ...parsed.args],
-      cwd: ctx.agentDir,
-    }
+  execSpec(
+    ctx: RuntimeContext,
+    entrypoint: string,
+    env?: Readonly<Record<string, string>>,
+  ): RunSpec {
+    return { command: 'sbx', args: sbxRunArgs(ctx, entrypoint, env), cwd: ctx.agentDir }
   },
 
   // The remove verb for the agent's sandbox, as data so the caller can run it locally or over an
@@ -66,4 +65,27 @@ export const sbx: RuntimeAdapter = {
     const spec = this.teardownSpec(ctx)
     if (spec) await bestEffortExec(spec.command, spec.args)
   },
+}
+
+// `sbx run [flags] AGENT [-- AGENT_ARGS...]`: the first positional is an agent NAME, so an
+// entrypoint carrying arguments must be split around `--` — passed whole, `claude --model x` reads
+// as an agent called that. The sandbox does not inherit sbx's own environment, so each profile
+// variable is forwarded with a bare `-e KEY`, which sbx fills from its process environment (where
+// every launch path already sets it). Naming only the key keeps secret values off the command line,
+// which tmux, `ps`, and a failed command's error message would all otherwise expose.
+function sbxRunArgs(
+  ctx: RuntimeContext,
+  entrypoint: string,
+  env: Readonly<Record<string, string>> | undefined,
+): string[] {
+  const { command, args } = parseCommand(entrypoint)
+  const envArgs = Object.keys(env ?? {}).flatMap((key) => ['-e', key])
+  return [
+    'run',
+    '--name',
+    sandboxName(ctx, entrypoint),
+    ...envArgs,
+    command,
+    ...(args.length > 0 ? ['--', ...args] : []),
+  ]
 }

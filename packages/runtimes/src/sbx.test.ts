@@ -30,6 +30,37 @@ describe('sbx', () => {
   it('runSpec includes the agent command', () => {
     const spec = sbx.runSpec(ctx, 'claude')
     expect(spec.args).toContain('claude')
+    expect(spec.args).not.toContain('--')
+  })
+
+  it('runSpec splits entrypoint arguments after `--`, since the agent positional is a name', () => {
+    const spec = sbx.runSpec(ctx, "claude --model 'deepseek v4'")
+    expect(spec.args.slice(-4)).toEqual(['claude', '--', '--model', 'deepseek v4'])
+  })
+
+  it('runSpec forwards each profile env var as a bare `-e KEY` before the agent', () => {
+    const spec = sbx.runSpec(ctx, 'claude', {
+      ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+      ANTHROPIC_AUTH_TOKEN: 'sk-secret',
+    })
+    const agentAt = spec.args.indexOf('claude')
+    expect(spec.args.slice(agentAt - 4, agentAt)).toEqual([
+      '-e',
+      'ANTHROPIC_BASE_URL',
+      '-e',
+      'ANTHROPIC_AUTH_TOKEN',
+    ])
+    // Values stay in the process environment, never on the command line.
+    expect(spec.args.join(' ')).not.toContain('sk-secret')
+    expect(spec.args.join(' ')).not.toContain('api.deepseek.com')
+  })
+
+  it('runSpec sandbox name does not change with the profile env', () => {
+    const plain = sbx.runSpec(ctx, 'claude')
+    const withEnv = sbx.runSpec(ctx, 'claude --model x', { FOO: 'bar' })
+    expect(withEnv.args[withEnv.args.indexOf('--name') + 1]).toBe(
+      plain.args[plain.args.indexOf('--name') + 1],
+    )
   })
 
   it('runSpec names the sandbox with the agentId prefix, not the agent name', () => {

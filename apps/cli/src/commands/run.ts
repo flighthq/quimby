@@ -1030,6 +1030,7 @@ async function buildSSHWindow(
       repoRoot: rRoot,
     },
     entrypoint,
+    env,
   )
   const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
 

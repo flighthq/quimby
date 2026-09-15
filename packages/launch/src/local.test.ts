@@ -105,6 +105,22 @@ describe('localNewSessionArgs', () => {
 })
 
 describe('prepareLocalTmuxLaunch', () => {
+  it('hands the profile env to the runtime adapter and sets it on the session', async () => {
+    // A sandbox runtime does not inherit its launcher's environment, so the adapter must see the
+    // env to forward it; the values themselves ride the tmux session environment.
+    runSpec.mockClear()
+    const launch = await prepareLocalTmuxLaunch({
+      state: state(),
+      repoRoot: '/repo',
+      agent: sampleAgent,
+      runtimeProfile: 'ollama',
+    })
+    expect(runSpec).toHaveBeenCalledWith(expect.anything(), 'codex', {
+      OLLAMA_HOST: 'http://gpu:11434',
+    })
+    expect(launch.envArgs).toEqual(['-e', 'OLLAMA_HOST=http://gpu:11434'])
+  })
+
   it('builds a shell command with the entrypoint quoted and writes the tmux config', async () => {
     writeText.mockClear()
     const launch = await prepareLocalTmuxLaunch({

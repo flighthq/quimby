@@ -11,6 +11,10 @@ import type { QuimbyState, SSHLocation } from '@quimbyhq/types'
 import { saveState } from '@quimbyhq/workspace'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const runSpec = vi.hoisted(() =>
+  vi.fn(() => ({ command: 'sbx', args: ['run', 'claude'], cwd: '/agent/dir', env: {} })),
+)
+
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   getSSHTransport: vi.fn(),
@@ -29,9 +33,7 @@ vi.mock('@quimbyhq/agent', () => ({
 vi.mock('@quimbyhq/runtimes', () => ({
   runtimeTypes: ['local', 'sbx'],
   runtimeCli: (runtime: string) => (runtime === 'local' ? undefined : runtime),
-  getRuntime: () => ({
-    runSpec: () => ({ command: 'sbx', args: ['run', 'claude'], cwd: '/agent/dir', env: {} }),
-  }),
+  getRuntime: () => ({ runSpec }),
   splitCommand: (input: string) => input.trim().split(/\s+/).filter(Boolean),
 }))
 vi.mock('@quimbyhq/template', () => ({
@@ -225,5 +227,9 @@ describe('prepareSshLaunch', () => {
     expect(transport.checkCapabilities).toHaveBeenCalledWith(['tmux'])
     expect(transport.checkCapabilities).toHaveBeenCalledWith(['sbx', 'ollama'])
     expect(launch.shellCmd).toContain("OLLAMA_HOST='http://gpu:11434'")
+    // The adapter sees the env too, so a sandbox runtime can forward it past the sbx process.
+    expect(runSpec).toHaveBeenCalledWith(expect.anything(), 'codex', {
+      OLLAMA_HOST: 'http://gpu:11434',
+    })
   })
 })

@@ -68,7 +68,7 @@ export async function buildForegroundLaunch(
   const { runtime, entrypoint, runtimeLabel, env } = resolveRuntimeSelection({ ...opts, config })
   const adapter = getRuntime(runtime)
   const ctx = buildContext(repoRoot, agent.name, state.id, agent.id)
-  const spec = adapter.runSpec(ctx, entrypoint)
+  const spec = adapter.runSpec(ctx, entrypoint, env)
   return { spec: { ...spec, env: { ...env, ...(spec.env ?? {}) } }, entrypoint, runtimeLabel }
 }
 
@@ -143,7 +143,7 @@ export async function prepareLocalTmuxLaunch(
   // Validate the runtime (e.g. the sbx/openshell CLI is installed) before any tmux work, so a
   // missing runtime fails with a clear error instead of a pane that dies the instant it launches.
   await adapter.setup(ctx)
-  const rawSpec = await adapter.runSpec(ctx, entrypoint)
+  const rawSpec = await adapter.runSpec(ctx, entrypoint, env)
   const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
 
   const envArgs = Object.entries(spec.env ?? {}).flatMap(([key, value]) => [

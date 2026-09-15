@@ -153,6 +153,7 @@ export async function prepareSshLaunch(
       repoRoot: rRoot,
     },
     entrypoint,
+    env,
   )
   const spec = { ...rawSpec, env: { ...env, ...(rawSpec.env ?? {}) } }
   // Quote the user-supplied entrypoint wherever it appears; leave the runtime's own
