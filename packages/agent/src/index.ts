@@ -7,3 +7,4 @@ export * from './sync'
 // left unapplied rather than inventing a number for it.
 export * from './syncAgents'
 export type { SyncDeferReason } from './syncAlgorithm'
+export { describeSyncDeferral } from './syncAlgorithm'

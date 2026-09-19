@@ -220,6 +220,9 @@ export async function syncAgent(
      * the wall time and 8x the exposure to a transient ssh/rsync failure, which is the mechanical
      * reason `--all` can fail where syncing the same agent alone succeeds.
      *
+     * Entries are `<destination>\0<hostHead>`: memoizing the destination ALONE is only sound while
+     * the host tip holds still, and it does not have to — see the keying note at the call site.
+     *
      * Omitted (a single-agent sync) means always push, so one-agent behaviour is unchanged.
      */
     syncedProjects?: Set<string>
@@ -266,9 +269,17 @@ export async function syncAgent(
     // project root path on two different boxes is two different destinations.
     const projectRoot = remoteProjectRoot(state.id, agent.location.base)
     const destination = `${agent.location.alias ?? agent.location.host ?? ''}:${projectRoot}`
-    if (!opts?.syncedProjects?.has(destination)) {
+    // Keyed by destination AND target commit, not destination alone. `hostHead` is resolved from
+    // the host repo once per agent, so a tip that moves mid-sweep — you commit, a `merge` lands, or
+    // the server's `integrate:` lands one — leaves every later agent asking for a commit the one
+    // memoized push never carried. Its `git fetch origin` cannot see it, the fast-forward is
+    // refused, and the agent falls out as `diverged` with its seed unadvanced, which reads as
+    // "--all left it behind but syncing it alone fixed it" (a lone sync passes no memo, so it
+    // always pushes). A fleet on one unmoving tip still pushes exactly once.
+    const pushed = `${destination}\u0000${hostHead}`
+    if (!opts?.syncedProjects?.has(pushed)) {
       await transport.syncProjectTo(repoRoot, projectRoot)
-      opts?.syncedProjects?.add(destination)
+      opts?.syncedProjects?.add(pushed)
     }
     ops = remoteSyncOps(transport, remoteAgentRepoDir(state.id, agent.id, agent.location.base))
   } else {
@@ -291,12 +302,18 @@ export async function syncAgent(
     // (a wedged repo is skipped by `--all` and simply never revisited), so freezing its roster and
     // docs because the base could not move compounds one problem with a second, invisible one.
     // This mirrors the rule the base delivery already follows: deliver, THEN report the error.
-    await reconcileAgentFromConfig(repoRoot, state, name, reporter)
+    await reconcileAgentFromConfig(repoRoot, state, name, reporter, undefined, opts?.base)
     throw err
   }
 
-  state.agents[name].seedCommit = result.newSeed
-  const reconciled = await reconcileAgentFromConfig(repoRoot, state, name, reporter)
+  const reconciled = await reconcileAgentFromConfig(
+    repoRoot,
+    state,
+    name,
+    reporter,
+    result.newSeed,
+    opts?.base,
+  )
 
   // GC the delivery/processing caches now that the agent has advanced — folded into sync per
   // the courier-not-post-office model. Best-effort: a prune failure never fails the sync.
@@ -324,23 +341,42 @@ async function reconcileAgentFromConfig(
   state: QuimbyState,
   name: string,
   reporter: Reporter,
+  seedCommit?: string,
+  syncRef?: string,
 ): Promise<boolean> {
-  const agent = state.agents[name]
   // The `directs` graph is otherwise snapshotted at creation, so editing it in `quimby.yaml` would
   // only reach an agent through a rebuild; refreshing it here makes `sync` the non-destructive path
   // for a graph edit. Best-effort: unreadable config never fails a sync.
-  const edges = await resolveConfiguredEdgesFor(repoRoot, agent)
-  const edgesUpdated = applyAgentCoordinationEdges(agent, edges)
+  const edges = await resolveConfiguredEdgesFor(repoRoot, state.agents[name])
   // `role` drifts the same way and is worse when it does: a stale role drops the agent out of its
   // `@role` layout slot and resolves its launch config through the wrong profile — both silently.
   const configuredRole = await resolveConfiguredRoleFor(repoRoot, name)
+
+  // Re-read state HERE rather than writing back the copy `syncAgent` loaded, because between that
+  // load and this line sit every SSH round trip the sync just made — seconds, for a remote agent.
+  // `saveState` rewrites the WHOLE file, so a concurrent writer in that window (the server's base
+  // watcher runs this same sweep, and nothing locks state.yaml) had its advances for OTHER agents
+  // silently reverted: `quimby list` then showed a fleet behind that had just been synced, and
+  // syncing one agent alone — a short enough window to win the race — appeared to fix it.
+  const fresh = await loadState(repoRoot)
+  // Removed mid-sync. Writing it back would resurrect it, so leave state alone and report no change.
+  if (!Object.hasOwn(fresh.agents, name)) return false
+  const agent = fresh.agents[name]
+  // Re-applied under the fresh read for the same reason the seed is: `--base` wrote the retarget
+  // before the sync's SSH work, so a concurrent whole-file write during it would drop the retarget
+  // the user just asked for while the agent stayed synced onto the new ref.
+  if (syncRef) agent.syncRef = syncRef
+  if (seedCommit) agent.seedCommit = seedCommit
+  const edgesUpdated = applyAgentCoordinationEdges(agent, edges)
   const roleUpdated = Boolean(configuredRole) && agent.role !== configuredRole
   if (roleUpdated) agent.role = configuredRole
-  await saveState(repoRoot, state)
+  await saveState(repoRoot, fresh)
 
   try {
-    await refreshAgentScaffold(repoRoot, state.id, agent, {
-      ...resolveAgentGraph(state, name),
+    // Rendered from the FRESH roster too, so a peer added during this sync is in the scaffold the
+    // agent gets rather than being refused as "not an agent" until the next one.
+    await refreshAgentScaffold(repoRoot, fresh.id, agent, {
+      ...resolveAgentGraph(fresh, name),
       instructions: await resolveInstructionsFor(repoRoot, agent),
     })
   } catch (err) {

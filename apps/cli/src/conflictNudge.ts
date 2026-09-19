@@ -103,6 +103,14 @@ function deferralNote(deferred: SyncDeferReason | undefined, displayName: string
     )
   }
   if (deferred === 'commits') return ' (it has commits of its own to replay)'
+  if (deferred === 'diverged') {
+    // Nothing the agent can do from its own tree: the target is not a descendant of where it sits,
+    // so neither the nudge's `./agent.sh rebase` nor `--apply` has anything to replay onto.
+    return (
+      ` (its base has diverged, so there is nothing for it to replay — ` +
+      `\`quimby sync ${displayName} --current -f\` retargets and resets it)`
+    )
+  }
   return ''
 }
 

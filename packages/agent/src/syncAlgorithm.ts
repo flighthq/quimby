@@ -120,6 +120,40 @@ export interface SyncAlgorithmResult {
 }
 
 /**
+ * Why a sync left the advance to the agent, and what to do about it — one sentence shared by the
+ * CLI sweep and the server's base watcher.
+ *
+ * It exists because both sites wrote the reason as a two-branch ternary (`'commits'`, else
+ * "uncommitted work") while {@link SyncDeferReason} has THREE members, so a `'diverged'` agent —
+ * whose tree is clean and whose commit count is zero — was reported as having uncommitted work the
+ * user could then go looking for and never find. Keeping the mapping in one exhaustive place is
+ * what stops a fourth reason inheriting the same bug.
+ *
+ * The remedy differs per reason, not just the wording: `--apply` is the way through a dirty tree
+ * or unreplayed commits, and is exactly the wrong suggestion for a diverged base, where nothing
+ * can be replayed onto a target the agent's history does not descend from.
+ */
+export function describeSyncDeferral(
+  name: string,
+  deferred: SyncDeferReason | undefined,
+  commitsReplayed = 0,
+): string {
+  if (deferred === 'diverged') {
+    return (
+      `its base has diverged — the target is not a fast-forward from where it sits, so there is ` +
+      `nothing to replay. "quimby sync ${name} --current -f" retargets and resets it (discards ` +
+      `its work); check the ref still points where you expect first.`
+    )
+  }
+  const what =
+    deferred === 'commits' ? `${commitsReplayed} commit(s) to rebase` : 'uncommitted work'
+  return (
+    `it has ${what}. It applies this itself; "quimby sync ${name} --apply" rebases it from here ` +
+    `(keeps its work), "-f" hard-resets (discards it).`
+  )
+}
+
+/**
  * Bring an agent's repo onto `hostHead`, keeping its work by default: auto-stash a dirty
  * tree, rebase its commits (or fast-forward when it has none), retag the seed, then pop
  * the stash. `force` hard-resets instead. A rebase conflict aborts and restores the

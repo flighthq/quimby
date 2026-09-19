@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const syncAgents = vi.hoisted(() => vi.fn())
 const revParse = vi.hoisted(() => vi.fn())
-vi.mock('@quimbyhq/agent', () => ({ syncAgents }))
+// Partial mock: `describeSyncDeferral` stays real so the test asserts the sentence users see.
+vi.mock('@quimbyhq/agent', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  syncAgents,
+}))
 vi.mock('@quimbyhq/git', () => ({ revParse }))
 
 import { autoDeliverMovedBase, createBaseTipTracker, getWatchedSyncRefs } from './autobase'

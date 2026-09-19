@@ -1,4 +1,4 @@
-import { syncAgents } from '@quimbyhq/agent'
+import { describeSyncDeferral, syncAgents } from '@quimbyhq/agent'
 import * as git from '@quimbyhq/git'
 import type { Reporter } from '@quimbyhq/reporter'
 import { silentReporter } from '@quimbyhq/reporter'
@@ -98,9 +98,8 @@ export async function autoDeliverMovedBase(
   )
   for (const outcome of deferred) {
     reporter.info(
-      `[${outcome.name}] base delivered (${outcome.baseCommit?.slice(0, 8)}) — not applied, it has ` +
-        `${outcome.deferred === 'commits' ? `${outcome.commitsReplayed} commit(s) to rebase` : 'uncommitted work'}. ` +
-        'It applies this itself with `./agent.sh rebase`.',
+      `[${outcome.name}] base delivered (${outcome.baseCommit?.slice(0, 8)}) — not applied, ` +
+        describeSyncDeferral(outcome.name, outcome.deferred, outcome.commitsReplayed),
     )
   }
   for (const outcome of skipped) {

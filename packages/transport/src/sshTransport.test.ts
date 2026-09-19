@@ -86,6 +86,39 @@ describe('SSHTransport', () => {
     expect(args[args.length - 2]).toBe('user@box')
   })
 
+  it('bounds concurrent invocations per host, so an unbounded fan-out cannot exceed MaxSessions', async () => {
+    // A host of its own: gates are memoized per ControlPath, so reusing LOC would pick up a gate
+    // another test already built at the default limit.
+    process.env.QUIMBY_SSH_MAX_CONCURRENCY = '2'
+    const transport = new SSHTransport({ type: 'ssh', host: 'user@gated' })
+    let started = 0
+    let peak = 0
+    const release: (() => void)[] = []
+    execa.mockImplementation(() => {
+      started++
+      peak = Math.max(peak, started)
+      return new Promise((resolve) => {
+        release.push(() => {
+          started--
+          resolve({ stdout: '' })
+        })
+      })
+    })
+
+    const all = Promise.all([1, 2, 3, 4, 5].map((n) => transport.exec(`echo ${n}`)))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(peak).toBe(2)
+
+    // Drain: each release frees exactly one slot, so the peak must never pass the limit.
+    while (release.length > 0) {
+      release.shift()?.()
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    await all
+    expect(peak).toBe(2)
+    delete process.env.QUIMBY_SSH_MAX_CONCURRENCY
+  })
+
   it('writeFile ensures the parent dir and pipes content via stdin', async () => {
     await new SSHTransport(LOC).writeFile('/remote/dir/f.txt', 'hello')
     const [, args, opts] = callsTo('ssh')[0] as [string, string[], { input?: string }]

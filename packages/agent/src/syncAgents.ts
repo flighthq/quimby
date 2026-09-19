@@ -6,6 +6,7 @@ import type { QuimbyState } from '@quimbyhq/types'
 
 import { syncAgent } from './sync'
 import type { SyncDeferReason } from './syncAlgorithm'
+import { describeSyncDeferral } from './syncAlgorithm'
 
 export interface SyncAgentsOptions {
   state: Readonly<QuimbyState>
@@ -142,10 +143,8 @@ export async function syncAgents(
         // up to date" — the seed genuinely did not move, so the check is true and the sentence is a
         // lie. An advance the agent still has to make has to say so.
         reporter.info(
-          `${name}: base delivered (${result.baseCommit.slice(0, 8)}) — not applied, the agent has ` +
-            `${result.deferred === 'commits' ? `${result.commitsReplayed} commit(s) to rebase` : 'uncommitted work'}. ` +
-            `It applies this itself; "quimby sync ${name} --apply" rebases it from here (keeps its ` +
-            `work), "-f" hard-resets (discards it).`,
+          `${name}: base delivered (${result.baseCommit.slice(0, 8)}) — not applied, ` +
+            describeSyncDeferral(name, result.deferred, result.commitsReplayed),
         )
         outcomes.push({
           name,

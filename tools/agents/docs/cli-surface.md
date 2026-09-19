@@ -104,6 +104,7 @@ All flags support `-x` short and `--xxx` long forms:
 - `--attach` (handoff — carry a different agent's diff than the source)
 - `--file` (handoff — attach a host file to the parcel, repeatable. Host → agent only: the files come from your filesystem, so there is nothing coherent to attach them to when the courier is carrying one agent's work to another. A missing path, a directory, a duplicate basename, or a name a parcel already owns (`README.md`, `squashed.diff`, `uncommitted.diff`, `meta.yaml`) all fail before anything is carried)
 - `--code` / `--no-code` (handoff — carry the host's working-tree diff, on by default; `--no-code` sends only the note and any `--file` attachments)
+- `QUIMBY_SSH_MAX_CONCURRENCY` (env var, not a flag — how many SSH/scp/rsync invocations quimby may have in flight against one host at a time; `5` by default. Every transport call for a host shares one ControlMaster connection, so this must stay under the remote's sshd `MaxSessions` (10 by default) or the surplus channels are refused and read as assorted one-off SSH failures. Raise it only alongside `MaxSessions`)
 - `-p` / `--port` (serve, add, set)
 - `--cmd` (run, start, set, add — the agent's entrypoint command; long-form only, so `-c` stays reserved for `--clear`)
 - `-r` / `--runtime` (run, start, set)

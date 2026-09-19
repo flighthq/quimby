@@ -2,7 +2,7 @@ import { SyncConflictError } from '@quimbyhq/errors'
 import { describe, expect, it } from 'vitest'
 
 import type { RepoSyncOps, SyncConflictState } from './syncAlgorithm'
-import { runSyncAlgorithm } from './syncAlgorithm'
+import { describeSyncDeferral, runSyncAlgorithm } from './syncAlgorithm'
 
 // The `agentClean` flag a failed sync throws with — true only when the repo is left safe to
 // capture from (a rolled-back rebase); `merge`'s fallback keys on it.
@@ -93,6 +93,29 @@ function fakeOps(cfg: FakeConfig = {}): { ops: RepoSyncOps; calls: string[] } {
   }
   return { ops, calls }
 }
+
+describe('describeSyncDeferral', () => {
+  it('names a diverged base instead of inventing uncommitted work', () => {
+    const sentence = describeSyncDeferral('builder', 'diverged')
+
+    expect(sentence).toContain('diverged')
+    expect(sentence).not.toContain('uncommitted work')
+    // A diverged base has nothing to replay, so --apply is the wrong remedy to offer.
+    expect(sentence).not.toContain('--apply')
+    expect(sentence).toContain('quimby sync builder --current -f')
+  })
+
+  it('reports the replay count for an agent holding its own commits', () => {
+    const sentence = describeSyncDeferral('builder', 'commits', 3)
+
+    expect(sentence).toContain('3 commit(s) to rebase')
+    expect(sentence).toContain('quimby sync builder --apply')
+  })
+
+  it('reports a dirty tree as uncommitted work', () => {
+    expect(describeSyncDeferral('builder', 'dirty')).toContain('uncommitted work')
+  })
+})
 
 describe('runSyncAlgorithm', () => {
   it('always fetches before touching the working tree', async () => {

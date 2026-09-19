@@ -113,6 +113,65 @@ function withDetail(summary: string, detail: string): string {
   return `${summary}:\n${indented}`
 }
 
+/**
+ * How many SSH operations quimby may have in flight against one host at a time.
+ *
+ * Every transport call for a host shares ONE ControlMaster connection (see the constructor), and
+ * sshd caps the channels a single connection may carry — `MaxSessions`, 10 by default. Nothing in
+ * quimby bounded the fan-out, so an unbounded `Promise.all` over the fleet (the poller's status
+ * pass opens a read plus three work-summary execs per agent) sailed past that ceiling and the
+ * surplus channels were refused by the server, surfacing as assorted one-off SSH failures rather
+ * than as the one cause they share.
+ *
+ * Five leaves headroom under the default ceiling for anything else on the socket. Raise it with
+ * `QUIMBY_SSH_MAX_CONCURRENCY` when the remote's `MaxSessions` is raised to match.
+ */
+function sshConcurrencyLimit(): number {
+  const raw = Number(process.env.QUIMBY_SSH_MAX_CONCURRENCY)
+  return Number.isInteger(raw) && raw > 0 ? raw : 5
+}
+
+/**
+ * A FIFO admission gate, one per ControlMaster socket. `getSSHTransport` mints a fresh transport
+ * per call, so the gates are held here — keyed by the control path, which is what the limit is
+ * really a property of — rather than on the instance.
+ *
+ * `runInteractive` is deliberately NOT gated: it holds its channel for the life of an attached
+ * session, so a slot spent there would never come back.
+ */
+class SshGate {
+  private active = 0
+  private readonly waiting: (() => void)[] = []
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    // A loop, not an `if`: a caller arriving between the release below and this waiter resuming
+    // can take the freed slot, and re-checking is what keeps that from over-admitting.
+    while (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve))
+    }
+    this.active++
+    try {
+      return await fn()
+    } finally {
+      this.active--
+      this.waiting.shift()?.()
+    }
+  }
+}
+
+const sshGates = new Map<string, SshGate>()
+
+function getSshGate(controlPath: string): SshGate {
+  let gate = sshGates.get(controlPath)
+  if (!gate) {
+    gate = new SshGate(sshConcurrencyLimit())
+    sshGates.set(controlPath, gate)
+  }
+  return gate
+}
+
 async function remoteCall<T>(
   tool: 'ssh' | 'scp' | 'rsync',
   host: string,
@@ -131,6 +190,7 @@ export class SSHTransport implements Transport {
   private readonly scpFlags: string[]
   private readonly sshRsyncCmd: string
   private readonly loc: SSHLocation & { host: string }
+  private readonly controlPath: string
 
   constructor(loc: Readonly<SSHLocation>) {
     // A transport only ever operates on a resolved location — an unbound alias
@@ -148,6 +208,7 @@ export class SSHTransport implements Transport {
     const safeHost = loc.host.replace(/[^a-zA-Z0-9._@-]/g, '_').slice(0, 50)
     const portSuffix = loc.port ? `_${loc.port}` : ''
     const controlPath = `/tmp/qb_${safeHost}${portSuffix}`
+    this.controlPath = controlPath
 
     const ctrlFlags = [
       '-o',
@@ -167,9 +228,21 @@ export class SSHTransport implements Transport {
     )
   }
 
+  /**
+   * Run one SSH/scp/rsync invocation under this host's admission gate, so the fleet-wide fan-out
+   * cannot exceed the channels the shared ControlMaster connection is allowed to carry.
+   *
+   * Applied per invocation rather than per method, so a method that opens two channels (say
+   * `syncProjectTo`'s mkdir then rsync) takes and releases a slot for each instead of nesting —
+   * a gate that could be re-entered would deadlock the moment it filled.
+   */
+  private gated<T>(run: () => Promise<T>): Promise<T> {
+    return getSshGate(this.controlPath).run(run)
+  }
+
   async readFile(path: string): Promise<string> {
     const { stdout } = await remoteCall('ssh', this.loc.host, () =>
-      execa('ssh', [...this.sshFlags, this.loc.host, `cat ${sp(path)}`]),
+      this.gated(() => execa('ssh', [...this.sshFlags, this.loc.host, `cat ${sp(path)}`])),
     )
     return stdout
   }
@@ -178,15 +251,19 @@ export class SSHTransport implements Transport {
     // Ensure parent dir exists, then pipe content via stdin to avoid escaping issues.
     const dir = dirname(path)
     await remoteCall('ssh', this.loc.host, () =>
-      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(dir)} && cat > ${sp(path)}`], {
-        input: content,
-      }),
+      this.gated(() =>
+        execa(
+          'ssh',
+          [...this.sshFlags, this.loc.host, `mkdir -p ${sp(dir)} && cat > ${sp(path)}`],
+          { input: content },
+        ),
+      ),
     )
   }
 
   async fileExists(path: string): Promise<boolean> {
     try {
-      await execa('ssh', [...this.sshFlags, this.loc.host, `test -e ${sp(path)}`])
+      await this.gated(() => execa('ssh', [...this.sshFlags, this.loc.host, `test -e ${sp(path)}`]))
       return true
     } catch {
       return false
@@ -195,7 +272,7 @@ export class SSHTransport implements Transport {
 
   async ensureDir(path: string): Promise<void> {
     await remoteCall('ssh', this.loc.host, () =>
-      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(path)}`]),
+      this.gated(() => execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(path)}`])),
     )
   }
 
@@ -205,14 +282,16 @@ export class SSHTransport implements Transport {
       'ssh',
       this.loc.host,
       () =>
-        execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
-          maxBuffer: 256 * 1024 * 1024,
-          stripFinalNewline: false,
-          ...(opts?.input === undefined ? {} : { input: opts.input }),
-          // Interleave stdout+stderr so a failing remote command's real error (which git often
-          // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
-          all: true,
-        }),
+        this.gated(() =>
+          execa('ssh', [...this.sshFlags, this.loc.host, remoteCmd], {
+            maxBuffer: 256 * 1024 * 1024,
+            stripFinalNewline: false,
+            ...(opts?.input === undefined ? {} : { input: opts.input }),
+            // Interleave stdout+stderr so a failing remote command's real error (which git often
+            // writes to stdout) is captured on the thrown error, not swallowed. See sshFailureMessage.
+            all: true,
+          }),
+        ),
       remoteCmd,
     )
     return stdout
@@ -230,7 +309,7 @@ export class SSHTransport implements Transport {
     const missing: string[] = []
     for (const cmd of required) {
       try {
-        await execa('ssh', [...this.sshFlags, this.loc.host, `command -v ${cmd}`])
+        await this.gated(() => execa('ssh', [...this.sshFlags, this.loc.host, `command -v ${cmd}`]))
       } catch (err) {
         const e = err as { code?: string; stderr?: string; shortMessage?: string; message?: string }
         const detail = e.stderr || e.shortMessage || e.message || String(err)
@@ -250,26 +329,30 @@ export class SSHTransport implements Transport {
   /** Copy a file from local to remote using scp. */
   async scpTo(localPath: string, remotePath: string): Promise<void> {
     await remoteCall('scp', this.loc.host, () =>
-      execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${sp(remotePath)}`]),
+      this.gated(() =>
+        execa('scp', [...this.scpFlags, localPath, `${this.loc.host}:${sp(remotePath)}`]),
+      ),
     )
   }
 
   /** Copy a directory from remote to local using rsync. */
   async rsyncFrom(remotePath: string, localPath: string): Promise<void> {
     await remoteCall('rsync', this.loc.host, () =>
-      execa(
-        'rsync',
-        [
-          '-a',
-          '--protect-args',
-          '-e',
-          this.sshRsyncCmd,
-          rsyncRemoteSpec(this.loc.host, remotePath),
-          `${localPath}/`,
-        ],
-        {
-          stdio: 'inherit',
-        },
+      this.gated(() =>
+        execa(
+          'rsync',
+          [
+            '-a',
+            '--protect-args',
+            '-e',
+            this.sshRsyncCmd,
+            rsyncRemoteSpec(this.loc.host, remotePath),
+            `${localPath}/`,
+          ],
+          {
+            stdio: 'inherit',
+          },
+        ),
       ),
     )
   }
@@ -277,19 +360,21 @@ export class SSHTransport implements Transport {
   /** Copy a local directory to a remote path using rsync. */
   async rsyncTo(localPath: string, remotePath: string): Promise<void> {
     await remoteCall('rsync', this.loc.host, () =>
-      execa(
-        'rsync',
-        [
-          '-a',
-          '--protect-args',
-          '-e',
-          this.sshRsyncCmd,
-          `${localPath}/`,
-          rsyncRemoteSpec(this.loc.host, remotePath),
-        ],
-        {
-          stdio: 'inherit',
-        },
+      this.gated(() =>
+        execa(
+          'rsync',
+          [
+            '-a',
+            '--protect-args',
+            '-e',
+            this.sshRsyncCmd,
+            `${localPath}/`,
+            rsyncRemoteSpec(this.loc.host, remotePath),
+          ],
+          {
+            stdio: 'inherit',
+          },
+        ),
       ),
     )
   }
@@ -308,40 +393,44 @@ export class SSHTransport implements Transport {
    */
   async syncProjectTo(localRoot: string, remotePath: string): Promise<void> {
     await remoteCall('ssh', this.loc.host, () =>
-      execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(remotePath)}`]),
+      this.gated(() =>
+        execa('ssh', [...this.sshFlags, this.loc.host, `mkdir -p ${sp(remotePath)}`]),
+      ),
     )
     const excludeFile = await this.writeGitignoreExcludeFile(localRoot)
     try {
       await remoteCall('rsync', this.loc.host, () =>
-        execa(
-          'rsync',
-          [
-            '-av',
-            '--delete',
-            // No trailing slash on `.quimby`: it is frequently a symlink to the
-            // durable data dir (`~/.local/share/quimby/...`), and a `dir/` rsync
-            // pattern matches real directories only — a symlink slips past it, so
-            // `--delete` would prune the remote agent state. Slash-less matches a
-            // directory, symlink, or file, however `.quimby` is materialized.
-            '--exclude=.quimby',
-            '--exclude=node_modules/',
-            '--exclude=dist/',
-            '--exclude=.git/hooks/',
-            '--exclude=flight/',
-            // `--from0` MUST precede `--exclude-from`: rsync only reads a
-            // `-from` file as NUL-delimited when `--from0` is already set at the
-            // moment that file is parsed. Placed after, the NUL-separated file is
-            // read as one newline-delimited line — the whole blob becomes a single
-            // filter rule, which exceeds MAXPATHLEN and is discarded ("overlong
-            // filter"), so nothing is excluded and ignored files sync anyway.
-            ...(excludeFile ? ['--from0', `--exclude-from=${excludeFile}`] : []),
-            '--protect-args',
-            '-e',
-            this.sshRsyncCmd,
-            `${localRoot}/`,
-            rsyncRemoteSpec(this.loc.host, remotePath),
-          ],
-          { stdio: 'inherit' },
+        this.gated(() =>
+          execa(
+            'rsync',
+            [
+              '-av',
+              '--delete',
+              // No trailing slash on `.quimby`: it is frequently a symlink to the
+              // durable data dir (`~/.local/share/quimby/...`), and a `dir/` rsync
+              // pattern matches real directories only — a symlink slips past it, so
+              // `--delete` would prune the remote agent state. Slash-less matches a
+              // directory, symlink, or file, however `.quimby` is materialized.
+              '--exclude=.quimby',
+              '--exclude=node_modules/',
+              '--exclude=dist/',
+              '--exclude=.git/hooks/',
+              '--exclude=flight/',
+              // `--from0` MUST precede `--exclude-from`: rsync only reads a
+              // `-from` file as NUL-delimited when `--from0` is already set at the
+              // moment that file is parsed. Placed after, the NUL-separated file is
+              // read as one newline-delimited line — the whole blob becomes a single
+              // filter rule, which exceeds MAXPATHLEN and is discarded ("overlong
+              // filter"), so nothing is excluded and ignored files sync anyway.
+              ...(excludeFile ? ['--from0', `--exclude-from=${excludeFile}`] : []),
+              '--protect-args',
+              '-e',
+              this.sshRsyncCmd,
+              `${localRoot}/`,
+              rsyncRemoteSpec(this.loc.host, remotePath),
+            ],
+            { stdio: 'inherit' },
+          ),
         ),
       )
     } finally {

@@ -594,6 +594,24 @@ describe('syncAgent', () => {
     expect(transport.syncProjectTo).toHaveBeenCalledTimes(1)
   })
 
+  // The memo is only sound while the host tip holds still, and with auto-integration or an
+  // ordinary mid-sweep commit it does not. A later agent then resolves a target the one memoized
+  // push never carried, its fetch cannot see it, and it falls out as `diverged` with the seed
+  // unadvanced — the "--all left it behind but syncing it alone fixed it" report.
+  it('pushes again when the host tip moves mid-sweep, so a later agent is not left behind', async () => {
+    const { transport } = fakeSSHTransport('')
+    mockedGetSSH.mockReturnValue(transport)
+    await registerSSHAgent('remo1', 'remo1-id', 'oldseed0000')
+    await registerSSHAgent('remo2', 'remo2-id', 'oldseed0000')
+    const syncedProjects = new Set<string>()
+
+    await syncAgent(dir, 'remo1', { syncedProjects })
+    await advanceHost('landed-mid-sweep')
+    await syncAgent(dir, 'remo2', { syncedProjects })
+
+    expect(transport.syncProjectTo).toHaveBeenCalledTimes(2)
+  })
+
   it('pushes the project for every agent when no memo is supplied (single-agent sync)', async () => {
     const { transport } = fakeSSHTransport('')
     mockedGetSSH.mockReturnValue(transport)
@@ -604,6 +622,31 @@ describe('syncAgent', () => {
     await syncAgent(dir, 'remo2')
 
     expect(transport.syncProjectTo).toHaveBeenCalledTimes(2)
+  })
+
+  // `saveState` rewrites the WHOLE file, and the load it writes back sits behind every SSH round
+  // trip the sync just made. A concurrent writer in that window (the server runs this same sweep,
+  // and nothing locks state.yaml) had its advances for OTHER agents silently reverted — a fleet
+  // reported as behind moments after being synced.
+  it('does not clobber a concurrent write to another agent made while it was syncing', async () => {
+    const { transport } = fakeSSHTransport('')
+    await registerSSHAgent('remote', 'remote-id', 'oldseed0000')
+    await registerSSHAgent('peer', 'peer-id', 'oldseed0000')
+    // `syncProjectTo` runs after `syncAgent` has loaded state and well before it writes back, so it
+    // is the real window — this is a second process advancing `peer` mid-sync.
+    vi.mocked(transport.syncProjectTo).mockImplementation(async () => {
+      const concurrent = await loadState(dir)
+      concurrent.agents.peer.seedCommit = 'advanced-by-the-other-sweep'
+      await saveState(dir, concurrent)
+    })
+    mockedGetSSH.mockReturnValue(transport)
+
+    await syncAgent(dir, 'remote')
+
+    const after = await loadState(dir)
+    expect(after.agents.peer.seedCommit).toBe('advanced-by-the-other-sweep')
+    // …and this agent's own advance still landed.
+    expect(after.agents.remote.seedCommit).not.toBe('oldseed0000')
   })
 
   it('drives the remote git commands over transport for an SSH agent (no local commits)', async () => {
