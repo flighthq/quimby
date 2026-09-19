@@ -46,7 +46,7 @@ services:
 
 layouts:
   default:
-    expr: (review | builder):80 / (host $serve):20
+    expr: (review | (@builder)):80 / (host $serve):20
 
 default: default
 
