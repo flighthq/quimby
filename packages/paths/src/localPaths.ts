@@ -128,8 +128,16 @@ export function getLocksDir(repoRoot: string): string {
   return join(repoRoot, '.quimby', 'locks')
 }
 
+export function getAgentSyncLockDir(repoRoot: string, key: string): string {
+  return join(getLocksDir(repoRoot), `${key}.sync.lock`)
+}
+
 export function getParcelLockDir(repoRoot: string, key: string): string {
   return join(getLocksDir(repoRoot), `${key}.lock`)
+}
+
+export function getProjectPushLockDir(repoRoot: string, key: string): string {
+  return join(getLocksDir(repoRoot), `${key}.push.lock`)
 }
 
 export function getStagingHandoffDir(repoRoot: string, name: string): string {

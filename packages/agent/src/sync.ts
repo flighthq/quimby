@@ -9,6 +9,8 @@ import {
   getAgentHandoffInProcessedLedgerPath,
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
+  getAgentSyncLockDir,
+  getProjectPushLockDir,
   QUIMBY_DIRNAME,
   remoteAgentDir,
   remoteAgentHandoffInOpenedLedgerPath,
@@ -24,6 +26,7 @@ import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport } from '@quimbyhq/transport'
 import type { AgentCoordinationEdges, AgentState, QuimbyState } from '@quimbyhq/types'
 import { isSSH } from '@quimbyhq/types'
+import { withDirLock } from '@quimbyhq/utils'
 import {
   loadQuimbyConfig,
   loadState,
@@ -203,7 +206,45 @@ export async function rebaseAgentOntoBase(
   return result
 }
 
+/**
+ * Sync one agent, holding an exclusive cross-process lock on it for the whole operation.
+ *
+ * Two quimby processes routinely drive the same agent clone: `quimby serve`'s base watcher runs
+ * this exact sweep whenever the host tip moves, and that is the moment a user is most likely to
+ * type `quimby sync` themselves. Both then run git in one repo, and git's ref updates are
+ * compare-and-swap — so the loser dies with `cannot lock ref 'refs/tags/quimby/seed': is at <new>
+ * but expected <old>` and the agent is recorded as `skipped`, having in fact been synced perfectly
+ * well by the winner. The lock is keyed by agent NAME, which is unique within a workspace and is
+ * what the parcel lock beside it already keys on.
+ *
+ * It WAITS rather than yielding, unlike {@link withParcelLock}. That lock's reason for yielding is
+ * specific to parcels — waiting would hand the loser a draft the winner had already drained — and
+ * has no counterpart here: the algorithm re-reads the agent's own seed and HEAD as ground truth, so
+ * a sync that waits its turn correctly reports `reconciled` instead of redoing anything. Yielding
+ * would instead leave a command the user explicitly typed having silently done nothing.
+ */
 export async function syncAgent(
+  repoRoot: string,
+  name: string,
+  opts?: Parameters<typeof syncAgentUnlocked>[2],
+): Promise<Awaited<ReturnType<typeof syncAgentUnlocked>>> {
+  const waitMs = opts?.lockWaitMs ?? LOCK_WAIT_MS
+  const held = await withDirLock(
+    getAgentSyncLockDir(repoRoot, sanitizeLockKey(name)),
+    () => syncAgentUnlocked(repoRoot, name, opts),
+    { waitMs },
+  )
+  if (held === null) {
+    throw new QuimbyError(
+      `Agent "${name}" is being synced by another quimby process (a running "quimby serve" ` +
+        `delivers the base whenever the host tip moves) and it did not finish within ` +
+        `${Math.round(waitMs / 1000)}s. Nothing was changed — re-run once it settles.`,
+    )
+  }
+  return held
+}
+
+async function syncAgentUnlocked(
   repoRoot: string,
   name: string,
   opts?: {
@@ -226,6 +267,11 @@ export async function syncAgent(
      * Omitted (a single-agent sync) means always push, so one-agent behaviour is unchanged.
      */
     syncedProjects?: Set<string>
+    /**
+     * How long to wait for another quimby process to finish with this agent before giving up.
+     * Defaults to {@link LOCK_WAIT_MS}; a caller that must not block passes something shorter.
+     */
+    lockWaitMs?: number
     /**
      * Where a best-effort step narrates a failure it will not throw for (the scaffold refresh).
      * Silent by default so existing callers are unchanged; `syncAgents` passes the command's.
@@ -278,12 +324,25 @@ export async function syncAgent(
     // always pushes). A fleet on one unmoving tip still pushes exactly once.
     const pushed = `${destination}\u0000${hostHead}`
     if (!opts?.syncedProjects?.has(pushed)) {
-      await transport.syncProjectTo(repoRoot, projectRoot)
+      // The memo is per-process; the destination is shared by every agent on the host AND by any
+      // other quimby process. Two concurrent `rsync --delete` runs into one project root is the
+      // worst of the overlaps available here, since it is the `origin` every agent clone fetches
+      // from. Locked by destination, always inside the agent lock and never the other way round,
+      // so the two can't deadlock.
+      await withDirLock(
+        getProjectPushLockDir(repoRoot, sanitizeLockKey(destination)),
+        () => transport.syncProjectTo(repoRoot, projectRoot),
+        { waitMs: LOCK_WAIT_MS },
+      )
       opts?.syncedProjects?.add(pushed)
     }
-    ops = remoteSyncOps(transport, remoteAgentRepoDir(state.id, agent.id, agent.location.base))
+    ops = remoteSyncOps(
+      transport,
+      remoteAgentRepoDir(state.id, agent.id, agent.location.base),
+      hostHead,
+    )
   } else {
-    ops = localSyncOps(getAgentRepoDir(repoRoot, agent.id))
+    ops = localSyncOps(getAgentRepoDir(repoRoot, agent.id), hostHead)
   }
 
   let result
@@ -563,9 +622,19 @@ async function resolveInstructionsFor(
 }
 
 /** Drive the sync algorithm against a local agent clone via the git CLI. */
-function localSyncOps(repoDir: string): RepoSyncOps {
+function localSyncOps(repoDir: string, hostHead: string): RepoSyncOps {
   return {
-    fetch: () => git.fetch(repoDir, 'origin'),
+    fetch: async () => {
+      try {
+        await git.fetch(repoDir, 'origin')
+      } catch (err) {
+        // A fetch that could not update `refs/remotes/origin/<ref>` because it is ALREADY at the
+        // commit we came for has done its job; only the bookkeeping raced. Decided by asking git
+        // what it holds, never by reading the error text — the same rule the sync's conflict
+        // handling follows.
+        if (!(await hasCommitLocally(repoDir, hostHead))) throw err
+      }
+    },
     countCommitsSinceSeed: async () =>
       (await git.log(repoDir, 'quimby/seed..HEAD', '%H')).split('\n').filter(Boolean).length,
     resolveSeedCommit: () => git.revParse(repoDir, 'quimby/seed').catch(() => null),
@@ -588,14 +657,14 @@ function localSyncOps(repoDir: string): RepoSyncOps {
       await git.rebaseAbort(repoDir)
       return !(await git.isRebaseOrAmInProgress(repoDir))
     },
-    tagSeed: (commit) => git.tagForce(repoDir, 'quimby/seed', commit),
-    tagBase: (commit) => git.tagForce(repoDir, 'quimby/base', commit),
+    tagSeed: (commit) => tolerateSettledTag(repoDir, 'quimby/seed', commit),
+    tagBase: (commit) => tolerateSettledTag(repoDir, 'quimby/base', commit),
     stashPop: () => git.stashPop(repoDir),
   }
 }
 
 /** Drive the sync algorithm against an SSH agent's remote clone via `git` over transport. */
-function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
+function remoteSyncOps(transport: SSHTransport, rRepoDir: string, hostHead: string): RepoSyncOps {
   const cwd = { cwd: rRepoDir }
   // Mirrors git.isRebaseOrAmInProgress: a rebase marks progress with a rebase-merge/rebase-apply
   // dir (resolved via --git-path so it holds for worktrees), neither being a single ref to verify.
@@ -603,7 +672,10 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
     '[ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]'
   return {
     fetch: async () => {
-      await transport.exec(`git fetch origin`, cwd)
+      // `|| git cat-file -e <head>^{commit}` keeps this one round trip: the fetch is allowed to
+      // fail so long as the commit it was fetching is already present, which is exactly what a
+      // lost ref-update race leaves behind.
+      await transport.exec(`git fetch origin || git cat-file -e ${hostHead}^{commit}`, cwd)
     },
     countCommitsSinceSeed: async () =>
       (await transport.exec(`git log quimby/seed..HEAD --format=%H`, cwd))
@@ -653,10 +725,10 @@ function remoteSyncOps(transport: SSHTransport, rRepoDir: string): RepoSyncOps {
       return out.trim() === 'no'
     },
     tagSeed: async (commit) => {
-      await transport.exec(`git tag -f quimby/seed ${commit}`, cwd)
+      await transport.exec(remoteTolerantTag('quimby/seed', commit), cwd)
     },
     tagBase: async (commit) => {
-      await transport.exec(`git tag -f quimby/base ${commit}`, cwd)
+      await transport.exec(remoteTolerantTag('quimby/base', commit), cwd)
     },
     stashPop: async () => {
       await transport.exec(`git stash pop`, cwd)
@@ -706,6 +778,40 @@ async function readOpenedLedger(path: string): Promise<Set<string>> {
   )
 }
 
+/**
+ * Move a tag, treating "it is already exactly there" as success.
+ *
+ * The agent is a live process in this repo and it moves `quimby/seed` itself when it applies a
+ * delivered base (`./agent.sh rebase`) — which is the design's intent, not a misbehaviour. Git's
+ * ref update is compare-and-swap, so a host sync landing in that window dies with `cannot lock ref
+ * 'refs/tags/quimby/seed': is at <new> but expected <old>` and the agent is reported as skipped,
+ * when in truth both parties wanted the tag in the same place and one of them got there first. No
+ * lock can close this one: the racer is inside the sandbox.
+ */
+async function tolerateSettledTag(repoDir: string, tag: string, commit: string): Promise<void> {
+  try {
+    await git.tagForce(repoDir, tag, commit)
+  } catch (err) {
+    const at = await git.revParse(repoDir, tag).catch(() => null)
+    if (at !== commit) throw err
+  }
+}
+
+/** The remote twin of {@link tolerateSettledTag}, as one round trip. */
+function remoteTolerantTag(tag: string, commit: string): string {
+  return (
+    `git tag -f ${tag} ${commit} || ` + `[ "$(git rev-parse ${tag} 2>/dev/null)" = "${commit}" ]`
+  )
+}
+
+/** Whether `commit` is an object this clone already holds, however it got there. */
+async function hasCommitLocally(repoDir: string, commit: string): Promise<boolean> {
+  return git
+    .revParse(repoDir, `${commit}^{commit}`)
+    .then(() => true)
+    .catch(() => false)
+}
+
 /** Sum a `git diff --numstat` block (remote SSH path) into file/insertion/deletion counts. */
 function parseNumstat(numstat: string): { files: number; insertions: number; deletions: number } {
   let files = 0
@@ -721,3 +827,15 @@ function parseNumstat(numstat: string): { files: number; insertions: number; del
   }
   return { files, insertions, deletions }
 }
+
+/** A lock key safe as a single path segment, so a name can never escape the locks dir. */
+function sanitizeLockKey(key: string): string {
+  return key.replace(/[^A-Za-z0-9_-]/g, '_')
+}
+
+/**
+ * How long a sync waits for another quimby process to finish with the same agent. Generous enough
+ * to cover a full remote sync (project rsync included) and still bounded, so a wedged holder
+ * reports rather than hanging the command.
+ */
+const LOCK_WAIT_MS = 90_000

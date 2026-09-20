@@ -7,6 +7,7 @@ import {
   getAgentHandoffInProcessedDir,
   getAgentHandoffOutSentDir,
   getAgentRepoDir,
+  getAgentSyncLockDir,
 } from '@quimbyhq/paths'
 import { silentReporter } from '@quimbyhq/reporter'
 import type { SSHTransport } from '@quimbyhq/transport'
@@ -72,10 +73,18 @@ async function registerSSHAgent(name: string, id: string, seedCommit: string): P
   await saveState(dir, state)
 }
 
+// Lets one test make `git tag -f` fail the way a lost compare-and-swap does, while every other
+// test keeps the real implementation.
+const tagForceFailure = vi.hoisted(() => ({ error: null as Error | null }))
+
 vi.mock('@quimbyhq/git', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = (await importOriginal()) as { tagForce: (...a: unknown[]) => Promise<void> }
   return {
     ...(actual as object),
+    tagForce: vi.fn(async (...args: unknown[]) => {
+      if (tagForceFailure.error) throw tagForceFailure.error
+      return actual.tagForce(...args)
+    }),
     clone: vi.fn(async (_url: string, dest: string) => {
       await mkdir(dest, { recursive: true })
       await execa('git', ['init'], { cwd: dest })
@@ -130,6 +139,7 @@ async function advanceHost(label: string): Promise<string> {
 }
 
 beforeEach(async () => {
+  tagForceFailure.error = null
   dir = join(tmpdir(), `quimby-sync-${crypto.randomUUID()}`)
   await setupGitRepo(dir)
   await ensureWorkspace(dir)
@@ -649,6 +659,70 @@ describe('syncAgent', () => {
     expect(after.agents.remote.seedCommit).not.toBe('oldseed0000')
   })
 
+  // `quimby serve`'s base watcher runs this exact sweep whenever the host tip moves, which is the
+  // moment a user is most likely to type `quimby sync` too. Git ref updates are compare-and-swap,
+  // so the loser died with `cannot lock ref 'refs/tags/quimby/seed': is at <new> but expected
+  // <old>` and was reported as skipped, having in fact been synced fine by the winner.
+  it('holds an exclusive lock on the agent for the whole sync', async () => {
+    const { transport } = fakeSSHTransport('')
+    await registerSSHAgent('remote', 'remote-id', 'oldseed0000')
+    let heldDuringPush = false
+    // The push runs inside the agent lock, so it is a point the lock must already be taken at.
+    vi.mocked(transport.syncProjectTo).mockImplementation(async () => {
+      heldDuringPush = await exists(getAgentSyncLockDir(dir, 'remote'))
+    })
+    mockedGetSSH.mockReturnValue(transport)
+
+    await syncAgent(dir, 'remote')
+
+    expect(heldDuringPush).toBe(true)
+    // …and released afterwards, or the next sync would wait out the full timeout for nothing.
+    expect(await exists(getAgentSyncLockDir(dir, 'remote'))).toBe(false)
+  })
+
+  it('reports contention plainly when another process holds the agent, rather than half-syncing', async () => {
+    const { transport } = fakeSSHTransport('')
+    await registerSSHAgent('remote', 'remote-id', 'oldseed0000')
+    mockedGetSSH.mockReturnValue(transport)
+    // Stand in for a `quimby serve` poll cycle already syncing this agent.
+    await mkdir(getAgentSyncLockDir(dir, 'remote'), { recursive: true })
+
+    await expect(syncAgent(dir, 'remote', { lockWaitMs: 50 })).rejects.toThrow(
+      /being synced by another quimby process/,
+    )
+
+    expect(transport.syncProjectTo).not.toHaveBeenCalled()
+  })
+
+  // The agent is a live process in its own repo and moves `quimby/seed` itself when it applies a
+  // delivered base. That racer is inside the sandbox, so no host-side lock can exclude it — the
+  // tag move has to treat "already exactly where I wanted it" as success.
+  it('treats a tag move that lost the race, but landed where it wanted, as success', async () => {
+    await registerLocalAgentClone('review', 'review-id')
+    const head = await advanceHost('feature')
+    const repoDir = getAgentRepoDir(dir, 'review-id')
+    // `./agent.sh rebase` got there first: the tag is already at the target, and the host's own
+    // `git tag -f` racing that dies with "cannot lock ref".
+    await execa('git', ['fetch', 'origin'], { cwd: repoDir })
+    await execa('git', ['tag', '-f', 'quimby/seed', head], { cwd: repoDir })
+    await execa('git', ['tag', '-f', 'quimby/base', head], { cwd: repoDir })
+    tagForceFailure.error = new Error(
+      `cannot lock ref 'refs/tags/quimby/seed': is at ${head} but expected 3db6cf2c`,
+    )
+
+    const result = await syncAgent(dir, 'review')
+
+    expect(result.newSeed).toBe(head)
+  })
+
+  it('still fails a tag move that neither landed nor was already where it wanted', async () => {
+    await registerLocalAgentClone('review', 'review-id')
+    await advanceHost('feature')
+    tagForceFailure.error = new Error('cannot lock ref: unable to write')
+
+    await expect(syncAgent(dir, 'review')).rejects.toThrow('unable to write')
+  })
+
   it('drives the remote git commands over transport for an SSH agent (no local commits)', async () => {
     const { transport, calls } = fakeSSHTransport('') // no commits past seed
     mockedGetSSH.mockReturnValue(transport)
@@ -667,15 +741,21 @@ describe('syncAgent', () => {
     })
     expect(transport.syncProjectTo).toHaveBeenCalled()
     // exact remote command strings the algorithm's remote adapter must issue
-    expect(calls).toContain('git fetch origin')
     expect(calls).toContain('git log quimby/seed..HEAD --format=%H')
     expect(calls).toContain('git status --porcelain')
+    // The fetch carries its own fallback: a fetch that could not update origin/<ref> because it is
+    // ALREADY at the commit we came for has done its job, and only the bookkeeping raced.
+    expect(calls.some((c) => c.startsWith('git fetch origin'))).toBe(true)
+    expect(calls.some((c) => c.includes(`git cat-file -e ${head}^{commit}`))).toBe(true)
     // the routine advance is a fast-forward, never a reset — a reset would overwrite a
     // concurrent edit with no trace
     expect(calls.some((c) => c.includes(`git merge --ff-only ${head}`))).toBe(true)
     expect(calls.some((c) => c.startsWith('git reset --hard'))).toBe(false)
-    expect(calls).toContain(`git tag -f quimby/seed ${head}`)
-    expect(calls).toContain(`git tag -f quimby/base ${head}`)
+    // Both tag moves tolerate losing the compare-and-swap to the agent applying the base itself,
+    // so long as the tag ends up exactly where this sync wanted it.
+    expect(calls.some((c) => c.startsWith(`git tag -f quimby/seed ${head}`))).toBe(true)
+    expect(calls.some((c) => c.startsWith(`git tag -f quimby/base ${head}`))).toBe(true)
+    expect(calls.some((c) => c.includes(`[ "$(git rev-parse quimby/seed`))).toBe(true)
     // no local commits → fast-forward, never a rebase
     expect(calls.some((c) => c.startsWith('git rebase'))).toBe(false)
   })

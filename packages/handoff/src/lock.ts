@@ -1,7 +1,5 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
-
-import { getLocksDir, getParcelLockDir } from '@quimbyhq/paths'
-import { join } from 'pathe'
+import { getParcelLockDir } from '@quimbyhq/paths'
+import { withDirLock } from '@quimbyhq/utils'
 
 /**
  * Run `fn` holding an exclusive, **cross-process** lock on one parcel, or report that someone else
@@ -24,58 +22,10 @@ export async function withParcelLock<T>(
   key: string,
   fn: () => Promise<T>,
 ): Promise<T | null> {
-  const lockDir = getParcelLockDir(repoRoot, sanitizeLockKey(key))
-  if (!(await acquire(lockDir, getLocksDir(repoRoot)))) return null
-  try {
-    return await fn()
-  } finally {
-    await rm(lockDir, { recursive: true, force: true }).catch(() => {})
-  }
+  return withDirLock(getParcelLockDir(repoRoot, sanitizeLockKey(key)), fn)
 }
 
 /** A lock key safe as a single path segment, so an agent name can never escape the locks dir. */
 export function sanitizeLockKey(key: string): string {
   return key.replace(/[^A-Za-z0-9_-]/g, '_')
 }
-
-async function acquire(lockDir: string, locksRoot: string): Promise<boolean> {
-  await mkdir(locksRoot, { recursive: true }).catch(() => {})
-  if (await tryMkdir(lockDir)) return true
-  // A single retry, and only to reclaim an abandoned lock. Deliberately NOT a wait-for-the-holder
-  // loop: waiting would let a second carry of the same parcel start the moment the first finished,
-  // against an outbox draft the first has already drained — turning a clean yield into a confusing
-  // "draft not found" failure. Yielding costs one poll cycle and nothing else.
-  if (!(await takeOverIfStale(lockDir))) return false
-  return tryMkdir(lockDir)
-}
-
-async function tryMkdir(lockDir: string): Promise<boolean> {
-  // `mkdir` without `recursive` is the atomic test-and-set: it throws EEXIST if the directory is
-  // already there, so exactly one caller can win, with no read-then-write window to race in.
-  try {
-    await mkdir(lockDir)
-    await writeFile(join(lockDir, 'owner'), `${process.pid}\n`).catch(() => {})
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Reclaim a lock whose holder died. Without this a crash mid-carry wedges that parcel forever —
- * strictly worse than the race the lock prevents, since the race is recoverable and a wedge is not.
- * The age bound is deliberately far longer than any real carry, so a slow rsync is never stolen.
- */
-async function takeOverIfStale(lockDir: string): Promise<boolean> {
-  try {
-    const age = Date.now() - (await stat(lockDir)).mtimeMs
-    if (age < STALE_AFTER_MS) return false
-    await rm(lockDir, { recursive: true, force: true })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** A lock older than this is treated as abandoned by a crashed process. */
-const STALE_AFTER_MS = 15 * 60 * 1000

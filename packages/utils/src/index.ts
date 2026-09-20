@@ -1,4 +1,5 @@
 export * from './duration'
 export * from './fs'
+export * from './lock'
 export { logger } from './logger'
 export * from './yaml'
