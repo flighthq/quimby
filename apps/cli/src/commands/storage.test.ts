@@ -186,6 +186,47 @@ describe('runStorageListRemoteCommand', () => {
     expect(out).toContain('clean-remote --host remote')
   })
 
+  it('prints each workspace as soon as it is measured, not behind a slower one', async () => {
+    loadState.mockResolvedValue({ id: 'active-id' })
+    listRemoteWorkspaces.mockResolvedValue([
+      { id: 'slow0000', sourceRepo: 'https://x/slow' },
+      { id: 'fast0000', sourceRepo: 'https://x/fast' },
+    ])
+    scanRemoteWorkspaceUsage.mockImplementation(async (_loc: unknown, id: string) => {
+      await new Promise((r) => setTimeout(r, id.startsWith('slow') ? 40 : 1))
+      return quietUsage(id)
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageListRemoteCommand({ args: { host: 'remote', size: false } })
+    restore()
+    const out = lines.join('\n')
+    expect(out.indexOf('fast [fast0000]')).toBeLessThan(out.indexOf('slow [slow0000]'))
+  })
+
+  it('says which workspaces it is still measuring when it has been quiet a while', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    try {
+      loadState.mockResolvedValue({ id: 'active-id' })
+      listRemoteWorkspaces.mockResolvedValue([
+        { id: 'huge0000', sourceRepo: 'https://x/flight-rs-new' },
+      ])
+      let finish: (v: unknown) => void = () => {}
+      scanRemoteWorkspaceUsage.mockImplementation(
+        () => new Promise((resolve) => (finish = () => resolve(quietUsage('huge0000')))),
+      )
+      const { lines, restore } = captureLogs()
+      const run = runStorageListRemoteCommand({ args: { host: 'remote' } })
+      await vi.waitFor(() => expect(scanRemoteWorkspaceUsage).toHaveBeenCalled())
+      vi.advanceTimersByTime(20_000)
+      finish(undefined)
+      await run
+      restore()
+      expect(lines.join('\n')).toContain('…still measuring flight-rs-new [huge0000] (0 of 1 done)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('marks a claimed workspace whose local checkout is gone, and hints at dormant ones', async () => {
     loadState.mockResolvedValue({ id: 'active-id' })
     listStorageWorkspaces.mockResolvedValue([

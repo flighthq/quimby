@@ -1,8 +1,41 @@
 import { describe, expect, it } from 'vitest'
 
-import { mapConcurrentInOrder } from './concurrency'
+import { mapConcurrentAsCompleted, mapConcurrentInOrder } from './concurrency'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+describe('mapConcurrentAsCompleted', () => {
+  it('emits each result as it finishes, so one slow item holds nothing back', async () => {
+    const order: number[] = []
+    const out = await mapConcurrentAsCompleted(
+      [40, 5, 10],
+      3,
+      async (ms) => {
+        await sleep(ms)
+        return ms
+      },
+      (ms) => void order.push(ms),
+    )
+    expect(order).toEqual([5, 10, 40])
+    // The returned array is still in input order.
+    expect(out).toEqual([40, 5, 10])
+  })
+
+  it('serializes emits even when they are async', async () => {
+    const log: string[] = []
+    await mapConcurrentAsCompleted(
+      [1, 2],
+      2,
+      async (n) => n,
+      async (n) => {
+        log.push(`start ${n}`)
+        await sleep(5)
+        log.push(`end ${n}`)
+      },
+    )
+    expect(log).toEqual(['start 1', 'end 1', 'start 2', 'end 2'])
+  })
+})
 
 describe('mapConcurrentInOrder', () => {
   it('emits in input order even when later items finish first', async () => {

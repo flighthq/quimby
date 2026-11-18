@@ -195,20 +195,28 @@ describe('parseRemoteDiskUsage', () => {
 
 describe('parseRemoteWorkspaceUsage', () => {
   it('ignores noise, drops nested repos and protected paths, and sorts reclaimable by size', () => {
+    const R = '/h/.quimby/workspaces/w'
     const out = [
       'motd line',
-      'QBIG\tag1\t10\t0\tsmall',
-      'QBIG\tag1\t500\t0\ttarget',
-      'QBIG\tag1\t99\t1\tvendor',
-      'QBIG\tag1\t7\t0\tsecrets',
-      'QBAG\tag1\t1700000000\t3\t-',
-      'QBTOT\t2048',
+      `QBIG\tag1\t0\tsmall`,
+      `QBIG\tag1\t0\ttarget`,
+      `QBIG\tag1\t1\tvendor`,
+      `QBIG\tag1\t0\tsecrets`,
+      'QBAG\tag1\t1700000000\t3\t-\tbuilder4',
+      `QBROOT\t${R}`,
+      'QBDEDUP',
+      `QBDU\t10\t${R}/.quimby/agents/ag1/repo/small`,
+      `QBDU\t500\t${R}/.quimby/agents/ag1/repo/target`,
+      `QBDU\t7\t${R}/.quimby/agents/ag1/repo/secrets`,
+      `QBDU\t1531\t${R}`,
     ].join('\n')
     const u = parseRemoteWorkspaceUsage('w', out, new Set(['qb-ag1']))
-    expect(u.sizeKb).toBe(2048)
+    // A deduping du prints the workspace as its remainder, so the total is every line summed.
+    expect(u.sizeKb).toBe(10 + 500 + 7 + 1531)
     expect(u.agents).toEqual([
       {
         id: 'ag1',
+        name: 'builder4',
         lastActiveAt: 1_700_000_000_000,
         commitsSinceSeed: 3,
         live: true,
@@ -218,6 +226,18 @@ describe('parseRemoteWorkspaceUsage', () => {
         ],
       },
     ])
+  })
+
+  it('reads the workspace line alone as the total when du does not dedupe', () => {
+    const R = '/h/w'
+    const out = [
+      `QBROOT\t${R}`,
+      'QBAG\ta\t0\t0\t0\t',
+      `QBIG\ta\t0\tt`,
+      `QBDU\t9\t${R}/.quimby/agents/a/repo/t`,
+      `QBDU\t20\t${R}`,
+    ].join('\n')
+    expect(parseRemoteWorkspaceUsage('w', out, new Set()).sizeKb).toBe(20)
   })
 
   it('reports a workspace that vanished between listing and scanning', () => {
@@ -319,6 +339,26 @@ describe('scanRemoteWorkspaceUsage', () => {
     // target/ is offered; .env is a file, secrets/ is protected, vendor/ is a nested repo.
     expect(agent.reclaimable.map((d) => d.path)).toEqual(['target'])
     expect(agent.reclaimable[0].sizeKb).toBeGreaterThanOrEqual(64)
+  })
+
+  it('totals the workspace exactly as one du of it would, while walking it once', async () => {
+    await makeAgentRepo()
+    const ws = join(fakeHome.dir, '.quimby/workspaces', WS)
+    const { stdout } = await execa('du', ['-sk', ws])
+    const u = await scanRemoteWorkspaceUsage(location, WS, { sizes: true, liveSessions: new Set() })
+    expect(u.sizeKb).toBe(Number(stdout.split('\t')[0]))
+  })
+
+  it('sizes only the build directories when no total is asked for', async () => {
+    await makeAgentRepo()
+    const u = await scanRemoteWorkspaceUsage(location, WS, {
+      sizes: true,
+      total: false,
+      liveSessions: new Set(),
+    })
+    expect(u.sizeKb).toBeUndefined()
+    expect(u.agents[0].reclaimable[0].path).toBe('target')
+    expect(u.agents[0].reclaimable[0].sizeKb).toBeGreaterThanOrEqual(64)
   })
 
   it('skips the du walk when sizes are not asked for', async () => {

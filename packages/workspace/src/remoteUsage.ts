@@ -194,8 +194,10 @@ export function parseRemoteWorkspaceUsage(
   liveSessions: ReadonlySet<string>,
 ): RemoteWorkspaceUsage {
   const agents = new Map<string, RemoteAgentUsage>()
-  const reclaimable = new Map<string, RemoteReclaimableDir[]>()
-  let sizeKb: number | undefined
+  const candidates = new Map<string, string[]>()
+  const duLines: { kb: number; path: string }[] = []
+  let root: string | undefined
+  let dedupes = false
   let present = true
   for (const line of stdout.split('\n')) {
     const parts = line.split('\t')
@@ -203,9 +205,17 @@ export function parseRemoteWorkspaceUsage(
       case 'QBGONE':
         present = false
         break
-      case 'QBTOT': {
+      case 'QBROOT':
+        root = parts.slice(1).join('\t')
+        break
+      case 'QBDEDUP':
+        dedupes = true
+        break
+      case 'QBDU': {
+        // `du` prints "<kb>\t<path>"; the path is last and rejoined so a tab in a name cannot shift it.
         const kb = Number(parts[1])
-        if (parts[1] && Number.isFinite(kb)) sizeKb = kb
+        const path = parts.slice(2).join('\t')
+        if (parts[1] && Number.isFinite(kb) && path) duLines.push({ kb, path })
         break
       }
       case 'QBAG': {
@@ -224,22 +234,36 @@ export function parseRemoteWorkspaceUsage(
         break
       }
       case 'QBIG': {
-        // The path is last and rejoined, so a tab inside a directory name cannot shift fields.
-        const [, agentId, kb, nestedRepo, ...rest] = parts
+        const [, agentId, nestedRepo, ...rest] = parts
         const path = rest.join('\t')
         // A nested repository is someone's checkout, not build output, whatever .gitignore says.
         if (!agentId || nestedRepo === '1' || !isReclaimableIgnoredPath(path)) break
-        const list = reclaimable.get(agentId) ?? []
-        list.push({ path, sizeKb: Number(kb) || 0 })
-        reclaimable.set(agentId, list)
+        candidates.set(agentId, [...(candidates.get(agentId) ?? []), path])
         break
       }
     }
   }
-  for (const [agentId, dirs] of reclaimable) {
+  const sizeOf = new Map(duLines.map((line) => [line.path, line.kb]))
+  for (const [agentId, paths] of candidates) {
     const agent = agents.get(agentId)
-    if (agent) agent.reclaimable = dirs.sort((a, b) => b.sizeKb - a.sizeKb)
+    if (!agent || root === undefined) continue
+    agent.reclaimable = paths
+      .map((path) => ({
+        path,
+        sizeKb: sizeOf.get(`${root}/.quimby/agents/${agentId}/repo/${path}`),
+      }))
+      .filter((dir): dir is RemoteReclaimableDir => dir.sizeKb !== undefined)
+      .sort((a, b) => b.sizeKb - a.sizeKb)
   }
+  // With a deduping `du` the workspace line is only the remainder, so the total is every line; with
+  // one that does not, the workspace line already counts everything on its own.
+  const rootKb = root === undefined ? undefined : sizeOf.get(root)
+  const sizeKb =
+    rootKb === undefined
+      ? undefined
+      : dedupes
+        ? duLines.reduce((sum, line) => sum + line.kb, 0)
+        : rootKb
   return {
     id,
     present,
@@ -342,10 +366,18 @@ export function remoteSandboxShellRunner(
 export async function scanRemoteWorkspaceUsage(
   location: Readonly<SSHLocation & { host: string }>,
   id: string,
-  opts: Readonly<{ sizes?: boolean; liveSessions?: ReadonlySet<string> }> = {},
+  opts: Readonly<{
+    sizes?: boolean
+    /** With `sizes`, also total the whole workspace (default true). Cleaning needs only the build dirs. */
+    total?: boolean
+    liveSessions?: ReadonlySet<string>
+  }> = {},
 ): Promise<RemoteWorkspaceUsage> {
   const live = opts.liveSessions ?? (await listRemoteLiveSessions(location))
-  const out = await getSSHTransport(location).exec(remoteUsageScanScript(id, opts.sizes ?? false))
+  const sizes = opts.sizes ?? false
+  const out = await getSSHTransport(location).exec(
+    remoteUsageScanScript(id, sizes, sizes && (opts.total ?? true)),
+  )
   return parseRemoteWorkspaceUsage(id, out, live)
 }
 
@@ -452,20 +484,41 @@ function parseMinFreePercent(value: string | number | undefined): number | null 
 // Rows are tab-delimited and tag-prefixed so shell noise (a login banner, a `du` warning) can
 // never parse as data. Every git read is guarded so a failure leaves `-` (unknown) rather than a
 // `0` that would read as "nothing here" — the unsafe direction for anything deciding deletions.
-function remoteUsageScanScript(id: string, sizes: boolean): string {
+//
+// Sizing is ONE `du` invocation per workspace, over every build directory and then (for a total)
+// the workspace itself. `du` counts each file once across its arguments, so the workspace's line is
+// just the remainder and the build trees — almost all of the bytes — are walked once. Sizing each
+// directory and then the whole workspace separately walked them twice, on exactly the hosts where
+// that walk is the entire cost. A tiny probe confirms this `du` dedupes; if one ever does not, its
+// workspace line is a full total on its own, and the parser reads it that way instead.
+function remoteUsageScanScript(id: string, sizes: boolean, total: boolean): string {
   const ignoredDirs = sizes
     ? [
         'git -C "$r" -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory 2>/dev/null |',
         'while IFS= read -r p; do case "$p" in */)',
-        'kb=$(du -sk "$r/$p" 2>/dev/null | cut -f1);',
-        'n=0; [ -e "$r/$p.git" ] && n=1;',
-        `printf 'QBIG\\t%s\\t%s\\t%s\\t%s\\n' "$aid" "\${kb:-0}" "$n" "\${p%/}";;`,
+        'p=${p%/}; n=0; [ -e "$r/$p/.git" ] && n=1;',
+        `printf 'QBIG\\t%s\\t%s\\t%s\\n' "$aid" "$n" "$p";`,
+        // A nested repository is never offered, so it is not measured apart either — its bytes
+        // stay in the workspace remainder.
+        '[ "$n" = 0 ] && printf "%s\\n" "$r/$p" >> "$tf";;',
         'esac; done;',
+      ]
+    : []
+  const measure = sizes
+    ? [
+        `printf 'QBROOT\\t%s\\n' "$ws";`,
+        'q=$(mktemp -d 2>/dev/null) && { mkdir "$q/s" && head -c 65536 /dev/zero > "$q/s/f";',
+        `[ "$(du -sk "$q/s" "$q" 2>/dev/null | sed -n '2s/\\t.*//p')" -lt "$(du -sk "$q/s" 2>/dev/null | cut -f1)" ] && printf 'QBDEDUP\\n';`,
+        'rm -rf "$q"; };',
+        'set --; while IFS= read -r x; do set -- "$@" "$x"; done < "$tf"; rm -f "$tf";',
+        ...(total ? ['set -- "$@" "$ws";'] : []),
+        `[ $# -gt 0 ] && du -sk -- "$@" 2>/dev/null | while IFS= read -r line; do printf 'QBDU\\t%s\\n' "$line"; done;`,
       ]
     : []
   return [
     `ws="$HOME/.quimby/workspaces/"${sq(id)};`,
     `[ -d "$ws" ] || { printf 'QBGONE\\n'; exit 0; };`,
+    ...(sizes ? ['tf=$(mktemp 2>/dev/null || echo "/tmp/qbdu.$$"); : > "$tf";'] : []),
     'mt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; };',
     'for a in "$ws"/.quimby/agents/*; do',
     '[ -d "$a" ] || continue; aid=${a##*/}; r="$a/repo"; t=0;',
@@ -484,7 +537,8 @@ function remoteUsageScanScript(id: string, sizes: boolean): string {
     `nm=$(sed -n '1s/^You are \\*\\*\\([^*]*\\)\\*\\*.*/\\1/p' "$a/CLAUDE.md" "$a/AGENTS.md" 2>/dev/null | head -n 1);`,
     `printf 'QBAG\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$aid" "$t" "$c" "$d" "$nm";`,
     'done;',
-    ...(sizes ? [`printf 'QBTOT\\t%s\\n' "$(du -sk "$ws" 2>/dev/null | cut -f1)";`] : []),
+    ...measure,
+    'true',
   ].join(' ')
 }
 

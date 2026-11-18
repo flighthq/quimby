@@ -14,7 +14,7 @@ import {
   formatByteSizeKb,
   formatDuration,
   logger,
-  mapConcurrentInOrder,
+  mapConcurrentAsCompleted,
   parseDuration,
 } from '@quimbyhq/utils'
 import type { RemoteDiskUsage, RemoteWorkspaceOwnership } from '@quimbyhq/workspace'
@@ -346,17 +346,19 @@ export async function runStorageCleanRemoteCommand({
     return
   }
   logger.info(
-    `Measuring build output in ${targets.length} workspace(s), ${SCAN_CONCURRENCY} at a time — ` +
-      'each is printed as it lands.',
+    `Measuring build output in ${targets.length} workspace(s) — each is printed as soon as it is ` +
+      'measured, so the order follows size, not the list.',
   )
   let freedKb = 0
   let skippedKb = 0
-  await mapConcurrentInOrder(
+  await scanWithProgress(
     targets,
-    SCAN_CONCURRENCY,
     async (workspace) => {
+      // Only the build directories are measured: cleaning needs no workspace total, and skipping it
+      // skips walking everything else in the workspace.
       const usage = await scanRemoteWorkspaceUsage(location, workspace.id, {
         sizes: true,
+        total: false,
         liveSessions: overview.liveSessions,
       })
       let workspaceKb = 0
@@ -472,18 +474,17 @@ export async function runStorageListRemoteCommand({
   }
   logger.info(
     sizes
-      ? `Measuring ${workspaces.length} workspace(s), ${SCAN_CONCURRENCY} at a time — sizes walk every ` +
-          'build tree, so a large host takes a while; each is printed as it lands (--no-size is fast).'
-      : `Checking ${workspaces.length} workspace(s), ${SCAN_CONCURRENCY} at a time…`,
+      ? `Measuring ${workspaces.length} workspace(s) — sizes walk every build tree, so a large host ` +
+          'takes a while; each is printed as soon as it is measured (--no-size is fast).'
+      : `Checking ${workspaces.length} workspace(s)…`,
   )
   const now = Date.now()
   let totalKb = 0
   let reclaimableKb = 0
   let unclaimedKb = 0
   const dormant: string[] = []
-  await mapConcurrentInOrder(
+  await scanWithProgress(
     workspaces,
-    SCAN_CONCURRENCY,
     (workspace) =>
       scanRemoteWorkspaceUsage(location, workspace.id, {
         sizes,
@@ -593,13 +594,9 @@ export async function runStoragePruneRemoteCommand({
       : `Preview — nothing will be deleted (add --force to delete). Reading "${args.host}"…`,
   )
   const overview = await getRemoteHostOverview(location)
-  logger.info(
-    `Checking ${overview.workspaces.length} workspace(s) for activity and unlanded work, ` +
-      `${SCAN_CONCURRENCY} at a time…`,
-  )
-  const entries = await mapConcurrentInOrder(
+  logger.info(`Checking ${overview.workspaces.length} workspace(s) for activity and unlanded work…`)
+  const entries = await scanWithProgress(
     overview.workspaces,
-    SCAN_CONCURRENCY,
     async (workspace) => ({
       id: workspace.id,
       ...(workspace.sourceRepo ? { sourceRepo: workspace.sourceRepo } : {}),
@@ -629,9 +626,8 @@ export async function runStoragePruneRemoteCommand({
   let removedKb = 0
   // Measure only what is offered — sizing the whole host is the slow part of every listing. A kept
   // one is measured too: its size is what tells you whether it is worth a closer look.
-  await mapConcurrentInOrder(
+  await scanWithProgress(
     candidates,
-    SCAN_CONCURRENCY,
     async (candidate) =>
       (
         await scanRemoteWorkspaceUsage(location, candidate.id, {
@@ -834,6 +830,52 @@ function reportRemoteDisk(
   )
 }
 
+/**
+ * Scan workspaces SCAN_CONCURRENCY at a time, handing each result to `emit` as soon as it is done,
+ * and say which ones are still running whenever nothing has been printed for a while. Ordered output
+ * held every finished row behind the slowest workspace — a long silence, then a burst — and on a
+ * host where one workspace takes minutes to `du`, silence is indistinguishable from a hang.
+ */
+async function scanWithProgress<T extends { id: string; sourceRepo?: string }, R>(
+  items: readonly T[],
+  scan: (item: T) => Promise<R>,
+  emit: (result: R, item: T) => void | Promise<void>,
+): Promise<R[]> {
+  const running = new Set<T>()
+  let done = 0
+  let lastOutput = Date.now()
+  const timer = setInterval(() => {
+    if (running.size === 0 || Date.now() - lastOutput < PROGRESS_QUIET_MS) return
+    lastOutput = Date.now()
+    logger.info(
+      `…still measuring ${[...running].map(describeRemoteWorkspace).join(', ')} ` +
+        `(${done} of ${items.length} done)`,
+    )
+  }, PROGRESS_TICK_MS)
+  timer.unref?.()
+  try {
+    return await mapConcurrentAsCompleted(
+      items,
+      SCAN_CONCURRENCY,
+      async (item) => {
+        running.add(item)
+        try {
+          return await scan(item)
+        } finally {
+          running.delete(item)
+          done++
+        }
+      },
+      async (result, item) => {
+        await emit(result, item)
+        lastOutput = Date.now()
+      },
+    )
+  } finally {
+    clearInterval(timer)
+  }
+}
+
 // A workspace is named by its repository and told apart by a short id — the prefix that `--id` and
 // `remove-remote` accept, so what a listing prints is also what a command takes.
 function describeRemoteWorkspace(workspace: { id: string; sourceRepo?: string }): string {
@@ -900,6 +942,10 @@ async function resolveRemoteStorageContext(host: string): Promise<{
 // channel budget the transport's own gate enforces); three keeps the first rows arriving early
 // without piling `du` walks onto a host whose disk is the bottleneck.
 const SCAN_CONCURRENCY = 3
+
+// Progress is said only after this long without other output, and checked this often.
+const PROGRESS_QUIET_MS = 15_000
+const PROGRESS_TICK_MS = 2_500
 
 // When `list-remote` starts pointing at dormant lanes. A hint threshold, not a policy — the
 // sweep itself always takes an explicit --idle.

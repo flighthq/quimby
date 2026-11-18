@@ -1,4 +1,34 @@
 /**
+ * Run `fn` over `items` with at most `limit` in flight, handing each result to `emit` the moment it
+ * finishes. For output that should stream steadily when item durations vary wildly: ordered
+ * emission (below) holds every finished row behind the slowest one still ahead of it, which reads
+ * as a long stall followed by a burst. Results are returned in input order.
+ */
+export async function mapConcurrentAsCompleted<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  emit: (result: R, item: T, index: number) => void | Promise<void>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  // Emits are chained so a slow or async emit never interleaves with the next one's output.
+  let emitting: Promise<void> = Promise.resolve()
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++
+      const result = await fn(items[index], index)
+      results[index] = result
+      emitting = emitting.then(() => emit(result, items[index], index))
+      await emitting
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker))
+  await emitting
+  return results
+}
+
+/**
  * Run `fn` over `items` with at most `limit` in flight, handing each result to `emit` in INPUT
  * order as soon as it and everything before it are done. For listings that should stream: the
  * first row prints when the first item finishes, not when the slowest one does, and the output
