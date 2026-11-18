@@ -34,12 +34,14 @@ import {
   getRemoteWorkspaceUnlandedWork,
   isReclaimableIgnoredPath,
   isValidStorageMinFree,
+  listRemoteAgentIds,
   parseRemoteDiskUsage,
   parseRemoteWorkspaceUsage,
   remoteDiskWarning,
   removeRemoteReclaimableDirs,
   resolveStorageMinFreeKb,
   scanRemoteWorkspaceUsage,
+  selectOrphanSandboxes,
   selectRemoteWorkspacePruneCandidates,
 } from './remoteUsage'
 
@@ -152,6 +154,20 @@ describe('isValidStorageMinFree', () => {
     expect(isValidStorageMinFree(50)).toBe(true)
     expect(isValidStorageMinFree('150%')).toBe(false)
     expect(isValidStorageMinFree('plenty')).toBe(false)
+  })
+})
+
+describe('listRemoteAgentIds', () => {
+  it('collects agent dir names across every workspace on the host', async () => {
+    await makeAgentRepo()
+    await mkdir(join(fakeHome.dir, '.quimby/workspaces/ws-2/.quimby/agents/other-agent'), {
+      recursive: true,
+    })
+    expect([...(await listRemoteAgentIds(location))].sort()).toEqual([AGENT, 'other-agent'])
+  })
+
+  it('is empty, not an error, on a host with no workspaces', async () => {
+    expect((await listRemoteAgentIds(location)).size).toBe(0)
   })
 })
 
@@ -320,6 +336,23 @@ describe('scanRemoteWorkspaceUsage', () => {
     await execa('git', ['tag', '-d', 'quimby/seed'], { cwd: repo })
     const u = await scanRemoteWorkspaceUsage(location, WS, { liveSessions: new Set() })
     expect(u.agents[0].commitsSinceSeed).toBeUndefined()
+  })
+})
+
+describe('selectOrphanSandboxes', () => {
+  const sbx = (name: string) => ({ cli: 'sbx' as const, name })
+
+  it('keeps sandboxes an agent dir or a live session accounts for', () => {
+    const out = selectOrphanSandboxes(
+      [
+        sbx('qb-abcdef12-0123456789ab'),
+        sbx('qb-11111111-0123456789ab'),
+        sbx('qb-22222222-0123456789ab'),
+      ],
+      new Set([AGENT]),
+      new Set(['qb-11111111']),
+    )
+    expect(out.map((s) => s.name)).toEqual(['qb-22222222-0123456789ab'])
   })
 })
 

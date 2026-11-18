@@ -1,9 +1,15 @@
 import type { SandboxShellRunner } from '@quimbyhq/runtimes'
-import { localSandboxShellRunner, sweepAgentSandboxes } from '@quimbyhq/runtimes'
-import { getSSHTransport } from '@quimbyhq/transport'
-import type { AgentState } from '@quimbyhq/types'
+import {
+  localSandboxShellRunner,
+  sandboxRemoveCommand,
+  sweepAgentSandboxes,
+} from '@quimbyhq/runtimes'
+import type { AgentState, QuimbyState } from '@quimbyhq/types'
 import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
 import { logger } from '@quimbyhq/utils'
+import { remoteSandboxShellRunner } from '@quimbyhq/workspace'
+
+import { ensureAgentConnections } from './hostAlias'
 
 /**
  * Remove every runtime sandbox (sbx/openshell) belonging to an agent, on the machine where it
@@ -31,8 +37,7 @@ export async function teardownAgentSandbox(opts: {
       logger.warn(`Couldn't check for "${name}"'s sandbox — its host alias is unbound.`)
       return
     }
-    const transport = getSSHTransport(location)
-    run = (script, input) => transport.exec(script, input === undefined ? {} : { input })
+    run = remoteSandboxShellRunner(location)
   } else {
     run = localSandboxShellRunner()
   }
@@ -44,9 +49,7 @@ export async function teardownAgentSandbox(opts: {
     if (failed.length > 0) {
       logger.warn(
         `Couldn't remove ${failed.length} sandbox(es) for "${name}" on ${where}: ` +
-          failed
-            .map((s) => `\`${s.cli === 'sbx' ? 'sbx rm' : 'openshell sandbox rm'} ${s.name}\``)
-            .join(', '),
+          failed.map((s) => `\`${sandboxRemoveCommand(s)}\``).join(', '),
       )
     }
   } catch (err) {
@@ -54,5 +57,27 @@ export async function teardownAgentSandbox(opts: {
       `Couldn't check for "${name}"'s sandbox on ${where} (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — ` +
         'it may be left behind; `quimby storage clean-remote --sandboxes` finds orphans later.',
     )
+  }
+}
+
+/**
+ * Resolve an SSH agent's host alias in place before removing it, returning whether the host is
+ * addressable. An alias that cannot be bound here (non-interactive, nothing configured) is reported
+ * and answers false, so removal can still drop the agent from state — `remove` tolerates an
+ * unreachable host by design, and an unbound one is the same situation from the user's side.
+ */
+export async function resolveForTeardown(
+  repoRoot: string,
+  state: Readonly<QuimbyState>,
+  name: string,
+): Promise<boolean> {
+  try {
+    await ensureAgentConnections(repoRoot, state, [name])
+    return true
+  } catch (err) {
+    logger.warn(
+      `Couldn't resolve "${name}"'s host: ${err instanceof Error ? err.message : String(err)}`,
+    )
+    return false
   }
 }

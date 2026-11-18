@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const listStorageWorkspaces = vi.hoisted(() => vi.fn())
 const pruneStorageWorkspaces = vi.hoisted(() => vi.fn())
-const pruneRemoteWorkspaces = vi.hoisted(() => vi.fn())
 const removeStorageWorkspace = vi.hoisted(() => vi.fn())
 const resolveWorkspace = vi.hoisted(() => vi.fn())
 const loadState = vi.hoisted(() => vi.fn())
@@ -12,6 +11,24 @@ const removeRemoteWorkspace = vi.hoisted(() => vi.fn())
 const scanRemoteWorkspaceUsage = vi.hoisted(() => vi.fn())
 const listRemoteLiveSessions = vi.hoisted(() => vi.fn(async () => new Set<string>()))
 const getRemoteDiskUsage = vi.hoisted(() => vi.fn(async () => null))
+const listQuimbySandboxes = vi.hoisted(() =>
+  vi.fn(async (..._a: unknown[]) => ({
+    clis: [] as string[],
+    sandboxes: [] as { cli: string; name: string }[],
+  })),
+)
+const removeQuimbySandboxes = vi.hoisted(() =>
+  vi.fn(async (_run: unknown, list: { cli: string; name: string }[]) => ({
+    removed: list,
+    failed: [],
+  })),
+)
+const listRemoteAgentIds = vi.hoisted(() => vi.fn(async () => new Set<string>()))
+vi.mock('@quimbyhq/runtimes', async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  listQuimbySandboxes,
+  removeQuimbySandboxes,
+}))
 const removeRemoteReclaimableDirs = vi.hoisted(() =>
   vi.fn(async (..._a: unknown[]) => ({ removed: ['target'], live: false })),
 )
@@ -26,7 +43,6 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   listStorageWorkspaces,
   pruneStorageWorkspaces,
-  pruneRemoteWorkspaces,
   removeStorageWorkspace,
   resolveWorkspace,
   loadState,
@@ -36,6 +52,8 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   listRemoteLiveSessions,
   getRemoteDiskUsage,
   removeRemoteReclaimableDirs,
+  listRemoteAgentIds,
+  remoteSandboxShellRunner: () => async () => '',
   loadQuimbyConfig: vi.fn(async () => ({ hosts: { remote: { type: 'ssh', host: 'user@box' } } })),
 }))
 
@@ -51,7 +69,6 @@ import cmd, {
 } from './storage'
 
 beforeEach(() => {
-  pruneRemoteWorkspaces.mockReset()
   loadState.mockReset()
   listRemoteWorkspaces.mockReset()
   removeRemoteWorkspace.mockReset()
@@ -60,7 +77,12 @@ beforeEach(() => {
   scanRemoteWorkspaceUsage.mockReset()
   scanRemoteWorkspaceUsage.mockImplementation(async (_loc: unknown, id: string) => quietUsage(id))
   removeRemoteReclaimableDirs.mockClear()
+  removeQuimbySandboxes.mockClear()
+  listQuimbySandboxes.mockResolvedValue({ clis: [], sandboxes: [] })
+  removeRemoteWorkspace.mockResolvedValue({ removed: true, sandboxes: NO_SANDBOXES })
 })
+
+const NO_SANDBOXES = { clis: [], removed: [], failed: [] }
 
 // Idle long enough to clear clean-remote's default --min-idle 1h.
 const RECENT = Date.now() - 2 * 86_400_000
@@ -297,6 +319,43 @@ describe('runStorageCleanRemoteCommand', () => {
     ).rejects.toThrow(/not a duration/)
   })
 
+  it('--sandboxes previews orphans — no agent dir, no live session — and removes them with --force', async () => {
+    scanRemoteWorkspaceUsage.mockResolvedValue(quietUsage('w1'))
+    listRemoteAgentIds.mockResolvedValue(new Set(['aaaaaaaa-0000']))
+    listRemoteLiveSessions.mockResolvedValue(new Set(['qb-cccccccc']))
+    listQuimbySandboxes.mockResolvedValue({
+      clis: ['sbx'],
+      sandboxes: [
+        { cli: 'sbx', name: 'qb-aaaaaaaa-0123456789ab' }, // owned by an agent dir
+        { cli: 'sbx', name: 'qb-bbbbbbbb-0123456789ab' }, // orphan
+        { cli: 'sbx', name: 'qb-cccccccc-0123456789ab' }, // live session protects it
+      ],
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', sandboxes: true } })
+    expect(removeQuimbySandboxes).not.toHaveBeenCalled()
+    expect(lines.join('\n')).toContain('would remove sbx sandbox qb-bbbbbbbb-0123456789ab')
+
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', sandboxes: true, force: true } })
+    restore()
+    expect(removeQuimbySandboxes).toHaveBeenCalledWith(expect.anything(), [
+      { cli: 'sbx', name: 'qb-bbbbbbbb-0123456789ab' },
+    ])
+    listRemoteLiveSessions.mockResolvedValue(new Set())
+  })
+
+  it('--sandboxes still runs on a host with no workspaces left — where orphans pile up', async () => {
+    listRemoteWorkspaces.mockResolvedValue([])
+    listQuimbySandboxes.mockResolvedValue({
+      clis: ['sbx'],
+      sandboxes: [{ cli: 'sbx', name: 'qb-bbbbbbbb-0123456789ab' }],
+    })
+    const { restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', sandboxes: true, force: true } })
+    restore()
+    expect(removeQuimbySandboxes).toHaveBeenCalled()
+  })
+
   it('scopes to one workspace with --id, skipping the host listing', async () => {
     scanRemoteWorkspaceUsage.mockResolvedValue(quietUsage('only'))
     const { restore } = captureLogs()
@@ -402,7 +461,7 @@ describe('runStorageRemoveCommand', () => {
   })
 
   it('removes one workspace when forced', async () => {
-    removeStorageWorkspace.mockResolvedValueOnce(true)
+    removeStorageWorkspace.mockResolvedValueOnce({ existed: true, sandboxes: NO_SANDBOXES })
 
     await runStorageRemoveCommand({ args: { id: 'proj-id', force: true } })
 
@@ -430,9 +489,25 @@ describe('runStorageRemoveRemoteCommand', () => {
 
   it('removes a non-active workspace on the named host', async () => {
     loadState.mockResolvedValue({ id: 'active-id' })
-    removeRemoteWorkspace.mockResolvedValue(true)
+    removeRemoteWorkspace.mockResolvedValue({ removed: true, sandboxes: NO_SANDBOXES })
     await runStorageRemoveRemoteCommand({ args: { id: 'other-id', host: 'remote', force: true } })
     expect(removeRemoteWorkspace).toHaveBeenCalledWith(expect.anything(), 'other-id')
+  })
+
+  it('names a sandbox it could not remove, with the command to finish the job', async () => {
+    loadState.mockResolvedValue({ id: 'active-id' })
+    removeRemoteWorkspace.mockResolvedValue({
+      removed: true,
+      sandboxes: {
+        clis: ['sbx'],
+        removed: [],
+        failed: [{ cli: 'sbx', name: 'qb-bbbbbbbb-0123456789ab' }],
+      },
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageRemoveRemoteCommand({ args: { id: 'other-id', host: 'remote', force: true } })
+    restore()
+    expect(lines.join('\n')).toContain('sbx rm qb-bbbbbbbb-0123456789ab')
   })
 
   it('refuses a workspace with a live session', async () => {
@@ -452,7 +527,7 @@ describe('runStorageRemoveRemoteCommand', () => {
     ).rejects.toThrow(/4 commit\(s\)/)
     expect(removeRemoteWorkspace).not.toHaveBeenCalled()
 
-    removeRemoteWorkspace.mockResolvedValue(true)
+    removeRemoteWorkspace.mockResolvedValue({ removed: true, sandboxes: NO_SANDBOXES })
     await runStorageRemoveRemoteCommand({
       args: { id: 'other-id', host: 'remote', force: true, 'discard-work': true },
     })

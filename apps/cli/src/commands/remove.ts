@@ -6,7 +6,7 @@ import { logger } from '@quimbyhq/utils'
 import { loadState, resolveWorkspace, saveState } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
-import { teardownAgentSandbox } from '../agentTeardown'
+import { resolveForTeardown, teardownAgentSandbox } from '../agentTeardown'
 
 export default defineCommand({
   meta: {
@@ -46,19 +46,25 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
     return
   }
 
+  // Resolve a host alias to its address first: state stores the alias by reference, so without
+  // this the session kill, the sandbox sweep and the remote `rm -rf` all had no host to reach —
+  // every alias-backed SSH agent was removed from state while everything on the host stayed.
+  const remoteReachable = await resolveForTeardown(repoRoot, state, args.agent)
+
   // Tear the live tmux session down before deleting the dir, so removing a running agent
   // doesn't leave an orphaned process pointing at a directory that no longer exists.
   await killAgentSession(agent)
 
   // Tear down the runtime sandbox (sbx/openshell); a `local` runtime no-ops. For an SSH agent
   // this runs on the remote host over the transport, so the sandbox is cleaned up where it lives.
-  await teardownAgentSandbox({ agent, name: args.agent })
+  if (remoteReachable) await teardownAgentSandbox({ agent, name: args.agent })
 
   // Attempt full removal, including the remote `rm -rf` for an SSH agent. If the host is
   // unreachable the remote teardown fails — tolerate it: remove the local state anyway so an
   // agent on a dead host can still be cleaned up (no separate skip-remote flag needed).
   try {
-    await removeAgent(repoRoot, args.agent)
+    if (!remoteReachable) throw new QuimbyError('host alias unresolved')
+    await removeAgent(repoRoot, args.agent, { location: agent.location })
     logger.success(`Agent "${args.agent}" removed`)
   } catch (err) {
     if (!isSSH(agent.location)) throw err

@@ -1,5 +1,9 @@
+import type { SandboxSweepResult } from '@quimbyhq/runtimes'
+import { sweepAgentSandboxes } from '@quimbyhq/runtimes'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
+
+import { remoteSandboxShellRunner } from './remoteUsage'
 
 /** One workspace directory found under `~/.quimby/workspaces` on a remote host. */
 export interface RemoteWorkspaceInfo {
@@ -39,21 +43,29 @@ export async function listRemoteWorkspaces(
 }
 
 /**
- * Remove one remote workspace by id, returning whether it was there. The remote twin of
- * `removeStorageWorkspace`, so a listing can be acted on entry by entry instead of only through
- * `prune-remote`'s whole-subset sweep.
+ * Remove one remote workspace by id: its agents' runtime sandboxes first, then the directory. The
+ * remote twin of `removeStorageWorkspace`, so a listing can be acted on entry by entry.
+ *
+ * Sandboxes go first because they are named by agent id and the agent ids are read from the
+ * directory — delete the directory first and nothing left on the host says which sandboxes were
+ * this workspace's. That ordering is the whole reason removing a workspace used to leak them.
  */
 export async function removeRemoteWorkspace(
   location: Readonly<SSHLocation & { host: string }>,
   id: string,
-): Promise<boolean> {
+): Promise<{ removed: boolean; sandboxes: SandboxSweepResult }> {
   const transport = getSSHTransport(location)
   const path = `$HOME/.quimby/workspaces/${sq(id)}`
+  const agentIds = (await transport.exec(`ls -1 ${path}/.quimby/agents 2>/dev/null || true`))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const sandboxes = await sweepAgentSandboxes(remoteSandboxShellRunner(location), agentIds)
   // Report presence from the same invocation that removes it, so the answer cannot be a stale read.
   const out = await transport.exec(
     `if [ -d ${path} ]; then rm -rf ${path} && printf REMOVED; else printf ABSENT; fi`,
   )
-  return out.trim() === 'REMOVED'
+  return { removed: out.trim() === 'REMOVED', sandboxes }
 }
 
 export function parseRemoteWorkspaces(stdout: string): RemoteWorkspaceInfo[] {

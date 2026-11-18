@@ -126,7 +126,16 @@ export function generateAgentName(taken: ReadonlySet<string>, base: string): str
   }
 }
 
-export async function rebuildAgent(repoRoot: string, name: string): Promise<void> {
+/**
+ * `opts.location` is the agent's SSH location already resolved to an address. State stores a host
+ * ALIAS by reference (resolved from config at launch), so the stored location alone has no host to
+ * connect to — the caller resolves it, as every launch path does.
+ */
+export async function rebuildAgent(
+  repoRoot: string,
+  name: string,
+  opts: Readonly<{ location?: AgentLocation }> = {},
+): Promise<void> {
   const state = await loadState(repoRoot)
 
   if (!Object.hasOwn(state.agents, name)) {
@@ -134,12 +143,13 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   }
 
   const agent = state.agents[name]
+  const location = opts.location ?? agent.location
 
-  if (isSSH(agent.location)) {
-    const transport = getSSHTransport(agent.location)
-    const rRoot = remoteProjectRoot(state.id, agent.location.base)
-    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
-    const rRepoDir = remoteAgentRepoDir(state.id, agent.id, agent.location.base)
+  if (isSSH(location)) {
+    const transport = getSSHTransport(location)
+    const rRoot = remoteProjectRoot(state.id, location.base)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, location.base)
+    const rRepoDir = remoteAgentRepoDir(state.id, agent.id, location.base)
 
     await transport.syncProjectTo(repoRoot, rRoot)
     // Empty the mailbox in place — remove parcels within each tray but keep the tray directories
@@ -188,7 +198,12 @@ export async function rebuildAgent(repoRoot: string, name: string): Promise<void
   })
 }
 
-export async function removeAgent(repoRoot: string, name: string): Promise<void> {
+/** `opts.location`: the resolved SSH location, for the same reason as `rebuildAgent`'s. */
+export async function removeAgent(
+  repoRoot: string,
+  name: string,
+  opts: Readonly<{ location?: AgentLocation }> = {},
+): Promise<void> {
   const state = await loadState(repoRoot)
 
   if (!Object.hasOwn(state.agents, name)) {
@@ -196,10 +211,11 @@ export async function removeAgent(repoRoot: string, name: string): Promise<void>
   }
 
   const agent = state.agents[name]
+  const location = opts.location ?? agent.location
 
-  if (isSSH(agent.location)) {
-    const transport = getSSHTransport(agent.location)
-    const rAgentDir = remoteAgentDir(state.id, agent.id, agent.location.base)
+  if (isSSH(location)) {
+    const transport = getSSHTransport(location)
+    const rAgentDir = remoteAgentDir(state.id, agent.id, location.base)
     await transport.exec(`rm -rf ${sp(rAgentDir)}`)
   } else {
     const agentDir = getAgentDir(repoRoot, agent.id)

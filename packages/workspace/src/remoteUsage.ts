@@ -1,4 +1,6 @@
 import { tmuxSessionName } from '@quimbyhq/paths'
+import type { QuimbySandbox, SandboxShellRunner } from '@quimbyhq/runtimes'
+import { getSandboxAgentPrefix } from '@quimbyhq/runtimes'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { QuimbyConfig, SSHLocation } from '@quimbyhq/types'
 import { formatByteSizeKb, formatDuration, parseByteSizeKb } from '@quimbyhq/utils'
@@ -138,6 +140,21 @@ export function isReclaimableIgnoredPath(path: string): boolean {
     if (PROTECTED_SEGMENTS.some((pattern) => pattern.test(segment))) return false
   }
   return true
+}
+
+/** Every agent id with a directory in any workspace on the host. */
+export async function listRemoteAgentIds(
+  location: Readonly<SSHLocation & { host: string }>,
+): Promise<Set<string>> {
+  const out = await getSSHTransport(location).exec(
+    `for d in "$HOME"/.quimby/workspaces/*/.quimby/agents/*; do [ -d "$d" ] && printf '%s\\n' "\${d##*/}"; done; true`,
+  )
+  return new Set(
+    out
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean),
+  )
 }
 
 /** Session names on the host's quimby tmux socket — an agent with one is live. */
@@ -304,6 +321,14 @@ export function isValidStorageMinFree(value: string | number | undefined): boole
   )
 }
 
+/** Run sandbox sweep scripts on an SSH host (the sandboxes of a remote agent live there). */
+export function remoteSandboxShellRunner(
+  location: Readonly<SSHLocation & { host: string }>,
+): SandboxShellRunner {
+  const transport = getSSHTransport(location)
+  return (script, input) => transport.exec(script, input === undefined ? {} : { input })
+}
+
 /**
  * Measure one remote workspace: per agent, its last activity, its unlanded work and whether it is
  * live; with `sizes`, also the workspace total and each agent's reclaimable ignored directories.
@@ -366,6 +391,27 @@ export function selectRemoteWorkspacePruneCandidates(
     })
   }
   return out
+}
+
+/**
+ * Sandboxes on a host that no agent there owns: no workspace holds an agent dir with their id
+ * prefix, and no live session carries it. That is the residue of a teardown that missed — the old
+ * one recomputed the wrong name, skipped role-backed agents, and never ran for a deleted workspace.
+ *
+ * Evidence, not proof: an agent provisioned under a custom `--host user@box:/path` base lives
+ * outside `~/.quimby/workspaces` and would read as an orphan here, which is why removal is opt-in
+ * and a live session always protects.
+ */
+export function selectOrphanSandboxes(
+  sandboxes: readonly QuimbySandbox[],
+  knownAgentIds: ReadonlySet<string>,
+  liveSessions: ReadonlySet<string>,
+): QuimbySandbox[] {
+  const known = new Set([...knownAgentIds].map((id) => id.slice(0, 8).toLowerCase()))
+  return sandboxes.filter((sandbox) => {
+    const prefix = getSandboxAgentPrefix(sandbox.name)
+    return prefix !== null && !known.has(prefix) && !liveSessions.has(`qb-${prefix}`)
+  })
 }
 
 function blockReason(usage: Readonly<RemoteWorkspaceUsage>): { blocked?: string } {

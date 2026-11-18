@@ -6,6 +6,7 @@ import { loadState, resolveWorkspace } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
 
 import { teardownAgentSandbox } from '../agentTeardown'
+import { ensureAgentConnections } from '../hostAlias'
 
 export default defineCommand({
   meta: {
@@ -74,10 +75,13 @@ export async function runRebuildCommand({
   // agent is attached to the sandbox/session created against the *old* repo; sbx reuses a
   // sandbox by name, so without removing it the next `run` would show the stale, pre-rebuild
   // tree instead of the fresh clone. Both steps are best-effort and cover SSH agents too.
+  // A host alias is stored by reference; resolve it (prompting if unbound) before anything below
+  // needs to reach the host — rebuild cannot proceed without one, unlike remove.
+  await ensureAgentConnections(repoRoot, state, [args.agent])
   await killAgentSession(agent)
   await teardownAgentSandbox({ agent, name: args.agent })
 
-  await rebuildAgent(repoRoot, args.agent)
+  await rebuildAgent(repoRoot, args.agent, { location: agent.location })
 
   const newState = await loadState(repoRoot)
   const newSeed = newState.agents[args.agent].seedCommit

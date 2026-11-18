@@ -1,7 +1,7 @@
 import type { SSHLocation } from '@quimbyhq/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const exec = vi.hoisted(() => vi.fn(async (_cmd: string) => ''))
+const exec = vi.hoisted(() => vi.fn(async (_cmd: string, _opts?: { input?: string }) => ''))
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   getSSHTransport: () => ({ exec }),
@@ -58,22 +58,59 @@ describe('parseRemoteWorkspaces', () => {
 })
 
 describe('removeRemoteWorkspace', () => {
+  // Answers each of the calls a removal makes: the agent listing, the sandbox listing, the sandbox
+  // removal (names on stdin), and finally the directory removal.
+  function remoteHost(opts: {
+    agents?: string[]
+    sandboxes?: string[]
+    dir?: 'REMOVED' | 'ABSENT'
+  }) {
+    exec.mockImplementation(async (cmd: string, o?: { input?: string }) => {
+      if (cmd.startsWith('ls -1')) return (opts.agents ?? []).join('\n')
+      if (o?.input !== undefined) {
+        return o.input
+          .trim()
+          .split('\n')
+          .map((l) => `QBSBXRM\t${l}\tok`)
+          .join('\n')
+      }
+      if (cmd.includes('QBSBXCLI')) {
+        return `QBSBXCLI\tsbx\n${(opts.sandboxes ?? []).map((n) => `QBSBX\tsbx\t${n}`).join('\n')}`
+      }
+      return opts.dir ?? 'REMOVED'
+    })
+  }
+
   it('reports presence from the same invocation that removes it', async () => {
-    exec.mockResolvedValue('REMOVED')
-    expect(await removeRemoteWorkspace(location, 'abc')).toBe(true)
-    const cmd = exec.mock.calls[0][0]
+    remoteHost({ dir: 'REMOVED' })
+    expect((await removeRemoteWorkspace(location, 'abc')).removed).toBe(true)
+    const cmd = exec.mock.calls.at(-1)![0]
     expect(cmd).toContain('rm -rf')
     expect(cmd).toContain('.quimby/workspaces/')
   })
 
   it('reports false when the workspace was not there', async () => {
-    exec.mockResolvedValue('ABSENT')
-    expect(await removeRemoteWorkspace(location, 'abc')).toBe(false)
+    remoteHost({ dir: 'ABSENT' })
+    expect((await removeRemoteWorkspace(location, 'abc')).removed).toBe(false)
+  })
+
+  it("removes its agents' sandboxes BEFORE the directory that names them, and no others", async () => {
+    remoteHost({
+      agents: ['aaaaaaaa-1111-2222-3333-444444444444'],
+      sandboxes: ['qb-aaaaaaaa-0123456789ab', 'qb-bbbbbbbb-0123456789ab'],
+    })
+    const { sandboxes } = await removeRemoteWorkspace(location, 'abc')
+    expect(sandboxes.removed.map((s) => s.name)).toEqual(['qb-aaaaaaaa-0123456789ab'])
+    const calls = exec.mock.calls.map((c) => c[0] as string)
+    const sweep = exec.mock.calls.findIndex((c) => (c[1] as { input?: string })?.input)
+    const rmDir = calls.findIndex((c) => c.includes('printf REMOVED'))
+    expect(sweep).toBeGreaterThan(-1)
+    expect(sweep).toBeLessThan(rmDir)
   })
 
   it('quotes the id so it cannot break out of the remove path', async () => {
-    exec.mockResolvedValue('ABSENT')
+    remoteHost({ dir: 'ABSENT' })
     await removeRemoteWorkspace(location, 'a b; rm -rf /')
-    expect(exec.mock.calls[0][0]).not.toMatch(/;\s*rm -rf \/(?!')/)
+    for (const [cmd] of exec.mock.calls) expect(cmd).not.toMatch(/;\s*rm -rf \/(?!')/)
   })
 })

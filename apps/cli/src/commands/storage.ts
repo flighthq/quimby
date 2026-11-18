@@ -3,6 +3,12 @@ import { existsSync } from 'node:fs'
 import { QuimbyError } from '@quimbyhq/errors'
 import * as git from '@quimbyhq/git'
 import { getStorageWorkspaceDir } from '@quimbyhq/paths'
+import type { SandboxSweepResult } from '@quimbyhq/runtimes'
+import {
+  listQuimbySandboxes,
+  removeQuimbySandboxes,
+  sandboxRemoveCommand,
+} from '@quimbyhq/runtimes'
 import type { QuimbyConfig, SSHLocation } from '@quimbyhq/types'
 import { formatByteSizeKb, formatDuration, logger, parseDuration } from '@quimbyhq/utils'
 import type { RemoteWorkspaceOwnership } from '@quimbyhq/workspace'
@@ -12,6 +18,7 @@ import {
   getRemoteWorkspaceLiveCount,
   getRemoteWorkspaceReclaimableKb,
   getRemoteWorkspaceUnlandedWork,
+  listRemoteAgentIds,
   listRemoteLiveSessions,
   listRemoteWorkspaces,
   listStorageWorkspaces,
@@ -19,11 +26,13 @@ import {
   loadState,
   pruneStorageWorkspaces,
   remoteDiskWarning,
+  remoteSandboxShellRunner,
   removeRemoteReclaimableDirs,
   removeRemoteWorkspace,
   removeStorageWorkspace,
   resolveWorkspace,
   scanRemoteWorkspaceUsage,
+  selectOrphanSandboxes,
   selectRemoteWorkspacePruneCandidates,
 } from '@quimbyhq/workspace'
 import { defineCommand } from 'citty'
@@ -92,6 +101,12 @@ export default defineCommand({
           default: '1h',
           description:
             'Skip agents active more recently than this, even with no live session (default 1h; 0 disables)',
+        },
+        sandboxes: {
+          type: 'boolean',
+          default: false,
+          description:
+            'Also remove orphaned quimby sandboxes — ones no agent dir on the host owns and no live session uses',
         },
         'include-live': {
           type: 'boolean',
@@ -272,8 +287,9 @@ export async function runStorageRemoveCommand({
   if (!args.force) {
     throw new QuimbyError(`Pass --force to remove durable workspace "${args.id}".`)
   }
-  const removed = await removeStorageWorkspace(args.id)
-  if (removed) logger.success(`Removed durable workspace "${args.id}".`)
+  const { existed, sandboxes } = await removeStorageWorkspace(args.id)
+  reportSandboxSweep(sandboxes, 'this machine')
+  if (existed) logger.success(`Removed durable workspace "${args.id}".`)
   else logger.info(`Durable workspace "${args.id}" was not present.`)
 }
 
@@ -285,6 +301,7 @@ export async function runStorageCleanRemoteCommand({
     id?: string
     'min-idle'?: string
     'include-live'?: boolean
+    sandboxes?: boolean
     force?: boolean
   }
 }): Promise<void> {
@@ -299,6 +316,8 @@ export async function runStorageCleanRemoteCommand({
     : (await listRemoteWorkspaces(location, { sizes: false })).map((w) => w.id)
   if (ids.length === 0) {
     logger.info(`No Quimby workspaces on "${args.host}".`)
+    // Orphans are what deleted workspaces leave behind, so an empty host is where they matter most.
+    if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, args.force === true)
     return
   }
   await reportRemoteDisk(location, config, args.host)
@@ -395,6 +414,7 @@ export async function runStorageCleanRemoteCommand({
         'Pass --force to delete.',
     )
   }
+  if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, args.force === true)
 }
 
 export async function runStorageListRemoteCommand({
@@ -482,6 +502,13 @@ export async function runStorageListRemoteCommand({
         `review with \`quimby storage prune-remote --host ${args.host} --idle ${formatDuration(DORMANT_HINT_MS)}\`.`,
     )
   }
+  const orphans = await countOrphanSandboxes(location).catch(() => 0)
+  if (orphans > 0) {
+    logger.info(
+      `${orphans} sandbox(es) on "${args.host}" belong to no agent there (left by an earlier teardown) — ` +
+        `review with \`quimby storage clean-remote --host ${args.host} --sandboxes\`.`,
+    )
+  }
   if (unclaimedKb > 0) {
     logger.info(
       `${formatByteSizeKb(unclaimedKb)} in workspaces no local project claims (another machine may) — ` +
@@ -556,7 +583,8 @@ export async function runStoragePruneRemoteCommand({
       continue
     }
     if (args.force) {
-      await removeRemoteWorkspace(location, candidate.id)
+      const { sandboxes } = await removeRemoteWorkspace(location, candidate.id)
+      reportSandboxSweep(sandboxes, `"${args.host}"`)
       removed++
       removedKb += sizeKb ?? 0
     }
@@ -618,9 +646,72 @@ export async function runStorageRemoveRemoteCommand({
         'Merge it from that project first, or pass --discard-work to delete it anyway.',
     )
   }
-  const removed = await removeRemoteWorkspace(location, args.id)
+  const { removed, sandboxes } = await removeRemoteWorkspace(location, args.id)
+  reportSandboxSweep(sandboxes, `"${args.host}"`)
   if (removed) logger.success(`Removed remote workspace "${args.id}" on "${args.host}".`)
   else logger.info(`Remote workspace "${args.id}" was not present on "${args.host}".`)
+}
+
+// Opt-in: an orphan is inferred, not known — see selectOrphanSandboxes for the one case it misreads.
+async function cleanOrphanSandboxes(
+  location: Readonly<SSHLocation & { host: string }>,
+  host: string,
+  force: boolean,
+): Promise<void> {
+  const run = remoteSandboxShellRunner(location)
+  const { clis, sandboxes } = await listQuimbySandboxes(run)
+  if (clis.length === 0) {
+    logger.info(`No sandbox CLI (sbx/openshell) on "${host}" — no sandboxes to check.`)
+    return
+  }
+  const orphans = selectOrphanSandboxes(
+    sandboxes,
+    await listRemoteAgentIds(location),
+    await listRemoteLiveSessions(location),
+  )
+  if (orphans.length === 0) {
+    logger.success(
+      `No orphaned sandboxes on "${host}" (${sandboxes.length} quimby sandbox(es), all owned).`,
+    )
+    return
+  }
+  if (!force) {
+    for (const sandbox of orphans)
+      console.log(`would remove ${sandbox.cli} sandbox ${sandbox.name}`)
+    logger.info(
+      `${orphans.length} sandbox(es) belong to no agent dir under ~/.quimby/workspaces and no live ` +
+        'session. An agent provisioned under a custom --host base path would also look like this — ' +
+        'pass --force once you are sure none is yours.',
+    )
+    return
+  }
+  reportSandboxSweep({ clis, ...(await removeQuimbySandboxes(run, orphans)) }, `"${host}"`)
+}
+
+async function countOrphanSandboxes(
+  location: Readonly<SSHLocation & { host: string }>,
+): Promise<number> {
+  const { sandboxes } = await listQuimbySandboxes(remoteSandboxShellRunner(location))
+  if (sandboxes.length === 0) return 0
+  return selectOrphanSandboxes(
+    sandboxes,
+    await listRemoteAgentIds(location),
+    await listRemoteLiveSessions(location),
+  ).length
+}
+
+// A sandbox removed is worth one line each; one the CLI refused is worth naming with the command to
+// finish the job, since nothing else will ever point at it again once its workspace is gone.
+function reportSandboxSweep(sandboxes: Readonly<SandboxSweepResult>, where: string): void {
+  for (const sandbox of sandboxes.removed) {
+    logger.info(`Removed ${sandbox.cli} sandbox ${sandbox.name} on ${where}`)
+  }
+  if (sandboxes.failed.length > 0) {
+    logger.warn(
+      `Couldn't remove ${sandboxes.failed.length} sandbox(es) on ${where}: ` +
+        sandboxes.failed.map((s) => `\`${sandboxRemoveCommand(s)}\``).join(', '),
+    )
+  }
 }
 
 function describeRemoteOwner(id: string, ownership: Readonly<RemoteWorkspaceOwnership>): string {

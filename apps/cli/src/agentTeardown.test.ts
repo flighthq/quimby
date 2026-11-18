@@ -9,12 +9,14 @@ vi.mock('@quimbyhq/runtimes', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   localSandboxShellRunner: () => localRun,
 }))
+const ensureAgentConnections = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => {}))
+vi.mock('./hostAlias', () => ({ ensureAgentConnections }))
 vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   ...((await importOriginal()) as object),
   getSSHTransport: vi.fn(),
 }))
 
-import { teardownAgentSandbox } from './agentTeardown'
+import { resolveForTeardown, teardownAgentSandbox } from './agentTeardown'
 
 const mockedGetSSH = vi.mocked(getSSHTransport)
 const ID = 'a1b2c3d4-0000-0000-0000-000000000000'
@@ -48,6 +50,22 @@ beforeEach(() => {
   localRun.mockReset()
   mockedGetSSH.mockReset()
   vi.restoreAllMocks()
+})
+
+describe('resolveForTeardown', () => {
+  const state = { id: 'p', agents: {} } as never
+
+  it('answers true once the alias resolves', async () => {
+    ensureAgentConnections.mockResolvedValueOnce(undefined)
+    expect(await resolveForTeardown('/root', state, 'builder')).toBe(true)
+  })
+
+  it('reports an alias it cannot bind and answers false instead of throwing', async () => {
+    ensureAgentConnections.mockRejectedValueOnce(new Error('Host alias "remote" has no address'))
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    expect(await resolveForTeardown('/root', state, 'builder')).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no address'))
+  })
 })
 
 describe('teardownAgentSandbox', () => {

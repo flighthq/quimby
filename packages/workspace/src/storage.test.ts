@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -261,7 +261,7 @@ describe('removeStorageWorkspace', () => {
     await ensureDurableWorkspace(repoRoot, state)
     expect(await exists(getStorageWorkspaceDir(state.id))).toBe(true)
 
-    const existed = await removeStorageWorkspace(state.id)
+    const { existed } = await removeStorageWorkspace(state.id)
 
     expect(existed).toBe(true)
     expect(await exists(getStorageWorkspaceDir(state.id))).toBe(false)
@@ -270,7 +270,32 @@ describe('removeStorageWorkspace', () => {
 
   it('reports false when the storage directory was absent', async () => {
     const id = `ws-${crypto.randomUUID()}`
-    expect(await removeStorageWorkspace(id)).toBe(false)
+    expect((await removeStorageWorkspace(id)).existed).toBe(false)
+  })
+
+  it("removes the workspace's local agent sandboxes and leaves other agents' alone", async () => {
+    const state = makeState(`ws-${crypto.randomUUID()}`)
+    await ensureDurableWorkspace(repoRoot, state)
+    const agentId = 'aaaaaaaa-1111-2222-3333-444444444444'
+    await mkdir(join(getStorageWorkspaceDir(state.id), 'agents', agentId), { recursive: true })
+    // A stub sbx on PATH: lists one sandbox for this agent and one for a stranger, logs removals.
+    const bin = await mkdtemp(join(tmpdir(), 'qb-stub-sbx-'))
+    const log = join(bin, 'rm.log')
+    await writeFile(
+      join(bin, 'sbx'),
+      `#!/bin/sh\ncase "$1" in ls) printf 'qb-aaaaaaaa-0123456789ab\\nqb-bbbbbbbb-0123456789ab\\n';; rm) echo "$@" >> '${log}';; esac\n`,
+    )
+    await chmod(join(bin, 'sbx'), 0o755)
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const { sandboxes } = await removeStorageWorkspace(state.id)
+      expect(sandboxes.removed.map((s) => s.name)).toEqual(['qb-aaaaaaaa-0123456789ab'])
+      expect(await readFile(log, 'utf8')).not.toContain('bbbbbbbb')
+    } finally {
+      process.env.PATH = path
+      await rm(bin, { recursive: true, force: true })
+    }
   })
 })
 

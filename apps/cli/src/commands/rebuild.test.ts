@@ -83,6 +83,8 @@ describe('runRebuildCommand', () => {
     expect(teardownAgentSandbox.mock.invocationCallOrder[0]).toBeLessThan(
       rebuildAgent.mock.invocationCallOrder[0],
     )
-    expect(rebuildAgent).toHaveBeenCalledWith('/fake/root', 'builder')
+    expect(rebuildAgent).toHaveBeenCalledWith('/fake/root', 'builder', {
+      location: { type: 'local' },
+    })
   })
 })

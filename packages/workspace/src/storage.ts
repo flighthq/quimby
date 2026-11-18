@@ -2,6 +2,8 @@ import { lstat, readdir, rename, rm, symlink } from 'node:fs/promises'
 
 import { QuimbyError } from '@quimbyhq/errors'
 import { getQuimbyDir, getStorageRoot, getStorageWorkspaceDir } from '@quimbyhq/paths'
+import type { SandboxSweepResult } from '@quimbyhq/runtimes'
+import { localSandboxShellRunner, sweepAgentSandboxes } from '@quimbyhq/runtimes'
 import type { QuimbyState } from '@quimbyhq/types'
 import { cp, ensureDir, exists, readYaml } from '@quimbyhq/utils'
 import { dirname, join, resolve } from 'pathe'
@@ -109,12 +111,9 @@ export async function pruneStorageWorkspaces(
   const unregistered = workspaces.filter((w) => w.exists && !w.registered)
   const targets = [...unregistered, ...(opts.stale ? await listStaleRegisteredWorkspaces() : [])]
   if (opts.force) {
-    for (const workspace of targets) {
-      // A registered entry must be unregistered as well, or the id lingers in the registry
-      // pointing at a directory that is gone — the mirror image of the residue being cleaned.
-      if (workspace.registered) await removeStorageWorkspace(workspace.id)
-      else await rm(workspace.path, { recursive: true, force: true })
-    }
+    // One removal path for both kinds, so neither skips the sandbox sweep. A registered entry is
+    // unregistered as well, or the id lingers pointing at a directory that is gone.
+    for (const workspace of targets) await removeStorageWorkspace(workspace.id)
   }
   return targets
 }
@@ -139,12 +138,21 @@ export async function listStaleRegisteredWorkspaces(): Promise<StorageWorkspace[
   return out
 }
 
-export async function removeStorageWorkspace(id: string): Promise<boolean> {
+/**
+ * Remove one durable workspace: its local agents' runtime sandboxes first (they are named by agent
+ * id, and the ids are read from the directory about to be deleted), then the directory and its
+ * registry entry.
+ */
+export async function removeStorageWorkspace(
+  id: string,
+): Promise<{ existed: boolean; sandboxes: SandboxSweepResult }> {
   const path = getStorageWorkspaceDir(id)
   const existed = await exists(path)
+  const agentIds = existed ? await readdir(join(path, 'agents')).catch(() => []) : []
+  const sandboxes = await sweepAgentSandboxes(localSandboxShellRunner(), agentIds)
   await rm(path, { recursive: true, force: true })
   await unregisterProject(id)
-  return existed
+  return { existed, sandboxes }
 }
 
 export async function readStoredState(id: string): Promise<QuimbyState> {

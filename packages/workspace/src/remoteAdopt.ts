@@ -212,31 +212,6 @@ async function assertWorkspaceUnclaimed(repoRoot: string, projectId: string): Pr
   )
 }
 
-/**
- * Remote garbage collection: the duplicate workspaces the pre-adopt behavior could leave
- * on a host. Scans `location` for workspaces whose git origin is `sourceRepo` but whose id
- * is not `keepId` (the active workspace) — those are orphaned lanes for this repo. Returns
- * them for preview; with `force`, removes each remote directory. Never touches other repos'
- * workspaces or the active one. `keepId` is required by callers precisely so a prune can
- * never delete the lane you are on.
- */
-export async function pruneRemoteWorkspaces(
-  location: Readonly<SSHLocation & { host: string }>,
-  opts: Readonly<{ sourceRepo: string; keepId: string; force?: boolean }>,
-): Promise<RemoteProject[]> {
-  const projects = await scanRemoteProjects(location)
-  const stale = projects.filter((p) => p.sourceRepo === opts.sourceRepo && p.id !== opts.keepId)
-  if (opts.force && stale.length > 0) {
-    const transport = getSSHTransport(location)
-    for (const project of stale) {
-      // The id came from scanning `~/.quimby/workspaces/*`, so this removes a real, matched
-      // directory in that namespace — quoted to keep the id out of shell interpretation.
-      await transport.exec(`rm -rf ~/.quimby/workspaces/${shellQuote(project.id)}`)
-    }
-  }
-  return stale
-}
-
 function remoteProbeTimeoutMs(): number {
   const raw =
     process.env.QUIMBY_REMOTE_PROBE_TIMEOUT_MS ?? process.env.QUIMBY_REMOTE_STATUS_TIMEOUT_MS

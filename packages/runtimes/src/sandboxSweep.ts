@@ -38,6 +38,11 @@ export async function listQuimbySandboxes(
   return parseSandboxListing(await run(LIST_SCRIPT))
 }
 
+/** The command a human runs to remove one sandbox by hand, for reporting a removal that failed. */
+export function sandboxRemoveCommand(sandbox: Readonly<QuimbySandbox>): string {
+  return sandbox.cli === 'sbx' ? `sbx rm ${sandbox.name}` : `openshell sandbox rm ${sandbox.name}`
+}
+
 /** Run a sweep script on this machine. */
 export function localSandboxShellRunner(): SandboxShellRunner {
   return async (script, input) => {
