@@ -121,7 +121,7 @@ export default defineCommand({
           type: 'boolean',
           default: false,
           description:
-            'Also clean live and recently active agents (a build in progress will break; work is still never touched)',
+            'Also clean live and recently active agents (a build in progress will break; source and uncommitted changes are still kept)',
         },
         force: {
           type: 'boolean',
@@ -423,13 +423,20 @@ export async function runStorageCleanRemoteCommand({
     )
   }
   if (!force) {
-    logger.info(
-      freedKb > 0
-        ? `Preview only — nothing was deleted. \`--force\` would free ${formatByteSizeKb(freedKb)} ` +
-            '(git-ignored directories only; tracked files, uncommitted work, ignored files such as ' +
-            '.env and keys, and nested repositories are never touched).'
-        : 'Preview only — nothing was deleted, and there is no idle build output to free.',
-    )
+    // What --force deletes and what it keeps are two separate sentences on purpose: folded into one
+    // list ("…, uncommitted work, … are never touched") the kept items read as the deleted ones.
+    if (freedKb > 0) {
+      logger.info(
+        `Preview only — nothing was deleted. --force would delete ${formatByteSizeKb(freedKb)} of ` +
+          'build output: the git-ignored directories listed above (target/, node_modules/, …).',
+      )
+      logger.info(
+        'It keeps everything else: source files, commits, uncommitted changes, ignored files like ' +
+          '.env and keys, and nested repositories.',
+      )
+    } else {
+      logger.info('Preview only — nothing was deleted, and there is no idle build output to free.')
+    }
   } else if (freedKb === 0) {
     logger.success('Nothing deleted — no idle build output found.')
   } else {
@@ -440,9 +447,9 @@ export async function runStorageCleanRemoteCommand({
       overview.disk && after
         ? ` "${args.host}" free space: ${formatByteSizeKb(overview.disk.availKb)} → ${formatByteSizeKb(after.availKb)}.`
         : ''
-    logger.success(
-      `Freed ${formatByteSizeKb(freedKb)} of build output.${delta} Agents rebuild it on their next ` +
-        'build; their commits and uncommitted work were not touched.',
+    logger.success(`Freed ${formatByteSizeKb(freedKb)} of build output.${delta}`)
+    logger.info(
+      'Agents rebuild it on their next build. Source files, commits and uncommitted changes were kept.',
     )
   }
   if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, force)

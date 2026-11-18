@@ -227,7 +227,11 @@ describe('runStorageCleanRemoteCommand', () => {
     expect(out).toContain('[w1]  would free 2.0M')
     // Whether anything was deleted must not be left to inference — said first and last.
     expect(out).toMatch(/^Preview — nothing will be deleted/)
-    expect(out).toContain('Preview only — nothing was deleted. `--force` would free 2.0M')
+    expect(out).toContain(
+      'Preview only — nothing was deleted. --force would delete 2.0M of build output',
+    )
+    // What is kept is its own sentence, so it cannot read as part of what gets deleted.
+    expect(out).toMatch(/\nIt keeps everything else: source files, commits, uncommitted changes/)
   })
 
   it('deletes with --force but leaves a live agent alone', async () => {
