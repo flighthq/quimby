@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import type { RunSpec, RuntimeAdapter, RuntimeContext } from '@quimbyhq/types'
 
 import { parseCommand } from './command'
-import { bestEffortExec, requireRuntimeCli } from './probe'
+import { requireRuntimeCli } from './probe'
 
 // sbx is path-sensitive: it keys a sandbox off its working directory and persists
 // that absolute path behind the --name, so the name must track the path rather than
@@ -50,20 +50,6 @@ export const sbx: RuntimeAdapter = {
     env?: Readonly<Record<string, string>>,
   ): RunSpec {
     return { command: 'sbx', args: sbxRunArgs(ctx, entrypoint, env), cwd: ctx.agentDir }
-  },
-
-  // The remove verb for the agent's sandbox, as data so the caller can run it locally or over an
-  // SSH transport (a remote agent's sandbox lives on the remote host). The exact `sbx` removal
-  // verb may need adjusting as the CLI settles.
-  teardownSpec(ctx: RuntimeContext): RunSpec {
-    return { command: 'sbx', args: ['rm', sandboxName(ctx)], cwd: ctx.agentDir }
-  },
-
-  // Remove the agent's sandbox when the agent is torn down (remove/rebuild) on the local host.
-  // Best-effort: a missing sandbox or CLI is fine.
-  async teardown(ctx: RuntimeContext) {
-    const spec = this.teardownSpec(ctx)
-    if (spec) await bestEffortExec(spec.command, spec.args)
   },
 }
 

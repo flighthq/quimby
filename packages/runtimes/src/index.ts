@@ -5,6 +5,7 @@ import { local } from './local'
 import { openshell } from './openshell'
 import { sbx } from './sbx'
 export { parseCommand, splitCommand } from './command'
+export * from './sandboxSweep'
 
 const adapters: Record<RuntimeType, RuntimeAdapter> = {
   local,

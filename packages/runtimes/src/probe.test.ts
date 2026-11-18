@@ -3,20 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 const execa = vi.hoisted(() => vi.fn())
 vi.mock('execa', () => ({ execa }))
 
-import { bestEffortExec, requireRuntimeCli } from './probe'
-
-describe('bestEffortExec', () => {
-  it('runs the command and resolves on success', async () => {
-    execa.mockResolvedValueOnce({ stdout: '' })
-    await expect(bestEffortExec('sbx', ['rm', 'x'])).resolves.toBeUndefined()
-    expect(execa).toHaveBeenCalledWith('sbx', ['rm', 'x'])
-  })
-
-  it('swallows any failure (teardown is advisory)', async () => {
-    execa.mockRejectedValueOnce(new Error('boom'))
-    await expect(bestEffortExec('sbx', ['rm', 'x'])).resolves.toBeUndefined()
-  })
-})
+import { requireRuntimeCli } from './probe'
 
 describe('requireRuntimeCli', () => {
   it('resolves when the CLI is present', async () => {

@@ -5,6 +5,9 @@ const removeAgent = vi.hoisted(() => vi.fn(async () => {}))
 const saveState = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('execa', () => ({ execa }))
+// The sandbox sweep is tested in agentTeardown.test.ts; here only that it runs, and in order.
+const teardownAgentSandbox = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}))
+vi.mock('../agentTeardown', () => ({ teardownAgentSandbox }))
 vi.mock('@quimbyhq/agent', () => ({ removeAgent }))
 
 let resolved: {

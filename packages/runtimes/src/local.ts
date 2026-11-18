@@ -16,11 +16,4 @@ export const local: RuntimeAdapter = {
     const { command, args } = parseCommand(entrypoint)
     return { command, args, cwd: ctx.agentDir }
   },
-
-  // A local agent runs directly on the host with no sandbox, so there is nothing to tear down.
-  teardownSpec(): RunSpec | null {
-    return null
-  },
-
-  async teardown() {},
 }

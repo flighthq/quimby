@@ -51,18 +51,4 @@ describe('openshell', () => {
     )
     await expect(openshell.setup(ctx)).rejects.toThrow(/isn't on your PATH/)
   })
-
-  it('teardown runs a best-effort sandbox removal, swallowing errors', async () => {
-    execa.mockRejectedValueOnce(new Error('no such sandbox'))
-    await expect(openshell.teardown(ctx)).resolves.toBeUndefined()
-    expect(execa).toHaveBeenCalledWith('openshell', expect.arrayContaining(['sandbox', 'rm']))
-  })
-
-  it('teardownSpec returns the sandbox rm command as data without executing', () => {
-    execa.mockClear()
-    const spec = openshell.teardownSpec(ctx)
-    expect(spec?.command).toBe('openshell')
-    expect(spec?.args.slice(0, 2)).toEqual(['sandbox', 'rm'])
-    expect(execa).not.toHaveBeenCalled()
-  })
 })

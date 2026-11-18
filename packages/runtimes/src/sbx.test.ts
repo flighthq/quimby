@@ -118,19 +118,4 @@ describe('sbx', () => {
     execa.mockRejectedValueOnce(Object.assign(new Error('spawn sbx ENOENT'), { code: 'ENOENT' }))
     await expect(sbx.setup(ctx)).rejects.toThrow(/isn't on your PATH/)
   })
-
-  it('teardown runs a best-effort `sbx rm <sandbox>`, swallowing errors', async () => {
-    execa.mockRejectedValueOnce(new Error('no such sandbox'))
-    await expect(sbx.teardown(ctx)).resolves.toBeUndefined()
-    expect(execa).toHaveBeenCalledWith('sbx', expect.arrayContaining(['rm']))
-  })
-
-  it('teardownSpec returns the `sbx rm <sandbox>` command as data without executing', () => {
-    execa.mockClear()
-    const spec = sbx.teardownSpec(ctx)
-    expect(spec?.command).toBe('sbx')
-    // With no launch command available, teardown targets the legacy commandless sandbox name.
-    expect(spec?.args).toEqual(['rm', expect.stringContaining(ctx.agentId.slice(0, 8))])
-    expect(execa).not.toHaveBeenCalled()
-  })
 })

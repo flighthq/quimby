@@ -75,7 +75,7 @@ export async function runRebuildCommand({
   // sandbox by name, so without removing it the next `run` would show the stale, pre-rebuild
   // tree instead of the fresh clone. Both steps are best-effort and cover SSH agents too.
   await killAgentSession(agent)
-  await teardownAgentSandbox({ state, repoRoot, agent, name: args.agent })
+  await teardownAgentSandbox({ agent, name: args.agent })
 
   await rebuildAgent(repoRoot, args.agent)
 

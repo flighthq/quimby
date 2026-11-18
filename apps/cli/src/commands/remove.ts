@@ -52,7 +52,7 @@ export async function runRemoveCommand({ args }: { args: { agent: string; force:
 
   // Tear down the runtime sandbox (sbx/openshell); a `local` runtime no-ops. For an SSH agent
   // this runs on the remote host over the transport, so the sandbox is cleaned up where it lives.
-  await teardownAgentSandbox({ state, repoRoot, agent, name: args.agent })
+  await teardownAgentSandbox({ agent, name: args.agent })
 
   // Attempt full removal, including the remote `rm -rf` for an SSH agent. If the host is
   // unreachable the remote teardown fails — tolerate it: remove the local state anyway so an

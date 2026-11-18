@@ -1,48 +1,58 @@
-import { remoteAgentDir, remoteAgentRepoDir, remoteProjectRoot } from '@quimbyhq/paths'
-import { buildContext, getRuntime } from '@quimbyhq/runtimes'
-import { getSSHTransport, sq } from '@quimbyhq/transport'
-import type { AgentState, QuimbyState, RuntimeContext, RuntimeType } from '@quimbyhq/types'
-import { isSSH } from '@quimbyhq/types'
+import type { SandboxShellRunner } from '@quimbyhq/runtimes'
+import { localSandboxShellRunner, sweepAgentSandboxes } from '@quimbyhq/runtimes'
+import { getSSHTransport } from '@quimbyhq/transport'
+import type { AgentState } from '@quimbyhq/types'
+import { isResolvedSSHLocation, isSSH } from '@quimbyhq/types'
+import { logger } from '@quimbyhq/utils'
 
 /**
- * Best-effort teardown of an agent's runtime sandbox (the sbx/openshell adapter). A `local`
- * runtime has no sandbox and no-ops. For a local agent the removal runs on the host; for an SSH
- * agent it runs on the remote host over the transport, since that is where the sandbox lives —
- * the piece `remove` used to skip. Tearing an agent down should never be blocked by sandbox
- * cleanup, so an unknown runtime, a missing CLI, or an unreachable host is swallowed.
+ * Remove every runtime sandbox (sbx/openshell) belonging to an agent, on the machine where it
+ * lives — the host for a local agent, the SSH host for a remote one.
+ *
+ * Sandboxes are found by listing and matching the agent's `qb-<id[:8]>-` prefix rather than by
+ * recomputing a name: the name hashes the entrypoint command, which teardown never knew, so the
+ * old recomputed `rm` targeted a sandbox that did not exist — and an agent whose runtime came from
+ * a role or profile was treated as `local` and skipped outright. Both failed silently, which is how
+ * a host filled with sandboxes nobody had removed.
+ *
+ * Still never blocks removal: an unreachable host or a refused `rm` is reported, not thrown.
  */
 export async function teardownAgentSandbox(opts: {
-  state: Readonly<QuimbyState>
-  repoRoot: string
   agent: Readonly<AgentState>
   name: string
 }): Promise<void> {
-  const { state, repoRoot, agent, name } = opts
-  const runtime = (agent.defaults?.runtime as RuntimeType) ?? 'local'
-  try {
-    if (isSSH(agent.location)) {
-      // Recompute the sandbox name against the *remote* agent dir — the same path the launch
-      // hashed — so the rm targets the sandbox that actually exists on the remote.
-      const base = agent.location.base
-      const ctx: RuntimeContext = {
-        projectId: state.id,
-        agentId: agent.id,
-        agentName: name,
-        agentDir: remoteAgentDir(state.id, agent.id, base),
-        repoDir: remoteAgentRepoDir(state.id, agent.id, base),
-        repoRoot: remoteProjectRoot(state.id, base),
-      }
-      const spec = getRuntime(runtime).teardownSpec(ctx)
-      if (spec) {
-        // Leave the static runtime token (`sbx`/`openshell`) bare; quote the dynamic args (the
-        // sandbox name), mirroring how the SSH launch command is assembled.
-        const cmd = [spec.command, ...spec.args.map(sq)].join(' ')
-        await getSSHTransport(agent.location).exec(cmd)
-      }
-    } else {
-      await getRuntime(runtime).teardown(buildContext(repoRoot, name, state.id, agent.id))
+  const { agent, name } = opts
+  let run: SandboxShellRunner
+  let where = 'this machine'
+  if (isSSH(agent.location)) {
+    const location = agent.location
+    where = `"${location.alias ?? location.host ?? '?'}"`
+    if (!isResolvedSSHLocation(location)) {
+      logger.warn(`Couldn't check for "${name}"'s sandbox — its host alias is unbound.`)
+      return
     }
-  } catch {
-    // Unknown runtime, missing CLI, or unreachable host — sandbox teardown is advisory only.
+    const transport = getSSHTransport(location)
+    run = (script, input) => transport.exec(script, input === undefined ? {} : { input })
+  } else {
+    run = localSandboxShellRunner()
+  }
+  try {
+    const { removed, failed } = await sweepAgentSandboxes(run, [agent.id])
+    for (const sandbox of removed) {
+      logger.info(`Removed ${sandbox.cli} sandbox ${sandbox.name} on ${where}`)
+    }
+    if (failed.length > 0) {
+      logger.warn(
+        `Couldn't remove ${failed.length} sandbox(es) for "${name}" on ${where}: ` +
+          failed
+            .map((s) => `\`${s.cli === 'sbx' ? 'sbx rm' : 'openshell sandbox rm'} ${s.name}\``)
+            .join(', '),
+      )
+    }
+  } catch (err) {
+    logger.warn(
+      `Couldn't check for "${name}"'s sandbox on ${where} (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — ` +
+        'it may be left behind; `quimby storage clean-remote --sandboxes` finds orphans later.',
+    )
   }
 }

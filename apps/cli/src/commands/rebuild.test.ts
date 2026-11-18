@@ -4,6 +4,9 @@ const execa = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({})))
 const rebuildAgent = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('execa', () => ({ execa }))
+// The sandbox sweep is tested in agentTeardown.test.ts; here only that it runs, and in order.
+const teardownAgentSandbox = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}))
+vi.mock('../agentTeardown', () => ({ teardownAgentSandbox }))
 vi.mock('@quimbyhq/agent', () => ({ rebuildAgent }))
 
 let agents: Record<string, unknown>
@@ -71,11 +74,15 @@ describe('runRebuildCommand', () => {
     const { default: cmd } = await import('./rebuild')
     await cmd.run!({ args: { agent: 'builder', force: true } } as never)
 
-    // The session is killed and the sbx sandbox removed, both before the re-clone.
-    const bins = execa.mock.calls.map((c) => c[0])
+    // The session is killed and the sandboxes removed, both before the re-clone.
     const killed = execa.mock.calls.some((c) => (c[1] as string[])?.includes('kill-session'))
     expect(killed).toBe(true)
-    expect(bins).toContain('sbx')
+    expect(teardownAgentSandbox).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'builder', agent: expect.objectContaining({ id: 'b1' }) }),
+    )
+    expect(teardownAgentSandbox.mock.invocationCallOrder[0]).toBeLessThan(
+      rebuildAgent.mock.invocationCallOrder[0],
+    )
     expect(rebuildAgent).toHaveBeenCalledWith('/fake/root', 'builder')
   })
 })

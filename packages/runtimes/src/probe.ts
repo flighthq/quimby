@@ -20,12 +20,3 @@ export async function requireRuntimeCli(cli: string, runtime: string): Promise<v
     // Present but `--version` misbehaved — assume installed rather than block the launch.
   }
 }
-
-/** Best-effort cleanup command: run it, swallowing any failure (a missing sandbox is fine). */
-export async function bestEffortExec(cli: string, args: readonly string[]): Promise<void> {
-  try {
-    await execa(cli, args as string[])
-  } catch {
-    // Sandbox already gone, CLI missing, or unsupported verb — teardown is advisory, so ignore.
-  }
-}
