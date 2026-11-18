@@ -227,16 +227,47 @@ describe('remoteDiskWarning', () => {
 describe('removeRemoteReclaimableDirs', () => {
   it('deletes only validated paths and leaves everything else in the repo alone', async () => {
     const repo = await makeAgentRepo()
-    const removed = await removeRemoteReclaimableDirs(location, WS, AGENT, [
+    const out = await removeRemoteReclaimableDirs(location, WS, AGENT, [
       'target',
       '.env',
       '../../status.md',
     ])
-    expect(removed).toEqual(['target'])
+    expect(out).toEqual({ removed: ['target'], live: false })
     expect(existsSync(join(repo, 'target'))).toBe(false)
     expect(existsSync(join(repo, '.env'))).toBe(true)
     expect(existsSync(join(repo, 'a.txt'))).toBe(true)
     expect(existsSync(join(repo, '../status.md'))).toBe(true)
+  })
+
+  it('re-checks for a live session at deletion time and removes nothing when it finds one', async () => {
+    // The scan that judged the agent idle can be minutes old; an agent started since must win.
+    const repo = await makeAgentRepo()
+    const session = `qb-${AGENT.slice(0, 8)}`
+    await execa('tmux', ['-L', 'quimby', 'new-session', '-d', '-s', session, 'sleep 30'])
+    try {
+      const out = await removeRemoteReclaimableDirs(location, WS, AGENT, ['target'])
+      expect(out).toEqual({ removed: [], live: true })
+      expect(existsSync(join(repo, 'target'))).toBe(true)
+
+      const forced = await removeRemoteReclaimableDirs(location, WS, AGENT, ['target'], {
+        includeLive: true,
+      })
+      expect(forced.removed).toEqual(['target'])
+    } finally {
+      await execa('tmux', ['-L', 'quimby', 'kill-session', '-t', `=${session}`], { reject: false })
+    }
+  })
+
+  it('matches the session name exactly, not as a prefix', async () => {
+    await makeAgentRepo()
+    const longer = `qb-${AGENT.slice(0, 8)}x`
+    await execa('tmux', ['-L', 'quimby', 'new-session', '-d', '-s', longer, 'sleep 30'])
+    try {
+      const out = await removeRemoteReclaimableDirs(location, WS, AGENT, ['target'])
+      expect(out.live).toBe(false)
+    } finally {
+      await execa('tmux', ['-L', 'quimby', 'kill-session', '-t', `=${longer}`], { reject: false })
+    }
   })
 })
 

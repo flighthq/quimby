@@ -87,10 +87,17 @@ export default defineCommand({
           type: 'string',
           description: 'Only this workspace id (default: every workspace on the host)',
         },
+        'min-idle': {
+          type: 'string',
+          default: '1h',
+          description:
+            'Skip agents active more recently than this, even with no live session (default 1h; 0 disables)',
+        },
         'include-live': {
           type: 'boolean',
           default: false,
-          description: 'Also clean agents with a live session (a build in progress will break)',
+          description:
+            'Also clean live and recently active agents (a build in progress will break; work is still never touched)',
         },
         force: {
           type: 'boolean',
@@ -273,8 +280,19 @@ export async function runStorageRemoveCommand({
 export async function runStorageCleanRemoteCommand({
   args,
 }: {
-  args: { host: string; id?: string; 'include-live'?: boolean; force?: boolean }
+  args: {
+    host: string
+    id?: string
+    'min-idle'?: string
+    'include-live'?: boolean
+    force?: boolean
+  }
 }): Promise<void> {
+  const includeLive = args['include-live'] === true
+  const minIdleMs = parseDuration(args['min-idle'] ?? '1h')
+  if (minIdleMs === null) {
+    throw new QuimbyError(`--min-idle "${args['min-idle']}" is not a duration (try 1h, 30m, 0).`)
+  }
   const { location, config } = await resolveRemoteStorageContext(args.host)
   const ids = args.id
     ? [args.id]
@@ -301,10 +319,22 @@ export async function runStorageCleanRemoteCommand({
     for (const agent of usage.agents) {
       const kb = agent.reclaimable.reduce((sum, dir) => sum + dir.sizeKb, 0)
       if (kb === 0) continue
-      if (agent.live && !args['include-live']) {
+      // An in-flight agent is never cleaned by default: not one with a session, and not one that
+      // was active moments ago without one (a session that just ended, a build run some other
+      // way). Build output is cheap to keep for a while; a build tree vanishing mid-compile is not.
+      const recentMs =
+        agent.lastActiveAt === undefined ? undefined : Date.now() - agent.lastActiveAt
+      const skip = includeLive
+        ? undefined
+        : agent.live
+          ? 'live session'
+          : recentMs !== undefined && recentMs < minIdleMs
+            ? `active ${formatDuration(recentMs)} ago (--min-idle ${formatDuration(minIdleMs)})`
+            : undefined
+      if (skip) {
         skippedLiveKb += kb
         workspaceSkippedKb += kb
-        lines.push(`  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  skipped — live session`)
+        lines.push(`  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  skipped — ${skip}`)
         continue
       }
       const top = agent.reclaimable
@@ -313,12 +343,23 @@ export async function runStorageCleanRemoteCommand({
         .join(', ')
       const more = agent.reclaimable.length > 3 ? `, +${agent.reclaimable.length - 3} more` : ''
       if (args.force) {
-        await removeRemoteReclaimableDirs(
+        // Re-checked on the host at the moment of deletion, so an agent that started since the
+        // scan is still left alone.
+        const { live: startedSince } = await removeRemoteReclaimableDirs(
           location,
           id,
           agent.id,
           agent.reclaimable.map((dir) => dir.path),
+          { includeLive },
         )
+        if (startedSince) {
+          skippedLiveKb += kb
+          workspaceSkippedKb += kb
+          lines.push(
+            `  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  skipped — started a session during the sweep`,
+          )
+          continue
+        }
       }
       workspaceKb += kb
       lines.push(`  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  ${top}${more}`)
@@ -327,14 +368,16 @@ export async function runStorageCleanRemoteCommand({
     reclaimedKb += workspaceKb
     console.log(
       `${id}  ${args.force ? 'reclaimed' : 'reclaimable'} ${formatByteSizeKb(workspaceKb)}` +
-        (workspaceSkippedKb > 0 ? `, ${formatByteSizeKb(workspaceSkippedKb)} skipped (live)` : ''),
+        (workspaceSkippedKb > 0
+          ? `, ${formatByteSizeKb(workspaceSkippedKb)} skipped (in use)`
+          : ''),
     )
     for (const line of lines) console.log(line)
   }
   if (skippedLiveKb > 0) {
     logger.info(
-      `${formatByteSizeKb(skippedLiveKb)} belongs to agents with a live session and was left alone ` +
-        '(stop them first, or pass --include-live).',
+      `${formatByteSizeKb(skippedLiveKb)} belongs to agents that are live or were active within ` +
+        `${formatDuration(minIdleMs)} and was left alone (stop them and wait, or pass --include-live).`,
     )
   }
   if (reclaimedKb === 0) {

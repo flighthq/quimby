@@ -232,21 +232,32 @@ export function parseRemoteWorkspaceUsage(
  * Delete build-output directories from one remote agent's clone. Every path is re-validated here,
  * not just at scan time, because this is the one call that cannot be undone; the list travels on
  * stdin so an unbounded set of paths never lands on a command line (or in an error message).
+ *
+ * Unless `includeLive`, the agent's session is re-checked IN the same invocation, immediately
+ * before anything is removed: the scan that judged it idle may be minutes old on a large host,
+ * and an agent started in between is exactly the one whose build tree must not vanish under it.
+ * A live agent comes back as `live: true` with nothing removed.
  */
 export async function removeRemoteReclaimableDirs(
   location: Readonly<SSHLocation & { host: string }>,
   workspaceId: string,
   agentId: string,
   paths: readonly string[],
-): Promise<string[]> {
+  opts: Readonly<{ includeLive?: boolean }> = {},
+): Promise<{ removed: string[]; live: boolean }> {
   const safe = paths.filter(isReclaimableIgnoredPath)
-  if (safe.length === 0) return []
+  if (safe.length === 0) return { removed: [], live: false }
   const repo = `"$HOME/.quimby/workspaces/"${sq(workspaceId)}"/.quimby/agents/"${sq(agentId)}"/repo"`
-  await getSSHTransport(location).exec(
-    `cd ${repo} || exit 1; while IFS= read -r p; do [ -n "$p" ] && rm -rf -- "./$p"; done`,
+  // `=` makes tmux match the session name exactly; a bare target also accepts a prefix.
+  const liveGuard = opts.includeLive
+    ? ''
+    : `tmux -L quimby has-session -t ${sq(`=${tmuxSessionName(agentId)}`)} 2>/dev/null && { printf 'QBLIVE\\n'; exit 0; }; `
+  const out = await getSSHTransport(location).exec(
+    `${liveGuard}cd ${repo} || exit 1; while IFS= read -r p; do [ -n "$p" ] && rm -rf -- "./$p"; done`,
     { input: `${safe.join('\n')}\n` },
   )
-  return safe
+  if (out.includes('QBLIVE')) return { removed: [], live: true }
+  return { removed: safe, live: false }
 }
 
 /**

@@ -12,7 +12,9 @@ const removeRemoteWorkspace = vi.hoisted(() => vi.fn())
 const scanRemoteWorkspaceUsage = vi.hoisted(() => vi.fn())
 const listRemoteLiveSessions = vi.hoisted(() => vi.fn(async () => new Set<string>()))
 const getRemoteDiskUsage = vi.hoisted(() => vi.fn(async () => null))
-const removeRemoteReclaimableDirs = vi.hoisted(() => vi.fn(async () => []))
+const removeRemoteReclaimableDirs = vi.hoisted(() =>
+  vi.fn(async (..._a: unknown[]) => ({ removed: ['target'], live: false })),
+)
 
 vi.mock('@quimbyhq/git', async (importOriginal) => ({
   ...((await importOriginal()) as object),
@@ -60,7 +62,8 @@ beforeEach(() => {
   removeRemoteReclaimableDirs.mockClear()
 })
 
-const RECENT = Date.now() - 60_000
+// Idle long enough to clear clean-remote's default --min-idle 1h.
+const RECENT = Date.now() - 2 * 86_400_000
 
 function agent(extra: Record<string, unknown> = {}) {
   return {
@@ -215,6 +218,7 @@ describe('runStorageCleanRemoteCommand', () => {
       'w1',
       'idle-agent',
       ['target'],
+      { includeLive: false },
     )
     expect(lines.join('\n')).toContain('skipped — live session')
   })
@@ -231,6 +235,66 @@ describe('runStorageCleanRemoteCommand', () => {
     })
     restore()
     expect(removeRemoteReclaimableDirs).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips an agent active within --min-idle even with no session, and honors --min-idle 0', async () => {
+    scanRemoteWorkspaceUsage.mockResolvedValue({
+      id: 'w1',
+      present: true,
+      agents: [
+        agent({
+          lastActiveAt: Date.now() - 5 * 60_000,
+          reclaimable: [{ path: 'target', sizeKb: 99 }],
+        }),
+      ],
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', force: true } })
+    expect(removeRemoteReclaimableDirs).not.toHaveBeenCalled()
+    expect(lines.join('\n')).toMatch(/skipped — active 5m ago/)
+
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', force: true, 'min-idle': '0' } })
+    restore()
+    expect(removeRemoteReclaimableDirs).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports an agent that started a session between the scan and the delete as skipped', async () => {
+    scanRemoteWorkspaceUsage.mockResolvedValue({
+      id: 'w1',
+      present: true,
+      agents: [agent({ reclaimable: [{ path: 'target', sizeKb: 99 }] })],
+    })
+    removeRemoteReclaimableDirs.mockResolvedValueOnce({ removed: [], live: true })
+    const { lines, restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', force: true } })
+    restore()
+    const out = lines.join('\n')
+    expect(out).toContain('started a session during the sweep')
+    expect(out).toContain('No reclaimable build output found')
+  })
+
+  it('passes the deletion-time live re-check through, unless --include-live', async () => {
+    scanRemoteWorkspaceUsage.mockResolvedValue({
+      id: 'w1',
+      present: true,
+      agents: [agent({ reclaimable: [{ path: 'target', sizeKb: 9 }] })],
+    })
+    const { restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', force: true } })
+    restore()
+    expect(removeRemoteReclaimableDirs).toHaveBeenCalledWith(
+      expect.anything(),
+      'w1',
+      'abcdef1234',
+      ['target'],
+      { includeLive: false },
+    )
+  })
+
+  it('rejects an unparseable --min-idle', async () => {
+    await expect(
+      runStorageCleanRemoteCommand({ args: { host: 'remote', 'min-idle': 'soon' } }),
+    ).rejects.toThrow(/not a duration/)
   })
 
   it('scopes to one workspace with --id, skipping the host listing', async () => {
