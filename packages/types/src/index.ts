@@ -26,6 +26,7 @@ export type {
   PresetConfig,
   QuimbyConfig,
   RuntimeProfileConfig,
+  StorageConfig,
 } from './QuimbyConfig'
 export type { QuimbyState } from './QuimbyState'
 export type { RunSpec } from './RunSpec'

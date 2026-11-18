@@ -171,6 +171,8 @@ export interface QuimbyConfig {
   /** Machine-wide agent-pool limits. Agents compete for one machine, so both keys count
    * sessions across *every* quimby project on the tmux socket, not just this workspace. */
   pool?: PoolConfig
+  /** Remote-host disk hygiene: when a host counts as filling up. See `StorageConfig`. */
+  storage?: StorageConfig
   /**
    * Which delivered parcels wake an agent (`all` | `directed` | `never`), for every agent that
    * declares none of its own. Does NOT govern the focus guard — see `whenFocused`.
@@ -235,4 +237,14 @@ export interface PoolConfig {
    * opt-in, since it ends a live session's context (the work on disk is untouched).
    */
   idleTimeout?: string | number
+}
+
+export interface StorageConfig {
+  /**
+   * Free space an SSH host should keep, as an absolute size (`100G`, `500M`) or a share of the
+   * filesystem (`10%`). Below it, launching an agent there and a running `quimby serve` warn and
+   * name `quimby storage clean-remote`. Warn-only — nothing is ever deleted automatically.
+   * Defaults to `10%`.
+   */
+  minFree?: string | number
 }

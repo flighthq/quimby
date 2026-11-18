@@ -79,6 +79,13 @@ const config = {
 }
 
 describe('collectConfigWarnings', () => {
+  it('reports a storage.minFree it cannot read rather than silently using the default', () => {
+    expect(collectConfigWarnings({ storage: { minFree: 'plenty' } })).toEqual([
+      expect.stringContaining('storage.minFree'),
+    ])
+    expect(collectConfigWarnings({ storage: { minFree: '10%' } })).toEqual([])
+  })
+
   it('accepts `nudge` on an agent entry and on a role — the recipient governs', () => {
     expect(
       collectConfigWarnings({
@@ -336,6 +343,11 @@ describe('mergeConfigs', () => {
       { pool: { maxLive: 6 } },
     )
     expect(merged.pool).toEqual({ maxLive: 6, idleTimeout: '2h' })
+  })
+
+  it('carries storage.minFree through a layer that does not mention it', () => {
+    const merged = mergeConfigs({ storage: { minFree: '100G' } }, { pool: { maxLive: 3 } })
+    expect(merged.storage).toEqual({ minFree: '100G' })
   })
 
   it('layers runtime profile machine settings without replacing tracked launch defaults', () => {

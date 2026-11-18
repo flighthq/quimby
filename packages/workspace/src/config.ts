@@ -16,6 +16,8 @@ import type {
 import { ensureDir, exists, parseDuration, readYaml, writeYaml } from '@quimbyhq/utils'
 import { dirname, join } from 'pathe'
 
+import { isValidStorageMinFree } from './remoteUsage'
+
 /** A concrete SSH binding — the address an alias resolves to. */
 export interface HostAliasBinding {
   host: string
@@ -302,6 +304,12 @@ export function collectConfigWarnings(config: Readonly<QuimbyConfig>): string[] 
       )
     }
   }
+  if (!isValidStorageMinFree(config.storage?.minFree)) {
+    warnings.push(
+      `storage.minFree: "${config.storage?.minFree}" is not a size or percentage — ignored ` +
+        '(falls back to 10%). Valid: 100G | 500M | 10%.',
+    )
+  }
   if (config.focusGrace !== undefined && parseDuration(config.focusGrace) === null) {
     warnings.push(
       `focusGrace: "${config.focusGrace}" is not a duration — ignored (falls back to ` +
@@ -466,6 +474,7 @@ export function mergeConfigs(...configs: readonly (QuimbyConfig | undefined)[]):
     out.services = { ...(out.services ?? {}), ...(config.services ?? {}) }
     // Per-key so a project can set a ceiling while user config keeps the reap threshold.
     if (config.pool) out.pool = { ...(out.pool ?? {}), ...defined(config.pool) }
+    if (config.storage) out.storage = { ...(out.storage ?? {}), ...defined(config.storage) }
     // Per-key for the same reason as `pool`: a whole-object override would let a layer that only
     // names `branch` drop the `from` a tracked config declared, silently turning integration off.
     if (config.integrate) {
@@ -658,5 +667,6 @@ const STRUCTURED_CONFIG_KEYS = [
   'hosts',
   'services',
   'pool',
+  'storage',
   'integrate',
 ]

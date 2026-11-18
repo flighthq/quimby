@@ -32,9 +32,10 @@ export interface RemoteWorkspaceInfo {
  */
 export async function listRemoteWorkspaces(
   location: Readonly<SSHLocation & { host: string }>,
+  opts: Readonly<{ sizes?: boolean }> = {},
 ): Promise<RemoteWorkspaceInfo[]> {
   const transport = getSSHTransport(location)
-  return parseRemoteWorkspaces(await transport.exec(remoteWorkspaceScanScript()))
+  return parseRemoteWorkspaces(await transport.exec(remoteWorkspaceScanScript(opts.sizes ?? true)))
 }
 
 /**
@@ -78,7 +79,9 @@ export function parseRemoteWorkspaces(stdout: string): RemoteWorkspaceInfo[] {
 // shell noise (a login banner, a `du` warning on an unreadable subdir) can never parse as a row.
 const MARKER = 'QBWS'
 
-function remoteWorkspaceScanScript(): string {
+// `sizes: false` skips the `du`, which is the whole cost on a large host — a listing that has to
+// walk every build tree before printing one line reads as a hang.
+function remoteWorkspaceScanScript(sizes: boolean): string {
   return [
     'for p in "$HOME"/.quimby/workspaces/*; do',
     '[ -d "$p" ] || continue;',
@@ -88,7 +91,7 @@ function remoteWorkspaceScanScript(): string {
     'if [ -d "$p/.quimby/agents" ];',
     'then n=$(find "$p/.quimby/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d " ");',
     'else n=-; fi;',
-    'kb=$(du -sk "$p" 2>/dev/null | cut -f1);',
+    sizes ? 'kb=$(du -sk "$p" 2>/dev/null | cut -f1);' : 'kb=;',
     `printf '${MARKER}\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$id" "$src" "$ref" "$n" "$kb";`,
     'done',
   ].join(' ')
