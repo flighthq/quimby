@@ -1,3 +1,4 @@
+export * from './concurrency'
 export * from './duration'
 export * from './fs'
 export * from './lock'

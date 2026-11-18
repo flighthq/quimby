@@ -3,7 +3,8 @@ import { sweepAgentSandboxes } from '@quimbyhq/runtimes'
 import { getSSHTransport, sq } from '@quimbyhq/transport'
 import type { SSHLocation } from '@quimbyhq/types'
 
-import { remoteSandboxShellRunner } from './remoteUsage'
+import type { RemoteDiskUsage } from './remoteUsage'
+import { parseRemoteDiskUsage, remoteSandboxShellRunner } from './remoteUsage'
 
 /** One workspace directory found under `~/.quimby/workspaces` on a remote host. */
 export interface RemoteWorkspaceInfo {
@@ -21,25 +22,67 @@ export interface RemoteWorkspaceInfo {
   sizeKb?: number
 }
 
+/** Everything a remote storage command needs up front, from ONE round trip. */
+export interface RemoteHostOverview {
+  disk: RemoteDiskUsage | null
+  workspaces: RemoteWorkspaceInfo[]
+  /** Session names on the host's quimby tmux socket. */
+  liveSessions: Set<string>
+}
+
 /**
- * Every workspace on a remote host, unfiltered.
+ * The host's disk, its workspaces and its live sessions in a single SSH invocation.
  *
- * This is the remote twin of `listStorageWorkspaces`, and it exists because SSH is the primary
- * deployment for a fleet of any size — a laptop runs out of sandboxes long before a remote box
- * does — while the remote side had no listing at all. `prune-remote` previews only the subset
- * matching the repo you run it from, which by construction hides other repos' lanes and the active
- * one; recovering the whole picture meant hand-writing an `ssh … ls`.
- *
- * Deliberately reports lanes the adopt scan skips (no `.quimby/agents`), since a half-provisioned
- * workspace consumes disk while being invisible to `prune-remote` — the exact residue a listing is
- * for. Interpretation stays with the caller: this never decides what is stale.
+ * Each of these used to be its own round trip, run back to back before the first line of output —
+ * cheap over loopback, but on a loaded host every invocation pays a remote shell and process
+ * spawns, and a command that prints nothing for that long reads as hung. The listing is unsized
+ * for the same reason; `du` happens per workspace, in parallel, as rows are printed.
  */
-export async function listRemoteWorkspaces(
+export async function getRemoteHostOverview(
   location: Readonly<SSHLocation & { host: string }>,
-  opts: Readonly<{ sizes?: boolean }> = {},
-): Promise<RemoteWorkspaceInfo[]> {
-  const transport = getSSHTransport(location)
-  return parseRemoteWorkspaces(await transport.exec(remoteWorkspaceScanScript(opts.sizes ?? true)))
+): Promise<RemoteHostOverview> {
+  const out = await getSSHTransport(location).exec(
+    [
+      'df -Pk "$HOME/.quimby" 2>/dev/null || df -Pk "$HOME" 2>/dev/null;',
+      `${remoteWorkspaceScanScript()};`,
+      `tmux -L quimby list-sessions -F 'QBLS\t#{session_name}' 2>/dev/null;`,
+      'true',
+    ].join(' '),
+  )
+  return parseRemoteHostOverview(out)
+}
+
+/**
+ * A human name for a remote workspace: its repository's name (`flight-rs-new`), or undefined when
+ * it has no origin. Ids stay the handle for commands; this is what makes a listing readable.
+ */
+export function getRemoteWorkspaceLabel(sourceRepo: string | undefined): string | undefined {
+  if (!sourceRepo) return undefined
+  const name = sourceRepo
+    .replace(/[/\\]+$/, '')
+    .split(/[/:\\]/)
+    .at(-1)
+    ?.replace(/\.git$/, '')
+  return name || undefined
+}
+
+/**
+ * Resolve a full workspace id or a unique prefix of one (at least 8 characters, like the short ids
+ * listings print). A prefix matching several is refused with the candidates, never guessed — these
+ * ids feed deletions.
+ */
+export function resolveRemoteWorkspaceId(
+  ids: readonly string[],
+  query: string,
+): { id: string } | { error: string } {
+  if (ids.includes(query)) return { id: query }
+  if (query.length < 8) {
+    return { error: `"${query}" is too short to identify a workspace — use at least 8 characters.` }
+  }
+  const matches = ids.filter((id) => id.startsWith(query))
+  if (matches.length === 1) return { id: matches[0] }
+  if (matches.length === 0) return { error: `No workspace matches "${query}".` }
+  return { error: `"${query}" matches ${matches.length} workspaces: ${matches.join(', ')}.` }
 }
 
 /**
@@ -68,6 +111,19 @@ export async function removeRemoteWorkspace(
   return { removed: out.trim() === 'REMOVED', sandboxes }
 }
 
+export function parseRemoteHostOverview(stdout: string): RemoteHostOverview {
+  const liveSessions = new Set<string>()
+  for (const line of stdout.split('\n')) {
+    const [tag, name] = line.split('\t')
+    if (tag === 'QBLS' && name?.trim()) liveSessions.add(name.trim())
+  }
+  return {
+    disk: parseRemoteDiskUsage(stdout),
+    workspaces: parseRemoteWorkspaces(stdout),
+    liveSessions,
+  }
+}
+
 export function parseRemoteWorkspaces(stdout: string): RemoteWorkspaceInfo[] {
   const out: RemoteWorkspaceInfo[] = []
   for (const line of stdout.split('\n')) {
@@ -91,9 +147,9 @@ export function parseRemoteWorkspaces(stdout: string): RemoteWorkspaceInfo[] {
 // shell noise (a login banner, a `du` warning on an unreadable subdir) can never parse as a row.
 const MARKER = 'QBWS'
 
-// `sizes: false` skips the `du`, which is the whole cost on a large host — a listing that has to
-// walk every build tree before printing one line reads as a hang.
-function remoteWorkspaceScanScript(sizes: boolean): string {
+// Deliberately unsized: a `du` here would walk every build tree on the host before the first row,
+// which is what made the listing read as hung. Sizes are measured per workspace, in parallel.
+function remoteWorkspaceScanScript(): string {
   return [
     'for p in "$HOME"/.quimby/workspaces/*; do',
     '[ -d "$p" ] || continue;',
@@ -103,7 +159,7 @@ function remoteWorkspaceScanScript(sizes: boolean): string {
     'if [ -d "$p/.quimby/agents" ];',
     'then n=$(find "$p/.quimby/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d " ");',
     'else n=-; fi;',
-    sizes ? 'kb=$(du -sk "$p" 2>/dev/null | cut -f1);' : 'kb=;',
+    'kb=;',
     `printf '${MARKER}\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$id" "$src" "$ref" "$n" "$kb";`,
     'done',
   ].join(' ')

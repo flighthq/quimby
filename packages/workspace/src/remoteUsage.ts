@@ -15,6 +15,8 @@ export interface RemoteReclaimableDir {
 /** What one remote agent is costing and whether anything in it is unlanded work. */
 export interface RemoteAgentUsage {
   id: string
+  /** The name its generated CLAUDE.md/AGENTS.md was rendered with — the host's own record of it. */
+  name?: string
   /** Newest of its status/assignment/transcript writes and its last commit (epoch ms). */
   lastActiveAt?: number
   /** Commits since `quimby/seed`; undefined when it could not be read (treated as unsafe). */
@@ -207,11 +209,12 @@ export function parseRemoteWorkspaceUsage(
         break
       }
       case 'QBAG': {
-        const [, agentId, activity, commits, dirty] = parts
+        const [, agentId, activity, commits, dirty, name] = parts
         if (!agentId) break
         const seconds = Number(activity)
         agents.set(agentId, {
           id: agentId,
+          ...(name ? { name } : {}),
           ...(seconds > 0 ? { lastActiveAt: seconds * 1000 } : {}),
           ...(isCount(commits) ? { commitsSinceSeed: Number(commits) } : {}),
           ...(isCount(dirty) ? { dirtyFiles: Number(dirty) } : {}),
@@ -476,7 +479,10 @@ function remoteUsageScanScript(id: string, sizes: boolean): string {
     'if s=$(git -C "$r" status --porcelain 2>/dev/null); then d=$(printf "%s\\n" "$s" | grep -c . || true); fi;',
     ...ignoredDirs,
     'fi;',
-    `printf 'QBAG\\t%s\\t%s\\t%s\\t%s\\n' "$aid" "$t" "$c" "$d";`,
+    // The agent's name lives in host state on the machine that owns it; the copy rendered into its
+    // instructions is the host's only record, and lets an unclaimed workspace still read as names.
+    `nm=$(sed -n '1s/^You are \\*\\*\\([^*]*\\)\\*\\*.*/\\1/p' "$a/CLAUDE.md" "$a/AGENTS.md" 2>/dev/null | head -n 1);`,
+    `printf 'QBAG\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$aid" "$t" "$c" "$d" "$nm";`,
     'done;',
     ...(sizes ? [`printf 'QBTOT\\t%s\\n' "$(du -sk "$ws" 2>/dev/null | cut -f1)";`] : []),
   ].join(' ')

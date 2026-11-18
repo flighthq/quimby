@@ -7,31 +7,54 @@ vi.mock('@quimbyhq/transport', async (importOriginal) => ({
   getSSHTransport: () => ({ exec }),
 }))
 
-import { listRemoteWorkspaces, parseRemoteWorkspaces, removeRemoteWorkspace } from './remoteStorage'
+import {
+  getRemoteHostOverview,
+  getRemoteWorkspaceLabel,
+  parseRemoteHostOverview,
+  parseRemoteWorkspaces,
+  removeRemoteWorkspace,
+  resolveRemoteWorkspaceId,
+} from './remoteStorage'
 
 const location = { type: 'ssh', host: 'box', base: '~' } as SSHLocation & { host: string }
 
 afterEach(() => vi.clearAllMocks())
 
-describe('listRemoteWorkspaces', () => {
-  it('reports a half-provisioned lane that the adopt/prune scan skips entirely', async () => {
-    // `prune-remote` requires `.quimby/agents` to exist, so a lane without it consumes disk while
-    // being invisible to every other command — the exact residue a listing has to surface.
+describe('getRemoteHostOverview', () => {
+  it('asks for disk, workspaces and live sessions in ONE invocation', async () => {
     exec.mockResolvedValue(
-      'QBWS\taaa\thttps://github.com/o/r\tmain\t3\t2048\nQBWS\tbbb\t\t\t-\t4\n',
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n' +
+        '/dev/x 1000 600 400 60% /\n' +
+        'QBWS\taaaaaaaa-1\thttps://github.com/o/flight-rs-new.git\tmain\t3\t\n' +
+        'QBLS\tqb-12345678\n',
     )
-    const out = await listRemoteWorkspaces(location)
-    expect(out).toEqual([
-      {
-        id: 'aaa',
-        sourceRepo: 'https://github.com/o/r',
-        sourceRef: 'main',
-        agents: 3,
-        sizeKb: 2048,
-      },
-      { id: 'bbb', sizeKb: 4 },
-    ])
-    expect(out[1].agents).toBeUndefined()
+    const overview = await getRemoteHostOverview(location)
+    expect(exec).toHaveBeenCalledTimes(1)
+    expect(overview.disk?.availKb).toBe(400)
+    expect(overview.workspaces.map((w) => w.id)).toEqual(['aaaaaaaa-1'])
+    expect([...overview.liveSessions]).toEqual(['qb-12345678'])
+    // The listing in the overview is the fast one: no du walk.
+    expect(exec.mock.calls[0][0]).not.toContain('du -sk')
+  })
+})
+
+describe('getRemoteWorkspaceLabel', () => {
+  it("names a workspace by its repository, whatever the remote's URL form", () => {
+    expect(getRemoteWorkspaceLabel('https://github.com/flighthq/flight-rs-new')).toBe(
+      'flight-rs-new',
+    )
+    expect(getRemoteWorkspaceLabel('git@github.com:flighthq/flight.git')).toBe('flight')
+    expect(getRemoteWorkspaceLabel('/home/me/src/school/')).toBe('school')
+    expect(getRemoteWorkspaceLabel(undefined)).toBeUndefined()
+  })
+})
+
+describe('parseRemoteHostOverview', () => {
+  it('reads each section by its own tag, ignoring noise', () => {
+    const o = parseRemoteHostOverview('motd\nQBLS\tqb-a\nQBLS\t\nQBWS\tid1\t\t\t0\t\n')
+    expect([...o.liveSessions]).toEqual(['qb-a'])
+    expect(o.workspaces).toHaveLength(1)
+    expect(o.disk).toBeNull()
   })
 })
 
@@ -112,5 +135,30 @@ describe('removeRemoteWorkspace', () => {
     remoteHost({ dir: 'ABSENT' })
     await removeRemoteWorkspace(location, 'a b; rm -rf /')
     for (const [cmd] of exec.mock.calls) expect(cmd).not.toMatch(/;\s*rm -rf \/(?!')/)
+  })
+})
+
+describe('resolveRemoteWorkspaceId', () => {
+  const ids = [
+    'b20d2d32-7ba3-4eb9-af52-1',
+    'b20d2d99-0000-0000-0000-1',
+    '4611d72d-6367-41cb-8cd3-1',
+  ]
+
+  it('accepts a full id or a unique prefix', () => {
+    expect(resolveRemoteWorkspaceId(ids, '4611d72d')).toEqual({ id: ids[2] })
+    expect(resolveRemoteWorkspaceId(ids, ids[0])).toEqual({ id: ids[0] })
+  })
+
+  it('refuses a prefix that is ambiguous, unknown or too short rather than guessing', () => {
+    expect(resolveRemoteWorkspaceId(ids, 'b20d2d')).toMatchObject({
+      error: expect.stringContaining('too short'),
+    })
+    expect(resolveRemoteWorkspaceId([...ids, 'b20d2d32-x'], 'b20d2d32')).toMatchObject({
+      error: expect.stringContaining('matches 2'),
+    })
+    expect(resolveRemoteWorkspaceId(ids, 'ffffffff')).toMatchObject({
+      error: expect.stringContaining('No workspace'),
+    })
   })
 })

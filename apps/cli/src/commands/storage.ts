@@ -10,26 +10,35 @@ import {
   sandboxRemoveCommand,
 } from '@quimbyhq/runtimes'
 import type { QuimbyConfig, SSHLocation } from '@quimbyhq/types'
-import { formatByteSizeKb, formatDuration, logger, parseDuration } from '@quimbyhq/utils'
-import type { RemoteWorkspaceOwnership } from '@quimbyhq/workspace'
+import {
+  formatByteSizeKb,
+  formatDuration,
+  logger,
+  mapConcurrentInOrder,
+  parseDuration,
+} from '@quimbyhq/utils'
+import type { RemoteDiskUsage, RemoteWorkspaceOwnership } from '@quimbyhq/workspace'
 import {
   getRemoteDiskUsage,
+  getRemoteHostOverview,
+  getRemoteWorkspaceLabel,
   getRemoteWorkspaceLastActiveAt,
   getRemoteWorkspaceLiveCount,
   getRemoteWorkspaceReclaimableKb,
   getRemoteWorkspaceUnlandedWork,
   listRemoteAgentIds,
   listRemoteLiveSessions,
-  listRemoteWorkspaces,
   listStorageWorkspaces,
   loadQuimbyConfig,
   loadState,
   pruneStorageWorkspaces,
+  readStoredState,
   remoteDiskWarning,
   remoteSandboxShellRunner,
   removeRemoteReclaimableDirs,
   removeRemoteWorkspace,
   removeStorageWorkspace,
+  resolveRemoteWorkspaceId,
   resolveWorkspace,
   scanRemoteWorkspaceUsage,
   selectOrphanSandboxes,
@@ -305,116 +314,138 @@ export async function runStorageCleanRemoteCommand({
     force?: boolean
   }
 }): Promise<void> {
+  const force = args.force === true
   const includeLive = args['include-live'] === true
   const minIdleMs = parseDuration(args['min-idle'] ?? '1h')
   if (minIdleMs === null) {
     throw new QuimbyError(`--min-idle "${args['min-idle']}" is not a duration (try 1h, 30m, 0).`)
   }
-  const { location, config } = await resolveRemoteStorageContext(args.host)
-  const ids = args.id
-    ? [args.id]
-    : (await listRemoteWorkspaces(location, { sizes: false })).map((w) => w.id)
-  if (ids.length === 0) {
+  const { location, config, agentNames } = await resolveRemoteStorageContext(args.host)
+  // Said first and said plainly: whether this run deletes anything is the one fact the reader must
+  // not have to infer from the wording of the summary at the end.
+  logger.info(
+    force
+      ? `Cleaning build output on "${args.host}"…`
+      : `Preview — nothing will be deleted (add --force to delete). Scanning "${args.host}"…`,
+  )
+  const overview = await getRemoteHostOverview(location)
+  reportRemoteDisk(overview.disk, config, args.host)
+  let targets = overview.workspaces
+  if (args.id) {
+    const resolved = resolveRemoteWorkspaceId(
+      targets.map((w) => w.id),
+      args.id,
+    )
+    if ('error' in resolved) throw new QuimbyError(resolved.error)
+    targets = targets.filter((w) => w.id === resolved.id)
+  }
+  if (targets.length === 0) {
     logger.info(`No Quimby workspaces on "${args.host}".`)
     // Orphans are what deleted workspaces leave behind, so an empty host is where they matter most.
-    if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, args.force === true)
+    if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, force)
     return
   }
-  await reportRemoteDisk(location, config, args.host)
   logger.info(
-    `Measuring build output in ${ids.length} workspace(s) — each is reported as it is measured.`,
+    `Measuring build output in ${targets.length} workspace(s), ${SCAN_CONCURRENCY} at a time — ` +
+      'each is printed as it lands.',
   )
-  let reclaimedKb = 0
-  let skippedLiveKb = 0
-  for (const id of ids) {
-    // Re-read live sessions per workspace: on a long sweep an agent can start mid-run, and that
-    // is exactly the one whose build directory must not vanish under it.
-    const live = await listRemoteLiveSessions(location)
-    const usage = await scanRemoteWorkspaceUsage(location, id, { sizes: true, liveSessions: live })
-    if (!usage.present) continue
-    let workspaceKb = 0
-    let workspaceSkippedKb = 0
-    const lines: string[] = []
-    for (const agent of usage.agents) {
-      const kb = agent.reclaimable.reduce((sum, dir) => sum + dir.sizeKb, 0)
-      if (kb === 0) continue
-      // An in-flight agent is never cleaned by default: not one with a session, and not one that
-      // was active moments ago without one (a session that just ended, a build run some other
-      // way). Build output is cheap to keep for a while; a build tree vanishing mid-compile is not.
-      const recentMs =
-        agent.lastActiveAt === undefined ? undefined : Date.now() - agent.lastActiveAt
-      const skip = includeLive
-        ? undefined
-        : agent.live
-          ? 'live session'
-          : recentMs !== undefined && recentMs < minIdleMs
-            ? `active ${formatDuration(recentMs)} ago (--min-idle ${formatDuration(minIdleMs)})`
-            : undefined
-      if (skip) {
-        skippedLiveKb += kb
-        workspaceSkippedKb += kb
-        lines.push(`  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  skipped — ${skip}`)
-        continue
-      }
-      const top = agent.reclaimable
-        .slice(0, 3)
-        .map((dir) => `${dir.path} ${formatByteSizeKb(dir.sizeKb)}`)
-        .join(', ')
-      const more = agent.reclaimable.length > 3 ? `, +${agent.reclaimable.length - 3} more` : ''
-      if (args.force) {
-        // Re-checked on the host at the moment of deletion, so an agent that started since the
-        // scan is still left alone.
-        const { live: startedSince } = await removeRemoteReclaimableDirs(
-          location,
-          id,
-          agent.id,
-          agent.reclaimable.map((dir) => dir.path),
-          { includeLive },
-        )
-        if (startedSince) {
-          skippedLiveKb += kb
-          workspaceSkippedKb += kb
-          lines.push(
-            `  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  skipped — started a session during the sweep`,
+  let freedKb = 0
+  let skippedKb = 0
+  await mapConcurrentInOrder(
+    targets,
+    SCAN_CONCURRENCY,
+    async (workspace) => {
+      const usage = await scanRemoteWorkspaceUsage(location, workspace.id, {
+        sizes: true,
+        liveSessions: overview.liveSessions,
+      })
+      let workspaceKb = 0
+      let workspaceSkippedKb = 0
+      const lines: string[] = []
+      for (const agent of usage.agents) {
+        const kb = agent.reclaimable.reduce((sum, dir) => sum + dir.sizeKb, 0)
+        if (kb === 0) continue
+        const name = describeRemoteAgent(agent, agentNames)
+        // An in-flight agent is never cleaned by default: not one with a session, and not one that
+        // was active moments ago without one (a session that just ended, a build run some other
+        // way). Build output is cheap to keep for a while; a tree vanishing mid-compile is not.
+        const recentMs =
+          agent.lastActiveAt === undefined ? undefined : Date.now() - agent.lastActiveAt
+        let skip = includeLive
+          ? undefined
+          : agent.live
+            ? 'live session'
+            : recentMs !== undefined && recentMs < minIdleMs
+              ? `active ${formatDuration(recentMs)} ago (--min-idle ${formatDuration(minIdleMs)})`
+              : undefined
+        if (!skip && force) {
+          // Re-checked on the host at the moment of deletion, so an agent that started since the
+          // scan is still left alone.
+          const { live } = await removeRemoteReclaimableDirs(
+            location,
+            workspace.id,
+            agent.id,
+            agent.reclaimable.map((dir) => dir.path),
+            { includeLive },
           )
+          if (live) skip = 'started a session during the sweep'
+        }
+        if (skip) {
+          workspaceSkippedKb += kb
+          lines.push(`  ${name}  ${formatByteSizeKb(kb)}  skipped — ${skip}`)
           continue
         }
+        const top = agent.reclaimable
+          .slice(0, 3)
+          .map((dir) => `${dir.path} ${formatByteSizeKb(dir.sizeKb)}`)
+          .join(', ')
+        const more = agent.reclaimable.length > 3 ? `, +${agent.reclaimable.length - 3} more` : ''
+        workspaceKb += kb
+        lines.push(`  ${name}  ${formatByteSizeKb(kb)}  ${top}${more}`)
       }
-      workspaceKb += kb
-      lines.push(`  ${agent.id.slice(0, 8)}  ${formatByteSizeKb(kb)}  ${top}${more}`)
-    }
-    if (lines.length === 0) continue
-    reclaimedKb += workspaceKb
-    console.log(
-      `${id}  ${args.force ? 'reclaimed' : 'reclaimable'} ${formatByteSizeKb(workspaceKb)}` +
-        (workspaceSkippedKb > 0
-          ? `, ${formatByteSizeKb(workspaceSkippedKb)} skipped (in use)`
-          : ''),
-    )
-    for (const line of lines) console.log(line)
-  }
-  if (skippedLiveKb > 0) {
+      return { workspace, workspaceKb, workspaceSkippedKb, lines }
+    },
+    ({ workspace, workspaceKb, workspaceSkippedKb, lines }) => {
+      freedKb += workspaceKb
+      skippedKb += workspaceSkippedKb
+      if (lines.length === 0) return
+      console.log(
+        `${describeRemoteWorkspace(workspace)}  ${force ? 'freed' : 'would free'} ${formatByteSizeKb(workspaceKb)}` +
+          (workspaceSkippedKb > 0 ? `, ${formatByteSizeKb(workspaceSkippedKb)} in use (kept)` : ''),
+      )
+      for (const line of lines) console.log(line)
+    },
+  )
+  if (skippedKb > 0) {
     logger.info(
-      `${formatByteSizeKb(skippedLiveKb)} belongs to agents that are live or were active within ` +
-        `${formatDuration(minIdleMs)} and was left alone (stop them and wait, or pass --include-live).`,
+      `${formatByteSizeKb(skippedKb)} belongs to agents that are live or were active within ` +
+        `${formatDuration(minIdleMs)} and was kept (stop them and wait, or pass --include-live).`,
     )
   }
-  if (reclaimedKb === 0) {
-    logger.success('No reclaimable build output found.')
-  } else if (args.force) {
-    logger.success(
-      `Reclaimed ${formatByteSizeKb(reclaimedKb)}. Agents rebuild it on their next build; ` +
-        'their commits and uncommitted work were not touched.',
+  if (!force) {
+    logger.info(
+      freedKb > 0
+        ? `Preview only — nothing was deleted. \`--force\` would free ${formatByteSizeKb(freedKb)} ` +
+            '(git-ignored directories only; tracked files, uncommitted work, ignored files such as ' +
+            '.env and keys, and nested repositories are never touched).'
+        : 'Preview only — nothing was deleted, and there is no idle build output to free.',
     )
-    await reportRemoteDisk(location, config, args.host)
+  } else if (freedKb === 0) {
+    logger.success('Nothing deleted — no idle build output found.')
   } else {
-    logger.info(
-      `${formatByteSizeKb(reclaimedKb)} reclaimable — git-ignored directories only; tracked files, ` +
-        'uncommitted work, ignored files (.env, keys) and nested repositories are never touched. ' +
-        'Pass --force to delete.',
+    // The measured `df` before and after, beside the size of what was deleted, so the result is a
+    // reading of the disk and not just the sum of what the scan expected to remove.
+    const after = await getRemoteDiskUsage(location).catch(() => null)
+    const delta =
+      overview.disk && after
+        ? ` "${args.host}" free space: ${formatByteSizeKb(overview.disk.availKb)} → ${formatByteSizeKb(after.availKb)}.`
+        : ''
+    logger.success(
+      `Freed ${formatByteSizeKb(freedKb)} of build output.${delta} Agents rebuild it on their next ` +
+        'build; their commits and uncommitted work were not touched.',
     )
   }
-  if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, args.force === true)
+  if (args.sandboxes) await cleanOrphanSandboxes(location, args.host, force)
 }
 
 export async function runStorageListRemoteCommand({
@@ -422,69 +453,76 @@ export async function runStorageListRemoteCommand({
 }: {
   args: { host: string; size?: boolean }
 }): Promise<void> {
-  const { location, config, ownership } = await resolveRemoteStorageContext(args.host)
+  const { location, config, ownership, agentNames } = await resolveRemoteStorageContext(args.host)
   const sizes = args.size !== false
-  await reportRemoteDisk(location, config, args.host)
-  const workspaces = await listRemoteWorkspaces(location, { sizes: false })
+  logger.info(`Reading "${args.host}"…`)
+  const overview = await getRemoteHostOverview(location)
+  reportRemoteDisk(overview.disk, config, args.host)
+  const workspaces = overview.workspaces
   if (workspaces.length === 0) {
     logger.info(`No Quimby workspaces on "${args.host}".`)
     return
   }
-  if (sizes) {
-    logger.info(
-      `Measuring ${workspaces.length} workspace(s) — sizes walk every build tree, so a large host ` +
-        'takes a while; each is printed as it lands (--no-size for a fast listing).',
-    )
-  }
-  const live = await listRemoteLiveSessions(location)
+  logger.info(
+    sizes
+      ? `Measuring ${workspaces.length} workspace(s), ${SCAN_CONCURRENCY} at a time — sizes walk every ` +
+          'build tree, so a large host takes a while; each is printed as it lands (--no-size is fast).'
+      : `Checking ${workspaces.length} workspace(s), ${SCAN_CONCURRENCY} at a time…`,
+  )
   const now = Date.now()
   let totalKb = 0
   let reclaimableKb = 0
   let unclaimedKb = 0
   const dormant: string[] = []
-  for (const workspace of workspaces) {
-    const usage = await scanRemoteWorkspaceUsage(location, workspace.id, {
-      sizes,
-      liveSessions: live,
-    })
-    if (!usage.present) continue
-    const owner = describeRemoteOwner(workspace.id, ownership)
-    const reclaim = getRemoteWorkspaceReclaimableKb(usage)
-    const liveCount = getRemoteWorkspaceLiveCount(usage)
-    const work = getRemoteWorkspaceUnlandedWork(usage)
-    const lastActive = getRemoteWorkspaceLastActiveAt(usage)
-    totalKb += usage.sizeKb ?? 0
-    reclaimableKb += reclaim
-    if (!ownership.claimed.has(workspace.id) && workspace.id !== ownership.activeId) {
-      unclaimedKb += usage.sizeKb ?? 0
-    }
-    if (
-      workspace.id !== ownership.activeId &&
-      liveCount === 0 &&
-      (lastActive === undefined || now - lastActive >= DORMANT_HINT_MS)
-    ) {
-      dormant.push(workspace.id)
-    }
-    const flags = [
-      owner,
-      workspace.agents === undefined ? 'no agents dir' : `${workspace.agents} agent(s)`,
-      ...(liveCount > 0 ? [`${liveCount} live`] : []),
-    ].join(', ')
-    const size = sizes
-      ? `  ${formatByteSizeKb(usage.sizeKb)}` +
-        (reclaim > 0 ? ` (${formatByteSizeKb(reclaim)} build output)` : '')
-      : ''
-    console.log(`${workspace.id}  ${flags}${size}`)
-    if (workspace.sourceRepo) {
+  await mapConcurrentInOrder(
+    workspaces,
+    SCAN_CONCURRENCY,
+    (workspace) =>
+      scanRemoteWorkspaceUsage(location, workspace.id, {
+        sizes,
+        liveSessions: overview.liveSessions,
+      }),
+    (usage, workspace) => {
+      if (!usage.present) return
+      const owner = describeRemoteOwner(workspace.id, ownership)
+      const reclaim = getRemoteWorkspaceReclaimableKb(usage)
+      const liveCount = getRemoteWorkspaceLiveCount(usage)
+      const work = getRemoteWorkspaceUnlandedWork(usage)
+      const lastActive = getRemoteWorkspaceLastActiveAt(usage)
+      totalKb += usage.sizeKb ?? 0
+      reclaimableKb += reclaim
+      if (!ownership.claimed.has(workspace.id) && workspace.id !== ownership.activeId) {
+        unclaimedKb += usage.sizeKb ?? 0
+      }
+      if (
+        workspace.id !== ownership.activeId &&
+        liveCount === 0 &&
+        (lastActive === undefined || now - lastActive >= DORMANT_HINT_MS)
+      ) {
+        dormant.push(workspace.id)
+      }
+      const flags = [
+        owner,
+        workspace.agents === undefined ? 'no agents dir' : `${workspace.agents} agent(s)`,
+        ...(liveCount > 0 ? [`${liveCount} live`] : []),
+      ].join(', ')
+      const size = sizes
+        ? `  ${formatByteSizeKb(usage.sizeKb)}` +
+          (reclaim > 0 ? ` (${formatByteSizeKb(reclaim)} build output)` : '')
+        : ''
+      console.log(`${describeRemoteWorkspace(workspace)}  ${flags}${size}`)
+      if (usage.agents.length > 0) {
+        const names = usage.agents.map(
+          (agent) => `${describeRemoteAgent(agent, agentNames)}${agent.live ? '*' : ''}`,
+        )
+        console.log(`  agents: ${names.join(', ')}${liveCount > 0 ? '  (* live)' : ''}`)
+      }
       console.log(
-        `  source: ${workspace.sourceRepo}${workspace.sourceRef ? ` (${workspace.sourceRef})` : ''}`,
+        `  last active: ${lastActive === undefined ? 'never' : `${formatDuration(now - lastActive)} ago`}` +
+          `  unlanded: ${describeUnlandedWork(work)}`,
       )
-    }
-    console.log(
-      `  last active: ${lastActive === undefined ? 'never' : `${formatDuration(now - lastActive)} ago`}` +
-        `  unlanded: ${describeUnlandedWork(work)}`,
-    )
-  }
+    },
+  )
   if (sizes) {
     logger.info(
       `${formatByteSizeKb(totalKb)} in ${workspaces.length} workspace(s); ` +
@@ -502,7 +540,7 @@ export async function runStorageListRemoteCommand({
         `review with \`quimby storage prune-remote --host ${args.host} --idle ${formatDuration(DORMANT_HINT_MS)}\`.`,
     )
   }
-  const orphans = await countOrphanSandboxes(location).catch(() => 0)
+  const orphans = await countOrphanSandboxes(location, overview.liveSessions).catch(() => 0)
   if (orphans > 0) {
     logger.info(
       `${orphans} sandbox(es) on "${args.host}" belong to no agent there (left by an earlier teardown) — ` +
@@ -542,16 +580,28 @@ export async function runStoragePruneRemoteCommand({
     duplicatesOf = { sourceRepo: (await git.getRemoteUrl(repoRoot)) ?? repoRoot }
   }
 
-  const workspaces = await listRemoteWorkspaces(location, { sizes: false })
-  const live = await listRemoteLiveSessions(location)
-  const entries = []
-  for (const workspace of workspaces) {
-    entries.push({
+  logger.info(
+    args.force
+      ? `Reading "${args.host}"…`
+      : `Preview — nothing will be deleted (add --force to delete). Reading "${args.host}"…`,
+  )
+  const overview = await getRemoteHostOverview(location)
+  logger.info(
+    `Checking ${overview.workspaces.length} workspace(s) for activity and unlanded work, ` +
+      `${SCAN_CONCURRENCY} at a time…`,
+  )
+  const entries = await mapConcurrentInOrder(
+    overview.workspaces,
+    SCAN_CONCURRENCY,
+    async (workspace) => ({
       id: workspace.id,
       ...(workspace.sourceRepo ? { sourceRepo: workspace.sourceRepo } : {}),
-      usage: await scanRemoteWorkspaceUsage(location, workspace.id, { liveSessions: live }),
-    })
-  }
+      usage: await scanRemoteWorkspaceUsage(location, workspace.id, {
+        liveSessions: overview.liveSessions,
+      }),
+    }),
+    () => {},
+  )
   const candidates = selectRemoteWorkspacePruneCandidates(entries, ownership, {
     now: Date.now(),
     ...(idleMs ? { idleMs } : {}),
@@ -570,28 +620,37 @@ export async function runStoragePruneRemoteCommand({
 
   let removed = 0
   let removedKb = 0
-  for (const candidate of candidates) {
-    // Measure only what is offered — sizing the whole host is the slow part of every listing. A
-    // kept one is measured too: its size is what tells you whether it is worth a closer look.
-    const { sizeKb } = await scanRemoteWorkspaceUsage(location, candidate.id, {
-      sizes: true,
-      liveSessions: live,
-    })
-    const label = `${candidate.id}  ${formatByteSizeKb(sizeKb)}  ${candidate.sourceRepo ?? '(no source)'}`
-    if (candidate.blocked) {
-      logger.warn(`keeping ${label}\n  ${candidate.reasons.join('; ')} — but ${candidate.blocked}`)
-      continue
-    }
-    if (args.force) {
-      const { sandboxes } = await removeRemoteWorkspace(location, candidate.id)
-      reportSandboxSweep(sandboxes, `"${args.host}"`)
-      removed++
-      removedKb += sizeKb ?? 0
-    }
-    logger.info(
-      `${args.force ? 'removed' : 'would remove'} ${label}\n  ${candidate.reasons.join('; ')}`,
-    )
-  }
+  // Measure only what is offered — sizing the whole host is the slow part of every listing. A kept
+  // one is measured too: its size is what tells you whether it is worth a closer look.
+  await mapConcurrentInOrder(
+    candidates,
+    SCAN_CONCURRENCY,
+    async (candidate) =>
+      (
+        await scanRemoteWorkspaceUsage(location, candidate.id, {
+          sizes: true,
+          liveSessions: overview.liveSessions,
+        })
+      ).sizeKb,
+    async (sizeKb, candidate) => {
+      const label = `${describeRemoteWorkspace(candidate)}  ${formatByteSizeKb(sizeKb)}`
+      if (candidate.blocked) {
+        logger.warn(
+          `keeping ${label}\n  ${candidate.reasons.join('; ')} — but ${candidate.blocked}`,
+        )
+        return
+      }
+      if (args.force) {
+        const { sandboxes } = await removeRemoteWorkspace(location, candidate.id)
+        reportSandboxSweep(sandboxes, `"${args.host}"`)
+        removed++
+        removedKb += sizeKb ?? 0
+      }
+      logger.info(
+        `${args.force ? 'removed' : 'would remove'} ${label}\n  ${candidate.reasons.join('; ')}`,
+      )
+    },
+  )
   const blocked = candidates.filter((c) => c.blocked).length
   if (blocked > 0) {
     logger.info(
@@ -601,8 +660,11 @@ export async function runStoragePruneRemoteCommand({
     )
   }
   if (!args.force) {
-    if (candidates.length > blocked)
-      logger.info('Review the list, then pass --force to remove them.')
+    if (candidates.length > blocked) {
+      logger.info(
+        'Preview only — nothing was deleted. Review the list, then pass --force to remove them.',
+      )
+    }
   } else {
     logger.success(`Removed ${removed} remote workspace(s), ${formatByteSizeKb(removedKb)}.`)
   }
@@ -617,17 +679,33 @@ export async function runStorageRemoveRemoteCommand({
     throw new QuimbyError(`Pass --force to remove remote workspace "${args.id}" on "${args.host}".`)
   }
   const { location, ownership } = await resolveRemoteStorageContext(args.host)
+  const overview = await getRemoteHostOverview(location)
+  const resolved = resolveRemoteWorkspaceId(
+    overview.workspaces.map((w) => w.id),
+    args.id,
+  )
+  if ('error' in resolved) {
+    if (resolved.error.startsWith('No workspace')) {
+      logger.info(`Remote workspace "${args.id}" was not present on "${args.host}".`)
+      return
+    }
+    throw new QuimbyError(resolved.error)
+  }
+  const id = resolved.id
+  const workspace = overview.workspaces.find((w) => w.id === id)!
   // Refuse the live one outright rather than trusting the operator to have read the listing: it
   // holds this project's agent repos, mailboxes and assignments, and nothing here is recoverable.
-  if (args.id === ownership.activeId) {
+  if (id === ownership.activeId) {
     throw new QuimbyError(
-      `"${args.id}" is the workspace this repo is using on "${args.host}" — refusing to remove it. ` +
+      `"${id}" is the workspace this repo is using on "${args.host}" — refusing to remove it. ` +
         'Use `quimby remove <agent> --force` for one agent, or run this from a different project.',
     )
   }
-  const usage = await scanRemoteWorkspaceUsage(location, args.id)
+  const usage = await scanRemoteWorkspaceUsage(location, id, {
+    liveSessions: overview.liveSessions,
+  })
   if (!usage.present) {
-    logger.info(`Remote workspace "${args.id}" was not present on "${args.host}".`)
+    logger.info(`Remote workspace "${id}" was not present on "${args.host}".`)
     return
   }
   // Deleting a directory a running agent is working in leaves a session with no repo under it —
@@ -635,21 +713,21 @@ export async function runStorageRemoveRemoteCommand({
   const liveCount = getRemoteWorkspaceLiveCount(usage)
   if (liveCount > 0) {
     throw new QuimbyError(
-      `"${args.id}" has ${liveCount} agent(s) with a live session on "${args.host}". ` +
+      `${describeRemoteWorkspace(workspace)} has ${liveCount} agent(s) with a live session on "${args.host}". ` +
         'Stop them first (`quimby stop <agent>` from that project, or `quimby sessions prune`), then retry.',
     )
   }
   const work = getRemoteWorkspaceUnlandedWork(usage)
   if ((work.unknown || work.commits > 0 || work.dirtyFiles > 0) && !args['discard-work']) {
     throw new QuimbyError(
-      `"${args.id}" holds work that exists nowhere else: ${describeUnlandedWork(work)}. ` +
+      `${describeRemoteWorkspace(workspace)} holds work that exists nowhere else: ${describeUnlandedWork(work)}. ` +
         'Merge it from that project first, or pass --discard-work to delete it anyway.',
     )
   }
-  const { removed, sandboxes } = await removeRemoteWorkspace(location, args.id)
+  const { removed, sandboxes } = await removeRemoteWorkspace(location, id)
   reportSandboxSweep(sandboxes, `"${args.host}"`)
-  if (removed) logger.success(`Removed remote workspace "${args.id}" on "${args.host}".`)
-  else logger.info(`Remote workspace "${args.id}" was not present on "${args.host}".`)
+  if (removed) logger.success(`Removed ${describeRemoteWorkspace(workspace)} on "${args.host}".`)
+  else logger.info(`Remote workspace "${id}" was not present on "${args.host}".`)
 }
 
 // Opt-in: an orphan is inferred, not known — see selectOrphanSandboxes for the one case it misreads.
@@ -690,14 +768,11 @@ async function cleanOrphanSandboxes(
 
 async function countOrphanSandboxes(
   location: Readonly<SSHLocation & { host: string }>,
+  liveSessions: ReadonlySet<string>,
 ): Promise<number> {
   const { sandboxes } = await listQuimbySandboxes(remoteSandboxShellRunner(location))
   if (sandboxes.length === 0) return 0
-  return selectOrphanSandboxes(
-    sandboxes,
-    await listRemoteAgentIds(location),
-    await listRemoteLiveSessions(location),
-  ).length
+  return selectOrphanSandboxes(sandboxes, await listRemoteAgentIds(location), liveSessions).length
 }
 
 // A sandbox removed is worth one line each; one the CLI refused is worth naming with the command to
@@ -735,12 +810,11 @@ function describeUnlandedWork(work: {
 }
 
 // Best-effort: a host whose `df` cannot be read still lists, it just has no header.
-async function reportRemoteDisk(
-  location: Readonly<SSHLocation & { host: string }>,
+function reportRemoteDisk(
+  disk: Readonly<RemoteDiskUsage> | null,
   config: Readonly<QuimbyConfig>,
   host: string,
-): Promise<void> {
-  const disk = await getRemoteDiskUsage(location).catch(() => null)
+): void {
   if (!disk) return
   const warning = remoteDiskWarning(disk, config, host)
   if (warning) {
@@ -753,6 +827,21 @@ async function reportRemoteDisk(
   )
 }
 
+// A workspace is named by its repository and told apart by a short id — the prefix that `--id` and
+// `remove-remote` accept, so what a listing prints is also what a command takes.
+function describeRemoteWorkspace(workspace: { id: string; sourceRepo?: string }): string {
+  return `${getRemoteWorkspaceLabel(workspace.sourceRepo) ?? '(no origin)'} [${workspace.id.slice(0, 8)}]`
+}
+
+// This machine's state knows the current name (a rename only re-renders the host's copy on the next
+// launch); the host's own record covers a workspace this machine never registered.
+function describeRemoteAgent(
+  agent: { id: string; name?: string },
+  names: ReadonlyMap<string, string>,
+): string {
+  return names.get(agent.id) ?? agent.name ?? agent.id.slice(0, 8)
+}
+
 // The host connection plus what this machine knows about ownership: the id this repo is using (when
 // there is a local workspace), and every id a local project registered with whether that project's
 // checkout still exists — a deleted checkout is the strongest hint a remote lane was temporary.
@@ -761,6 +850,7 @@ async function resolveRemoteStorageContext(host: string): Promise<{
   config: QuimbyConfig
   ownership: RemoteWorkspaceOwnership
   repoRoot: string
+  agentNames: Map<string, string>
 }> {
   const repoRoot = await git.findRoot(process.cwd())
   if (!repoRoot) throw new QuimbyError('Not inside a git repository.')
@@ -770,25 +860,39 @@ async function resolveRemoteStorageContext(host: string): Promise<{
     alias: host,
   })
   const state = await loadState(repoRoot).catch(() => undefined)
+  const registered = (await listStorageWorkspaces()).filter((w) => w.registered)
+  // Agent names live only in each project's state on this machine, so read them from storage —
+  // local files, no round trip. A workspace that cannot be read just falls back to the host's copy.
+  const agentNames = new Map<string, string>()
+  for (const workspace of registered) {
+    const stored = await readStoredState(workspace.id).catch(() => undefined)
+    for (const [name, agent] of Object.entries(stored?.agents ?? {})) {
+      if (agent?.id) agentNames.set(agent.id, name)
+    }
+  }
   const claimed = new Map(
-    (await listStorageWorkspaces())
-      .filter((w) => w.registered)
-      .map((w) => [
-        w.id,
-        {
-          ...(w.repoRoot ? { repoRoot: w.repoRoot } : {}),
-          // Unknown root reads as present: absence of a record is not evidence of deletion.
-          projectPresent: w.repoRoot ? existsSync(w.repoRoot) : true,
-        },
-      ]),
+    registered.map((w) => [
+      w.id,
+      {
+        ...(w.repoRoot ? { repoRoot: w.repoRoot } : {}),
+        // Unknown root reads as present: absence of a record is not evidence of deletion.
+        projectPresent: w.repoRoot ? existsSync(w.repoRoot) : true,
+      },
+    ]),
   )
   return {
     location,
     config,
     ownership: { ...(state ? { activeId: state.id } : {}), claimed },
     repoRoot,
+    agentNames,
   }
 }
+
+// Workspaces scanned at once. Each scan is one SSH invocation (all sharing one connection, whose
+// channel budget the transport's own gate enforces); three keeps the first rows arriving early
+// without piling `du` walks onto a host whose disk is the bottleneck.
+const SCAN_CONCURRENCY = 3
 
 // When `list-remote` starts pointing at dormant lanes. A hint threshold, not a policy — the
 // sweep itself always takes an explicit --idle.

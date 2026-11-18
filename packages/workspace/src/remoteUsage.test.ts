@@ -71,6 +71,10 @@ async function makeAgentRepo(): Promise<string> {
   await git('commit', '-qm', 'seed')
   await git('tag', 'quimby/seed')
   await writeFile(join(agentDir, 'status.md'), 'working')
+  await writeFile(
+    join(agentDir, 'CLAUDE.md'),
+    'You are **builder4**, one of several agents.\n\nmore',
+  )
   await mkdir(join(repo, 'target/debug'), { recursive: true })
   await writeFile(join(repo, 'target/debug/big.bin'), Buffer.alloc(64 * 1024))
   await writeFile(join(repo, '.env'), 'TOKEN=x')
@@ -308,6 +312,7 @@ describe('scanRemoteWorkspaceUsage', () => {
     expect(u.sizeKb).toBeGreaterThan(0)
     const [agent] = u.agents
     expect(agent.id).toBe(AGENT)
+    expect(agent.name).toBe('builder4')
     expect(agent.commitsSinceSeed).toBe(0)
     expect(agent.dirtyFiles).toBe(1)
     expect(agent.lastActiveAt).toBeGreaterThan(Date.now() - 60_000)

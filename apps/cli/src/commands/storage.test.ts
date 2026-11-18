@@ -46,7 +46,13 @@ vi.mock('@quimbyhq/workspace', async (importOriginal) => ({
   removeStorageWorkspace,
   resolveWorkspace,
   loadState,
-  listRemoteWorkspaces,
+  // The host listing now arrives with disk and live sessions in one round trip; tests keep setting
+  // the workspaces and sessions through the two mocks below.
+  getRemoteHostOverview: vi.fn(async () => ({
+    disk: null,
+    workspaces: (await listRemoteWorkspaces()) ?? [],
+    liveSessions: await listRemoteLiveSessions(),
+  })),
   removeRemoteWorkspace,
   scanRemoteWorkspaceUsage,
   listRemoteLiveSessions,
@@ -151,10 +157,10 @@ describe('runStorageListRemoteCommand', () => {
     restore()
 
     const out = lines.join('\n')
-    expect(out).toContain('active-id  active')
-    expect(out).toContain('orphan-id  unclaimed here')
+    expect(out).toContain('(no origin) [active-i]  active')
+    expect(out).toContain('(no origin) [orphan-i]  unclaimed here')
     // The lane `prune-remote` cannot see must be visible and legible as such.
-    expect(out).toContain('halfdone-id  unclaimed here, no agents dir')
+    expect(out).toContain('(no origin) [halfdone]  unclaimed here, no agents dir')
   })
 
   it('lists fast (no du) and then measures each workspace, splitting out build output', async () => {
@@ -170,7 +176,6 @@ describe('runStorageListRemoteCommand', () => {
     await runStorageListRemoteCommand({ args: { host: 'remote' } })
     restore()
 
-    expect(listRemoteWorkspaces).toHaveBeenCalledWith(expect.anything(), { sizes: false })
     expect(scanRemoteWorkspaceUsage).toHaveBeenCalledWith(
       expect.anything(),
       'w1',
@@ -195,7 +200,7 @@ describe('runStorageListRemoteCommand', () => {
     restore()
 
     const out = lines.join('\n')
-    expect(out).toContain('temp  claimed, project gone')
+    expect(out).toContain('[temp]  claimed, project gone')
     expect(out).toContain('last active: 90d ago')
     expect(out).toContain('prune-remote --host remote --idle 30d')
   })
@@ -218,7 +223,11 @@ describe('runStorageCleanRemoteCommand', () => {
     restore()
 
     expect(removeRemoteReclaimableDirs).not.toHaveBeenCalled()
-    expect(lines.join('\n')).toContain('w1  reclaimable 2.0M')
+    const out = lines.join('\n')
+    expect(out).toContain('[w1]  would free 2.0M')
+    // Whether anything was deleted must not be left to inference — said first and last.
+    expect(out).toMatch(/^Preview — nothing will be deleted/)
+    expect(out).toContain('Preview only — nothing was deleted. `--force` would free 2.0M')
   })
 
   it('deletes with --force but leaves a live agent alone', async () => {
@@ -292,7 +301,7 @@ describe('runStorageCleanRemoteCommand', () => {
     restore()
     const out = lines.join('\n')
     expect(out).toContain('started a session during the sweep')
-    expect(out).toContain('No reclaimable build output found')
+    expect(out).toContain('Nothing deleted — no idle build output found')
   })
 
   it('passes the deletion-time live re-check through, unless --include-live', async () => {
@@ -356,17 +365,64 @@ describe('runStorageCleanRemoteCommand', () => {
     expect(removeQuimbySandboxes).toHaveBeenCalled()
   })
 
-  it('scopes to one workspace with --id, skipping the host listing', async () => {
-    scanRemoteWorkspaceUsage.mockResolvedValue(quietUsage('only'))
+  it('scopes to one workspace with --id, accepting the short id a listing prints', async () => {
+    listRemoteWorkspaces.mockResolvedValue([
+      { id: 'b20d2d32-7ba3-4eb9-af52-1', sourceRepo: 'https://github.com/o/flight-rs-new' },
+      { id: '4611d72d-6367-41cb-8cd3-1' },
+    ])
+    scanRemoteWorkspaceUsage.mockResolvedValue(quietUsage('b20d2d32-7ba3-4eb9-af52-1'))
     const { restore } = captureLogs()
-    await runStorageCleanRemoteCommand({ args: { host: 'remote', id: 'only' } })
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', id: 'b20d2d32' } })
     restore()
-    expect(listRemoteWorkspaces).not.toHaveBeenCalled()
+    expect(scanRemoteWorkspaceUsage).toHaveBeenCalledTimes(1)
     expect(scanRemoteWorkspaceUsage).toHaveBeenCalledWith(
       expect.anything(),
-      'only',
+      'b20d2d32-7ba3-4eb9-af52-1',
       expect.anything(),
     )
+  })
+
+  it('after --force, reports the measured free space before and after', async () => {
+    const { getRemoteHostOverview } = await import('@quimbyhq/workspace')
+    vi.mocked(getRemoteHostOverview).mockResolvedValueOnce({
+      disk: { totalKb: 4 * 1024 ** 3, usedKb: 3 * 1024 ** 3, availKb: 1024 ** 3, mount: '/' },
+      workspaces: [{ id: 'w1' }],
+      liveSessions: new Set(),
+    })
+    getRemoteDiskUsage.mockResolvedValueOnce({
+      totalKb: 4 * 1024 ** 3,
+      usedKb: 2 * 1024 ** 3,
+      availKb: 2 * 1024 ** 3,
+      mount: '/',
+    } as never)
+    scanRemoteWorkspaceUsage.mockResolvedValue({
+      id: 'w1',
+      present: true,
+      agents: [agent({ reclaimable: [{ path: 'target', sizeKb: 1024 ** 3 }] })],
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote', force: true } })
+    restore()
+    expect(lines.join('\n')).toContain(
+      'Freed 1.0T of build output. "remote" free space: 1.0T → 2.0T.',
+    )
+  })
+
+  it('names workspaces by repository and agents by name, not by uuid', async () => {
+    listRemoteWorkspaces.mockResolvedValue([
+      { id: 'b20d2d32-7ba3-4eb9-af52-1', sourceRepo: 'https://github.com/o/flight-rs-new.git' },
+    ])
+    scanRemoteWorkspaceUsage.mockResolvedValue({
+      id: 'b20d2d32-7ba3-4eb9-af52-1',
+      present: true,
+      agents: [agent({ name: 'builder4', reclaimable: [{ path: 'target', sizeKb: 2048 }] })],
+    })
+    const { lines, restore } = captureLogs()
+    await runStorageCleanRemoteCommand({ args: { host: 'remote' } })
+    restore()
+    const out = lines.join('\n')
+    expect(out).toContain('flight-rs-new [b20d2d32]  would free 2.0M')
+    expect(out).toContain('  builder4  2.0M  target 2.0M')
   })
 })
 
@@ -409,7 +465,7 @@ describe('runStoragePruneRemoteCommand', () => {
     restore()
 
     const out = lines.join('\n')
-    expect(out).toContain('would remove dup')
+    expect(out).toContain('would remove repo [dup]')
     expect(out).not.toContain('active-id  ')
     expect(out).not.toContain('other')
     expect(removeRemoteWorkspace).not.toHaveBeenCalled()
@@ -441,8 +497,8 @@ describe('runStoragePruneRemoteCommand', () => {
     expect(removeRemoteWorkspace).toHaveBeenCalledTimes(1)
     expect(removeRemoteWorkspace).toHaveBeenCalledWith(expect.anything(), 'stale')
     const out = lines.join('\n')
-    expect(out).toContain('keeping busy')
-    expect(out).toContain('keeping wip')
+    expect(out).toContain('keeping (no origin) [busy]')
+    expect(out).toContain('keeping (no origin) [wip]')
   })
 
   it('rejects an --idle it cannot parse before touching the host', async () => {
@@ -470,6 +526,10 @@ describe('runStorageRemoveCommand', () => {
 })
 
 describe('runStorageRemoveRemoteCommand', () => {
+  beforeEach(() => {
+    listRemoteWorkspaces.mockResolvedValue([{ id: 'active-id' }, { id: 'other-id' }])
+  })
+
   it('refuses without --force', async () => {
     await expect(
       runStorageRemoveRemoteCommand({ args: { id: 'x', host: 'remote' } }),
@@ -508,6 +568,23 @@ describe('runStorageRemoveRemoteCommand', () => {
     await runStorageRemoveRemoteCommand({ args: { id: 'other-id', host: 'remote', force: true } })
     restore()
     expect(lines.join('\n')).toContain('sbx rm qb-bbbbbbbb-0123456789ab')
+  })
+
+  it('accepts the short id a listing prints, and refuses an ambiguous one', async () => {
+    loadState.mockResolvedValue({ id: 'active-id' })
+    listRemoteWorkspaces.mockResolvedValue([
+      { id: 'b20d2d32-7ba3-1' },
+      { id: 'b20d2d32-ffff-1' },
+      { id: '4611d72d-6367-1' },
+    ])
+    await runStorageRemoveRemoteCommand({ args: { id: '4611d72d', host: 'remote', force: true } })
+    expect(removeRemoteWorkspace).toHaveBeenCalledWith(expect.anything(), '4611d72d-6367-1')
+
+    removeRemoteWorkspace.mockClear()
+    await expect(
+      runStorageRemoveRemoteCommand({ args: { id: 'b20d2d32', host: 'remote', force: true } }),
+    ).rejects.toThrow(/matches 2/)
+    expect(removeRemoteWorkspace).not.toHaveBeenCalled()
   })
 
   it('refuses a workspace with a live session', async () => {
