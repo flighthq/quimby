@@ -204,6 +204,26 @@ describe('prepareSshLaunch', () => {
     expect(events).toContainEqual({ level: 'success', message: 'Remote agent initialized' })
   })
 
+  it('warns once per host when the remote disk is below storage.minFree, never blocking', async () => {
+    const transport = fakeSSHTransport(true)
+    vi.mocked(transport.exec).mockImplementation(async (cmd: string) =>
+      cmd.startsWith('df ')
+        ? 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x 1000 980 20 98% /\n'
+        : '',
+    )
+    mockedGetSSH.mockReturnValue(transport)
+    const state = makeState()
+    state.agents.researcher.location = { type: 'ssh', host: 'user@full-box', alias: 'full' }
+    const { reporter, events } = collectingReporter()
+
+    await prepareSshLaunch(optsFrom(state), reporter)
+    await prepareSshLaunch(optsFrom(state), reporter)
+
+    const warnings = events.filter((e) => e.level === 'warn')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].message).toContain('clean-remote --host full')
+  })
+
   it('checks the selected runtime on the remote host', async () => {
     const transport = fakeSSHTransport(true)
     mockedGetSSH.mockReturnValue(transport)

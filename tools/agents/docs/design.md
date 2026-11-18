@@ -228,6 +228,14 @@ quimby host remote --set user@gpu-box --global # bind → ~/.config/quimby/confi
 quimby host remote                            # print the binding, or prompt to bind when unbound
 ```
 
+### Remote disk hygiene
+
+An SSH host is where a fleet lives, so it is where disk fills — and it fills with **build output, not work**. Every agent is its own clone and builds independently, so a Rust `target/`, an hxcpp `obj/` or a `node_modules` is repeated once per agent: a 12-agent Rust workspace reached 630G, almost all regenerable. A full disk then surfaces as an unrelated-looking build or git failure. Quimby handles this in three layers, none of which deletes anything without being asked:
+
+- **Notice.** `storage.minFree` (default `10%`, or an absolute size like `100G`) is the free space a host should keep. Below it, an SSH launch warns once per host per command, and a running `quimby serve` reads `df` every 30 minutes and warns on the transition (and says when it recovers). Warn-only, like `pool.maxLive`.
+- **Identify.** `quimby storage list-remote --host <alias>` prints the host's disk, then each workspace as it is measured: who owns it on this machine (`active` / `claimed` / `claimed, project gone` / `unclaimed here`), live sessions, last activity (newest of each agent's status/assignment/transcript writes and last commit), **unlanded work** (commits since seed plus dirty files — what would be lost), and total size with its build-output share split out.
+- **Clean, in two strengths.** `storage clean-remote` deletes git-ignored **directories** in agent clones and nothing else, skipping live agents — it reclaims the bulk without ending or losing anything. `storage prune-remote --idle/--gone/--unclaimed` removes whole dormant workspaces, but a candidate that is live, holds unlanded work, or has an unreadable agent repo is listed as _kept_, never removed; deleting one of those takes naming it to `remove-remote … --discard-work`.
+
 ## CLI Surface
 
 The complete command reference, planned commands, advisory checks, and flag conventions live in **[cli-surface.md](./cli-surface.md)**. All commands follow `verb target [qualifiers]`; work moves sideways (`handoff`), routes an authored queue (`dispatch`), crosses out to your repo (`merge`), or sets a task in (`assign`).
@@ -534,6 +542,7 @@ The API is read-only — status routing is automatic (mirror-to-all), so there i
 6. Scan each agent's `out/queued/`; auto-dispatch any parcel whose newest mtime was unchanged since the previous cycle (settled), then nudge the recipient — skipped entirely under `--no-dispatch`
 7. Re-announce any parcels an idle agent still hasn't read (spaced by 10 minutes, and at most 3 **delivered** reminders for an unchanged inbox before it reports the agent as stuck) — the safety net that keeps an unattended fleet from stalling on a lost wake; skipped under `--no-dispatch`. A parcel is never announced **on first sighting**: the sweep is the net for a wake that was lost, and it cannot tell one from a wake another carrier just sent (a CLI `delegate`/`handoff`, or step 6's own wake still inside its bundle window) or deliberately withheld (an advisory parcel under `nudge: directed`). It records the sighting and lets the carrier's rule govern the fresh parcel; anything still unprocessed one interval later is the sweep's business. A reminder the §7 guard **held** delivered nothing, so it neither consumes the cap nor starts the interval: it is retried on the next cycle, landing about one cycle after the human stops typing. Without that, sitting in an agent's pane burned all three reminders without one reaching it, and quimby then went silent and reported a healthy agent as stuck
 8. When `pool.idleTimeout` is configured, reap this project's agent sessions idle past it (see [The Agent Pool](#the-agent-pool)) — skipped when unset (the default), and it never touches an attached session
+9. Every 30 minutes per SSH host this workspace uses, read its free space and warn when it drops below `storage.minFree` (and again when it recovers) — see [Remote disk hygiene](#remote-disk-hygiene). Advisory and last in the cycle, so a slow `df` never delays the work above
 
 The server writes `.quimby/server.json` (pid, port, startedAt) on startup and removes it on shutdown. CLI commands use this file to detect a running server and display its status.
 

@@ -26,6 +26,7 @@ import {
 } from './autodispatch'
 import { autoIntegrateWork, createIntegrateTracker } from './autointegrate'
 import { autoReapIdleSessions } from './autoreap'
+import { createDiskWatchTracker, watchRemoteDiskSpace } from './diskwatch'
 import type { StatusSnapshot } from './poller'
 import { getFileMtime, pollStatusCycle, reloadStateIfChanged } from './poller'
 import { createInboxReminderTracker, noteInboxDelivery, remindUnreadInboxes } from './remind'
@@ -69,6 +70,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
   const integrateTracker = createIntegrateTracker()
   // Held across cycles so a burst of deliveries becomes one wake per recipient.
   const wakeBundler = createWakeBundler()
+  // Per SSH host: when its disk was last read and whether it was low, so it warns on transitions.
+  const diskWatch = createDiskWatchTracker()
   let state = await loadState(repoRoot)
   let stateMtime = 0
   // Read once at startup: auto-reaping is a standing policy, so a config edit takes effect on the
@@ -192,6 +195,8 @@ export async function startServer(opts: ServerOptions): Promise<QuimbyServerHand
           )
         }
         if (idleTimeoutMs) await autoReapIdleSessions(state, idleTimeoutMs, reporter)
+        // Last: it is advisory, and a slow `df` must not delay the work above.
+        await watchRemoteDiskSpace(state, serverConfig, diskWatch, Date.now(), reporter)
       } catch (err) {
         reporter.error(`Poll error: ${err}`)
       } finally {

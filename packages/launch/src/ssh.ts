@@ -21,9 +21,15 @@ import { reconcileAgentStatusMirror } from '@quimbyhq/status'
 import { renderTmuxConfig } from '@quimbyhq/template'
 import type { SSHTransport } from '@quimbyhq/transport'
 import { getSSHTransport, sp, sq } from '@quimbyhq/transport'
-import type { SSHLocation } from '@quimbyhq/types'
+import type { QuimbyConfig, SSHLocation } from '@quimbyhq/types'
 import { isResolvedSSHLocation } from '@quimbyhq/types'
-import { loadQuimbyConfig, resolveAgentInstructions, saveState } from '@quimbyhq/workspace'
+import {
+  getRemoteDiskUsage,
+  loadQuimbyConfig,
+  remoteDiskWarning,
+  resolveAgentInstructions,
+  saveState,
+} from '@quimbyhq/workspace'
 
 import type { LaunchOptions } from './local'
 import { resolveRuntimeSelection } from './runtime'
@@ -92,6 +98,7 @@ export async function prepareSshLaunch(
     ...opts,
     config,
   })
+  await warnIfRemoteDiskLow(loc, config, reporter)
 
   // Lazy remote init: clone + scaffold the agent if this is the first launch. Reuses the
   // same provisioning primitives as `rebuildAgent`, so remote clone/seed/scaffold lives
@@ -187,3 +194,21 @@ export async function prepareSshLaunch(
     runtimeLabel,
   }
 }
+
+// A filling disk is the failure that arrives with no error until a write fails mid-build, so the
+// launch path checks — once per host per process, since a dashboard launches every agent on a
+// host back to back. Best-effort: an unreadable `df` must never block attaching.
+async function warnIfRemoteDiskLow(
+  loc: Readonly<SSHLocation & { host: string }>,
+  config: Readonly<QuimbyConfig>,
+  reporter: Reporter,
+): Promise<void> {
+  if (warnedLowDiskHosts.has(loc.host)) return
+  const disk = await getRemoteDiskUsage(loc).catch(() => null)
+  const warning = remoteDiskWarning(disk, config, loc.alias ?? loc.host)
+  if (!warning) return
+  warnedLowDiskHosts.add(loc.host)
+  reporter.warn(warning)
+}
+
+const warnedLowDiskHosts = new Set<string>()
